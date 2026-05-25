@@ -134,13 +134,14 @@ function WStructureCard({ ts, session }: { ts: any; session: any }) {
   const W0 = session.effectiveW_initial ?? 280;
   const Wcurr = ts?.W_current ?? W0;
   const decay = ((W0 - Wcurr) / W0) * 100;
-  const state = (structuralState as Function)(decay) as string;
+  // structuralState(W0, W_current) → 'OK'|'WARNING'|'CRITICAL'|'COLLAPSED'
+  const state = (structuralState as Function)(W0, Wcurr) as string;
 
   const stateColor =
-    state === 'CRITICAL'   ? 'var(--state-critical)' :
-    state === 'DEGRADED'   ? 'var(--accent-warning)' :
-    state === 'OPTIMAL'    ? 'var(--state-optimal-hi)' :
-    'var(--state-optimal-lo)';
+    state === 'COLLAPSED' ? 'var(--state-collapsed)' :
+    state === 'CRITICAL'  ? 'var(--state-critical)' :
+    state === 'WARNING'   ? 'var(--accent-warning)' :
+    'var(--state-optimal-hi)';
 
   return (
     <Card>

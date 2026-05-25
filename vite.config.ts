@@ -43,10 +43,23 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
-    sourcemap: true
+    sourcemap: true,
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react':   ['react', 'react-dom'],
+          'vendor-recharts':['recharts'],
+          'vendor-dexie':   ['dexie'],
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',
-    globals: true
+    globals: true,
+    // engine/engine-v2.4.0.test.js usa runner custom (node); escludi da Vitest
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['src/__tests__/setup.ts'],
   }
 });
