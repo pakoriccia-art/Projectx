@@ -52,12 +52,12 @@ export interface PrefermentoState {
 
 export interface PrefermentoComponent {
   id: string;
-  type: 'poolish' | 'biga' | 'autolysis';
+  type: 'poolish' | 'biga' | 'autolysis' | 'riporto';
   flourGroup: FlourGroup;
   flourFraction: number;               // % della farina totale [0–100]
   tempC: number;
   durationH: number;
-  yeastPct?: number;                   // undefined per autolysis
+  yeastPct?: number;                   // undefined per autolysis e riporto
   hydration: number;
   state?: PrefermentoState;
 }

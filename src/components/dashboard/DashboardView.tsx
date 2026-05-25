@@ -194,6 +194,77 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
   );
 }
 
+// ─── Quality Profile Card ─────────────────────────────────────────────────────
+// Indici euristici: estensibilità, profilo aromatico, scioglievolezza
+// Basati su parametri di sessione (P/L, W, idratazione, prefermenti, protocollo)
+function QualityDot({ n, color }: { n: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 3 }}>
+      {[1,2,3,4,5].map(i => (
+        <div key={i} style={{
+          width: 7, height: 7, borderRadius: '50%',
+          background: i <= n ? color : 'rgba(255,255,255,0.10)',
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function QualityProfileCard({ session }: { session: any }) {
+  const pl  = session.effectivePl_initial ?? 0.65;
+  const hyd = session.hydration ?? 65;
+  const W   = session.effectiveW_initial ?? 280;
+  const prefs: any[] = session.prefermenti ?? [];
+  const proto = session.apprettoProtocol ?? 'ta';
+  const style = session.style ?? 'napoletana';
+
+  // ── Estensibilità: bassa P/L + alta idratazione → più estensibile ──────────
+  const plScore    = Math.max(0, Math.min(4, (1.2 - pl) / 0.15));
+  const hydBonus   = (hyd - 55) / 30;
+  const ext = Math.max(1, Math.min(5, Math.round(plScore + hydBonus)));
+
+  // ── Profilo aromatico: dipende da prefermento, protocollo, lievito ──────────
+  let aroma = 2.0;
+  prefs.forEach((p: any) => {
+    if (p.type === 'biga')     aroma += 1.5;
+    else if (p.type === 'poolish')  aroma += 1.0;
+    else if (p.type === 'riporto')  aroma += 1.2;
+  });
+  if (proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto') aroma += 0.5;
+  if (session.agentType === 'sourdough_wheat') aroma += 0.8;
+  const aromaScore = Math.max(1, Math.min(5, Math.round(aroma)));
+
+  // ── Scioglievolezza: idratazione alta + W basso + stile fine ────────────────
+  const styleBonus: Record<string, number> = {
+    napoletana: 1.2, contemporanea: 0.8, teglia: 0.4, pala: 0.4, nystyle: -0.2,
+  };
+  const sci = 1 + (hyd - 55) / 30 * 1.5 + (350 - W) / 300 * 1.5 + (styleBonus[style] ?? 0);
+  const sciScore = Math.max(1, Math.min(5, Math.round(sci)));
+
+  return (
+    <Card>
+      <span style={{ ...S.label, display: 'block', marginBottom: 10 }}>Profilo impasto</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[
+          { label: 'Estensibilità', score: ext,       color: 'var(--pref-autolisi, #74b9ff)' },
+          { label: 'Aromi',         score: aromaScore, color: 'var(--accent-warning)'         },
+          { label: 'Scioglievolezza', score: sciScore, color: 'var(--state-approaching)'      },
+        ].map(({ label, score, color }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              {label}
+            </span>
+            <QualityDot n={score} color={color} />
+          </div>
+        ))}
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: 8 }}>
+        Stima euristica · varia con protocollo, farine e prefermenti
+      </div>
+    </Card>
+  );
+}
+
 // ─── Phase Stepper ────────────────────────────────────────────────────────────
 // Mostra solo le fasi valide per il protocollo selezionato (+ proofing + baking sempre presenti)
 function PhaseStepper({ currentPhase, onPhaseChange, protocol }: {
@@ -512,7 +583,7 @@ export function DashboardView() {
         )}
         {/* Metriche secondarie in griglia compatta 3-col */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
-          <Metric label="ADU" value={(ts?.cumulativeAdu ?? 0).toFixed(3)} color="var(--text-secondary)" />
+          <Metric label="ADU" value={((ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10).toFixed(3)} color="var(--text-secondary)" />
           <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} color="var(--accent-info)" />
           <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} color="var(--text-secondary)" />
         </div>
@@ -523,6 +594,9 @@ export function DashboardView() {
 
       {/* ── Sweet Spot ── */}
       <SweetSpotCard session={session} ts={ts} />
+
+      {/* ── Quality Profile ── */}
+      <QualityProfileCard session={session} />
 
       {/* ── W Structure ── */}
       <WStructureCard ts={ts} session={session} />

@@ -26,9 +26,9 @@ type Protocol = 'ta' | 'tc' | 'tc_puntata' | 'tc_appreto';
 type Viability = 'ok' | 'risky' | 'no';
 
 interface PrefConfig {
-  type: 'poolish' | 'biga';
+  type: 'poolish' | 'biga' | 'riporto';
   flourFraction: number;   // % su farina totale
-  yeastPct:      number;   // % lievito nel prefermento (su farina prefermento)
+  yeastPct:      number;   // % lievito nel prefermento (su farina prefermento); 0 per riporto
   tempC:         number;
   durationH:     number;
 }
@@ -44,7 +44,8 @@ interface PlanResult {
   viabilityNote?: string;
   label:     string;
   desc:      string;
-  stars:     number;    // 1-5
+  stars:     number;       // 1-5
+  matAtTarget?: number;   // maturazione% stimata all'orario target (se impostato)
 }
 
 // ─── Costanti modello crescita lievito ───────────────────────────────────────
@@ -132,9 +133,17 @@ function computeAllProtocols(params: {
     const puntataH = warmH * 0.65;
     const apprettoH = warmH * 0.35;
     const { viability, note } = assessW(W, warmH, 0);
+    // matAtTarget: quanto sarà la maturazione all'orario target scelto?
+    let matAtTargetTA: number | undefined;
+    if (params.targetTotalH !== undefined && isFinite(warmH)) {
+      const aduAtT = initialAdu + rAmb * Math.max(0, params.targetTotalH - staglioH);
+      const raw = (gompertz as Function)(aduAtT, muMax, aParams.lambda, 100) as number;
+      matAtTargetTA = isNaN(raw) ? undefined : Math.min(100, Math.max(0, raw));
+    }
     results.push({
       protocol: 'ta', totalH, puntataH, staglioH, apprettoH,
       viability, viabilityNote: note,
+      matAtTarget: matAtTargetTA,
       label: 'Tutto TA',
       desc:  `Puntata ${puntataH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto ${apprettoH.toFixed(1)}h`,
       stars: W >= 280 ? 2 : 3,
@@ -146,9 +155,17 @@ function computeAllProtocols(params: {
     const coldH   = rFri > 0 ? aduNeeded / rFri : Infinity;
     const totalH  = coldH + staglioH;
     const { viability, note } = assessW(W, 0, coldH);
+    // matAtTarget: quanto sarà la maturazione all'orario target scelto?
+    let matAtTargetTC: number | undefined;
+    if (params.targetTotalH !== undefined && isFinite(coldH)) {
+      const aduAtT = initialAdu + rFri * Math.max(0, params.targetTotalH - staglioH);
+      const raw = (gompertz as Function)(aduAtT, muMax, aParams.lambda, 100) as number;
+      matAtTargetTC = isNaN(raw) ? undefined : Math.min(100, Math.max(0, raw));
+    }
     results.push({
       protocol: 'tc', totalH, tcHours: coldH, staglioH,
       viability, viabilityNote: note,
+      matAtTarget: matAtTargetTC,
       label: 'TC totale',
       desc:  `Freddo ${coldH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h`,
       stars: coldH > 8 ? (viability === 'ok' ? 4 : 2) : 2,
@@ -341,6 +358,21 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
         {result.desc}
       </div>
 
+      {result.matAtTarget !== undefined && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 6 }}>
+          <span style={{ color: 'var(--text-muted)' }}>Al tuo target: </span>
+          <strong style={{
+            color: result.matAtTarget > 95 ? 'var(--state-critical)'
+                 : result.matAtTarget > 75 ? 'var(--state-optimal-hi)'
+                 : 'var(--state-cold)',
+          }}>
+            {result.matAtTarget.toFixed(0)}%
+          </strong>
+          {result.matAtTarget > 95 && <span style={{ color: 'var(--state-critical)', marginLeft: 6 }}>· sovramaturato</span>}
+          {result.matAtTarget < 60 && <span style={{ color: 'var(--state-cold)', marginLeft: 6 }}>· sottomaturato</span>}
+        </div>
+      )}
+
       {result.viabilityNote && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: vs.color, marginBottom: 8, opacity: 0.85 }}>
           {result.viabilityNote}
@@ -393,20 +425,34 @@ export function FermentationPlannerView() {
   const [fridgeT,     setFridgeT]     = useState(4);
   const [staglioH,    setStaglioH]    = useState(0.5);
 
+  // Parametri impasto (per il wizard)
+  const [style,       setStyle]       = useState<'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle'>('napoletana');
+  const [totalFlourG, setTotalFlourG] = useState(500);
+  const [hydration,   setHydration]   = useState(65);
+  const [numPanetti,  setNumPanetti]  = useState(4);
+
   // Target cottura
   const [targetDate,  setTargetDate]  = useState('');
   const [targetTime,  setTargetTime]  = useState('12:00');
 
+  // Ore fino alla cottura (per passare targetTotalH a computeAllProtocols)
+  const hoursUntilBake = useMemo(() => {
+    if (!targetDate) return undefined;
+    const bakeMs = new Date(`${targetDate}T${targetTime}`).getTime();
+    const diffMs = bakeMs - Date.now();
+    return diffMs > 0 ? diffMs / 3_600_000 : undefined;
+  }, [targetDate, targetTime]);
+
   // Prefermento opzionale
   const [hasPref,     setHasPref]     = useState(false);
-  const [prefType,    setPrefType]    = useState<'poolish' | 'biga'>('biga');
+  const [prefType,    setPrefType]    = useState<'poolish' | 'biga' | 'riporto'>('biga');
   const [prefFrac,    setPrefFrac]    = useState(40);
   const [prefYeast,   setPrefYeast]   = useState(0.10);
   const [prefTemp,    setPrefTemp]    = useState(16);
   const [prefDur,     setPrefDur]     = useState(16);
 
   const pref: PrefConfig | null = hasPref
-    ? { type: prefType, flourFraction: prefFrac, yeastPct: prefYeast, tempC: prefTemp, durationH: prefDur }
+    ? { type: prefType, flourFraction: prefFrac, yeastPct: prefType === 'riporto' ? 0 : prefYeast, tempC: prefTemp, durationH: prefDur }
     : null;
 
   // Parametri agente Gompertz
@@ -421,12 +467,12 @@ export function FermentationPlannerView() {
   );
   const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseRef != null ? effectiveDose / doseRef : 1.0));
 
-  // Calcolo ottimale per tutti i protocolli
+  // Calcolo ottimale per tutti i protocolli (targetTotalH dalle ore fino a cottura)
   const results = useMemo(() => {
     try {
-      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH });
+      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake });
     } catch { return []; }
-  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH]);
+  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake]);
 
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
@@ -447,22 +493,23 @@ export function FermentationPlannerView() {
     const protocol = hasPref ? ('single_pref' as const) : ('direct' as const);
 
     // Prefermento per wizard (se presente)
+    const prefHydration = prefType === 'biga' ? 48 : prefType === 'riporto' ? 65 : 100;
     const prefermenti = hasPref ? [{
       id: `planner_${Date.now()}`,
       type: prefType,
       flourGroup: mainFlourGroup,
       flourFraction: prefFrac,
-      hydration: prefType === 'biga' ? 48 : 100,
+      hydration: prefHydration,
       tempC: prefTemp,
       durationH: prefDur,
-      yeastPct: prefYeast,
+      yeastPct: prefType === 'riporto' ? undefined : prefYeast,
     }] : [];
 
     // WIZARD_RESET imposta wizardStep:1 + defaults (idratazione, sale, contenitore, etc.)
     dispatch({ type: 'WIZARD_RESET' });
     // WIZARD_UPDATE sovrascrive con i valori del planner
     dispatch({ type: 'WIZARD_UPDATE', patch: {
-      style:            'napoletana',
+      style,
       protocol,
       mainFlourGroup,
       prefermenti,
@@ -475,6 +522,9 @@ export function FermentationPlannerView() {
       tcHours:          r.tcHours,
       fridgeTempC:      fridgeT,
       targetBakeAt,
+      totalFlourGrams:  totalFlourG,
+      hydration,
+      numPanetti,
     }});
     // Salta direttamente al riepilogo (step 8) — bypassando i 7 step di configurazione
     dispatch({ type: 'WIZARD_STEP', step: 8 });
@@ -511,6 +561,40 @@ export function FermentationPlannerView() {
           </div>
         </div>
       </div>
+
+      {/* ── Impasto ── */}
+      <Card>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <SnapButtons
+            label="Stile pizza"
+            options={[
+              { value: 'napoletana',    label: 'Napoletana', desc: 'Alta idratazione, cornicione' },
+              { value: 'contemporanea', label: 'Contemp.',   desc: 'Leggera, alveolatura aperta' },
+              { value: 'teglia',        label: 'Teglia',     desc: 'Alta idratazione, soffice' },
+              { value: 'pala',          label: 'Pala',       desc: 'Idratazione alta, croccante' },
+              { value: 'nystyle',       label: 'NY Style',   desc: 'Sottile, grande' },
+            ]}
+            value={style}
+            onChange={v => setStyle(v as typeof style)}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <PlannerSlider label="Farina totale" value={totalFlourG} onChange={setTotalFlourG}
+              min={100} max={3000} step={50} unit="g" color="var(--text-primary)" />
+            <PlannerSlider label="Panetti" value={numPanetti} onChange={setNumPanetti}
+              min={1} max={20} step={1} color="var(--text-muted)" />
+          </div>
+          <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
+            min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
+          {/* Preview peso panetto */}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Peso panetto stimato:{' '}
+            <strong style={{ color: 'var(--text-secondary)' }}>
+              {Math.round(totalFlourG * (1 + hydration / 100 + 0.028) / numPanetti)}g
+            </strong>
+            {' '}(farina + acqua + 2.8% sale)
+          </div>
+        </div>
+      </Card>
 
       {/* ── Farina + Agente ── */}
       <Card>
@@ -579,8 +663,18 @@ export function FermentationPlannerView() {
           />
         </div>
         {targetDate && (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-brand)', marginTop: 8 }}>
-            Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
+            <span style={{ color: 'var(--accent-brand)' }}>
+              Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+            {hoursUntilBake !== undefined && (
+              <span style={{ color: 'var(--text-muted)', marginLeft: 10 }}>
+                → tra {hoursUntilBake.toFixed(1)}h
+              </span>
+            )}
+            {hoursUntilBake === undefined && (
+              <span style={{ color: 'var(--state-critical)', marginLeft: 10 }}>· data nel passato</span>
+            )}
           </div>
         )}
       </Card>
@@ -590,35 +684,53 @@ export function FermentationPlannerView() {
         <SnapButtons
           label="Prefermento"
           options={[
-            { value: 'none',    label: 'Nessuno', desc: 'Impasto diretto' },
-            { value: 'poolish', label: 'Poolish',  desc: 'Idr. 100%' },
-            { value: 'biga',    label: 'Biga',     desc: 'Idr. 44–50%' },
+            { value: 'none',    label: 'Nessuno',  desc: 'Impasto diretto' },
+            { value: 'poolish', label: 'Poolish',   desc: 'Idr. 100%' },
+            { value: 'biga',    label: 'Biga',      desc: 'Idr. 44–50%' },
+            { value: 'riporto', label: 'Riporto',   desc: 'Impasto vecchio' },
           ]}
           value={hasPref ? prefType : 'none'}
           onChange={v => {
             if (v === 'none') { setHasPref(false); }
-            else { setHasPref(true); setPrefType(v as 'poolish' | 'biga'); }
+            else {
+              setHasPref(true);
+              setPrefType(v as 'poolish' | 'biga' | 'riporto');
+              // Default riporto: 20% farina, 24h, 20°C
+              if (v === 'riporto') { setPrefFrac(20); setPrefDur(24); setPrefTemp(20); setPrefYeast(0); }
+            }
           }}
         />
 
         {hasPref && (
           <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <PlannerSlider label="% farina nel prefermento" value={prefFrac} onChange={setPrefFrac}
-              min={10} max={70} step={5} unit="%" color="var(--pref-biga)" />
-            <PlannerSlider label="Lievito nel prefermento" value={prefYeast} onChange={setPrefYeast}
-              min={0.01} max={0.5} step={0.01} unit="%" color="var(--accent-brand)" />
+            <PlannerSlider
+              label={prefType === 'riporto' ? '% impasto di riporto' : '% farina nel prefermento'}
+              value={prefFrac} onChange={setPrefFrac}
+              min={prefType === 'riporto' ? 5 : 10} max={prefType === 'riporto' ? 40 : 70} step={5}
+              unit="%" color="var(--pref-biga)" />
+            {prefType !== 'riporto' && (
+              <PlannerSlider label="Lievito nel prefermento" value={prefYeast} onChange={setPrefYeast}
+                min={0.01} max={prefType === 'biga' ? 1.0 : 0.5} step={0.01} unit="%" color="var(--accent-brand)" />
+            )}
+            {prefType === 'riporto' && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', padding: '8px 0' }}>
+                ℹ Il riporto porta lieviti vivi dal precedente impasto — nessun lievito aggiuntivo nel prefermento
+              </div>
+            )}
             <PlannerSlider label="Temperatura prefermento" value={prefTemp} onChange={setPrefTemp}
               min={4} max={26} step={0.5} unit="°C" />
             <PlannerSlider label="Durata prefermento" value={prefDur} onChange={setPrefDur}
               min={1} max={72} step={1} unit="h" color="var(--pref-biga)" />
 
             {/* Info contributo yeast */}
-            <Card elevated style={{ padding: '10px 14px', background: 'rgba(253,203,110,0.06)' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-warning)' }}>
-                Dose efficace totale: {effectiveDose.toFixed(3)}%
-                {effectiveDose > (doseRef ?? 0.3) * 2 ? ' · lievito molto attivo 🚀' : ''}
-              </span>
-            </Card>
+            {prefType !== 'riporto' && (
+              <Card elevated style={{ padding: '10px 14px', background: 'rgba(253,203,110,0.06)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-warning)' }}>
+                  Dose efficace totale: {effectiveDose.toFixed(3)}%
+                  {effectiveDose > (doseRef ?? 0.3) * 2 ? ' · lievito molto attivo 🚀' : ''}
+                </span>
+              </Card>
+            )}
           </div>
         )}
       </Card>

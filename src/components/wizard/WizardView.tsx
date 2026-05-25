@@ -18,13 +18,14 @@ const TOTAL_STEPS = 8;
 
 // ─── Prefermento defaults ─────────────────────────────────────────────────────
 function createDefaultPref(
-  type: 'poolish' | 'biga' | 'autolysis',
+  type: 'poolish' | 'biga' | 'autolysis' | 'riporto',
   flourGroup: FlourGroup,
 ): PrefermentoComponent {
   const cfg = {
     poolish:   { flourFraction: 30, hydration: 100, tempC: 18, durationH: 12, yeastPct: 0.05 },
     biga:      { flourFraction: 40, hydration:  48, tempC: 16, durationH: 16, yeastPct: 0.10 },
     autolysis: { flourFraction: 30, hydration:  65, tempC: 20, durationH:  1, yeastPct: undefined },
+    riporto:   { flourFraction: 20, hydration:  65, tempC: 20, durationH: 24, yeastPct: undefined },
   }[type];
   return {
     id: `pref_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -72,6 +73,34 @@ function computeEffectiveDose(
   return { effectiveDosePct: mainDosePct + yeastBoost, prefInitialAdu };
 }
 
+// ─── Stima pH prefermento da tipo/durata/temperatura ────────────────────────
+// Il motore usa p.state?.pH ?? 6.0 — senza stato stimato il pH è sempre 6.0.
+// Questa funzione approssima il pH finale del prefermento basandosi su
+// dati bibliografici (De Vuyst 2005, Chavan 2017):
+//   biga 16h/16°C → pH ~4.8-5.2; poolish 12h/18°C → pH ~3.9-4.4
+function estimatePrefPH(type: string, durationH: number, tempC: number): number {
+  if (type === 'autolysis') return 6.0;
+  if (type === 'riporto')   return 4.9;  // impasto riporto già acidificato
+  // Tasso di caduta pH: poolish (idr.100%) >  biga (idr.48%) per maggiore attività batterica
+  const kPH = type === 'poolish' ? 0.065 : 0.040;  // unità pH / ora
+  // Fattore temperatura: normalizzato a 16°C (temperatura biga di riferimento)
+  const tempFactor = Math.max(0.4, Math.min(2.5, tempC / 16));
+  const floor = type === 'poolish' ? 3.6 : 4.4;
+  return Math.max(floor, 6.0 - kPH * durationH * tempFactor);
+}
+
+// ─── Stima W decaduto nel prefermento ────────────────────────────────────────
+function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: number): number {
+  if (type === 'autolysis') return W0 * 0.97;  // lieve rilassamento
+  if (type === 'riporto')   return W0 * 0.82;  // già ben degradato
+  // Approssimazione Hill semplificata (tCrit ≈ W0 * 0.15 ore a 16°C)
+  const tCritBase = W0 * 0.15;
+  const tFactor = Math.max(0.3, Math.min(3.0, tempC / 16));
+  const tCrit = tCritBase / tFactor;
+  const decay = 1 / (1 + Math.pow(durationH / tCrit, 3));
+  return Math.max(W0 * 0.6, W0 * decay);
+}
+
 function buildSession(draft: WizardDraft): Session {
   const agent  = AGENT_GOMPERTZ as any;
   const aType  = draft.agentType ?? 'fresh_yeast';
@@ -90,11 +119,22 @@ function buildSession(draft: WizardDraft): Session {
   const mainFG = draft.mainFlourGroup
     ?? (normalizeFlourGroup as Function)([defaultFlour]) as FlourGroup;
 
-  // Prefermenti: aggiorna flourGroup al mainFG corrente se non già fatto
-  const prefermenti = (draft.prefermenti ?? []).map(p => ({
-    ...p,
-    flourGroup: p.flourGroup ?? mainFG,
-  }));
+  // Prefermenti: aggiorna flourGroup + stima stato iniziale (pH, W_decayed)
+  // FIX: il motore usa p.state?.pH ?? 6.0 — senza stato esplicito il pH è sempre 6.0
+  // indipendentemente dal tipo/durata del prefermento.
+  const prefermenti = (draft.prefermenti ?? []).map(p => {
+    const fg = p.flourGroup ?? mainFG;
+    const W0 = fg.effectiveW ?? 280;
+    const estimatedState = p.state ?? {
+      pH:            estimatePrefPH(p.type, p.durationH ?? 12, p.tempC ?? 18),
+      W_decayed:     estimatePrefWDecay(W0, p.type, p.durationH ?? 12, p.tempC ?? 18),
+      pl_modified:   fg.effectivePl ?? 0.55,
+      amylase_index: fg.effectiveAmylaseIndex ?? 0.5,
+      maturationPct: 0,
+      ready:         false,
+    };
+    return { ...p, flourGroup: fg, state: estimatedState };
+  });
 
   // ── Bug fix: biga/poolish contribuiscono lievito già cresciuto ────────────
   // Senza questa correzione, 0.05% nell'impasto finale con biga al 40%
@@ -284,11 +324,12 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
     poolish:   'var(--pref-poolish)',
     biga:      'var(--pref-biga)',
     autolysis: 'var(--accent-info)',
+    riporto:   'var(--state-approaching)',
   };
   const color = TYPE_COLORS[pref.type] ?? 'var(--accent-brand)';
 
-  const hydMin = pref.type === 'biga' ? 40 : 80;
-  const hydMax = pref.type === 'biga' ? 60 : 110;
+  const hydMin = pref.type === 'biga' ? 40 : pref.type === 'riporto' ? 55 : 80;
+  const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
 
   return (
     <Card elevated style={{ borderLeft: `3px solid ${color}`, paddingLeft: 14 }}>
@@ -306,13 +347,15 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
           { value: 'poolish',   label: 'Poolish',  desc: 'Idr. ~100%' },
           { value: 'biga',      label: 'Biga',     desc: 'Idr. ~48%'  },
           { value: 'autolysis', label: 'Autolisi', desc: 'Senza lievito' },
+          { value: 'riporto',   label: 'Riporto',  desc: 'Impasto vecchio' },
         ]}
         value={pref.type}
         onChange={v => {
-          const t = v as 'poolish' | 'biga' | 'autolysis';
+          const t = v as 'poolish' | 'biga' | 'autolysis' | 'riporto';
           const newDefaults: Partial<PrefermentoComponent> =
             t === 'poolish'   ? { hydration: 100, yeastPct: 0.05, durationH: 12 }
             : t === 'biga'    ? { hydration:  48, yeastPct: 0.10, durationH: 16 }
+            : t === 'riporto' ? { hydration:  65, yeastPct: undefined, durationH: 24 }
             : { yeastPct: undefined, durationH: 1 };
           onUpdate({ ...pref, type: t, ...newDefaults });
         }}
@@ -346,10 +389,15 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
             value={pref.durationH} onChange={v => onUpdate({ ...pref, durationH: v })}
             min={0.5} max={72} step={0.5} />
         </Row2>
-        {pref.type !== 'autolysis' && (
+        {pref.type !== 'autolysis' && pref.type !== 'riporto' && (
           <NumInput label="Lievito" unit="%"
             value={pref.yeastPct ?? 0.05} onChange={v => onUpdate({ ...pref, yeastPct: v })}
-            min={0.005} max={0.5} step={0.005} />
+            min={0.005} max={1.0} step={0.005} />
+        )}
+        {pref.type === 'riporto' && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', padding: '6px 0' }}>
+            Lievito già attivo dal batch precedente — nessuna dose aggiuntiva richiesta
+          </div>
         )}
       </FormSection>
 
@@ -430,7 +478,7 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
   const addPref = () => {
     if (!draft.mainFlourGroup || prefermenti.length >= maxPrefs) return;
-    const newType: 'poolish' | 'biga' | 'autolysis' =
+    const newType: 'poolish' | 'biga' | 'autolysis' | 'riporto' =
       prefermenti.length === 0 ? 'poolish' : 'biga';
     update({ prefermenti: [...prefermenti, createDefaultPref(newType, draft.mainFlourGroup)] });
   };

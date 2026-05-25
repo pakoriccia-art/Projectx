@@ -67,6 +67,11 @@
         --font-body: -apple-system, 'Roboto', sans-serif;
       }
 
+      /* Elimina delay 300ms tap su mobile (WebView Android/iOS) */
+      a, button, input[type="range"], input[type="checkbox"], label, [role="button"] {
+        touch-action: manipulation;
+      }
+
       html, body, #root {
         height: 100%;
         background-color: var(--bg-primary);

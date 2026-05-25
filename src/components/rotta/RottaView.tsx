@@ -3,10 +3,10 @@
  * Modifica in corsa: T_amb, tcHours, target cottura, soglia alert.
  * Mostra preview impatto kRatio sul ritmo di maturazione.
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, S, SliderInput } from '../ui';
-import { kEffective } from '../../engine';
+import { kEffective, sweetSpot } from '../../engine';
 
 const AGENT_SHORT: Record<string, string> = {
   fresh_yeast:       'LBF',
@@ -47,6 +47,17 @@ function RottaContent() {
   const kRatioCurr = kRef > 0 ? kCurrent / kRef : 0;
   const kRatioNew  = kRef > 0 ? kNew / kRef : 0;
   const speedDelta = kRatioCurr > 0 ? ((kRatioNew / kRatioCurr) - 1) * 100 : 0;
+
+  // Sweet spot preview: ore al picco con T corrente vs T proposta
+  const currentAdu = (ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10;
+  const spotCurr = useMemo(() => {
+    try { return (sweetSpot as Function)(session, currentAdu, ts?.tempAmbient ?? 22) as any; }
+    catch { return null; }
+  }, [session, currentAdu, ts?.tempAmbient]);
+  const spotNew = useMemo(() => {
+    try { return (sweetSpot as Function)(session, currentAdu, localT) as any; }
+    catch { return null; }
+  }, [session, currentAdu, localT]);
 
   const apply = () => {
     dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
@@ -107,6 +118,71 @@ function RottaContent() {
           </span>
         </div>
       </Card>
+
+      {/* ── Sweet spot preview ── */}
+      {(spotCurr || spotNew) && (
+        <Card style={{ padding: '12px 16px', background: 'rgba(0,184,148,0.05)' }}>
+          <div style={{ ...S.label, marginBottom: 10 }}>Effetto sul picco di maturazione</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)', paddingRight: 10 }}>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
+                T attuale — {(ts?.tempAmbient ?? localT).toFixed(1)}°C
+              </div>
+              {spotCurr ? (
+                <>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                    {typeof spotCurr.hoursUntilPeak === 'number' && (spotCurr.hoursUntilPeak as number) > 0
+                      ? `+${(spotCurr.hoursUntilPeak as number).toFixed(1)}h`
+                      : 'In finestra'}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                    {spotCurr.status ?? ''}
+                  </div>
+                </>
+              ) : <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>}
+            </div>
+            <div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
+                T proposta — {localT.toFixed(1)}°C
+              </div>
+              {spotNew ? (
+                <>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-brand)' }}>
+                    {typeof spotNew.hoursUntilPeak === 'number' && (spotNew.hoursUntilPeak as number) > 0
+                      ? `+${(spotNew.hoursUntilPeak as number).toFixed(1)}h`
+                      : 'In finestra'}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                    {spotNew.status ?? ''}
+                  </div>
+                </>
+              ) : <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>}
+            </div>
+          </div>
+          {spotCurr && spotNew &&
+            typeof spotCurr.hoursUntilPeak === 'number' &&
+            typeof spotNew.hoursUntilPeak === 'number' && (
+            <div style={{
+              marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)',
+              fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
+              display: 'flex', justifyContent: 'space-between',
+            }}>
+              <span>Δ picco con nuova T</span>
+              <span style={{
+                fontWeight: 700,
+                color: (spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) > 0
+                  ? 'var(--state-cold)'
+                  : (spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) < 0
+                  ? 'var(--state-optimal-lo)'
+                  : 'var(--text-muted)',
+              }}>
+                {(spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) > 0 ? '+' : ''}
+                {((spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number)).toFixed(1)}h
+              </span>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* ── Slittamento cottura ── */}
       <Card>
