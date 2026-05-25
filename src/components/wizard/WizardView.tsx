@@ -2,7 +2,7 @@
  * PizzaMatrix — Wizard v4 (7 step)
  * §7.2 KB: stile→protocollo→farine→idratazione→lievito→contenitore→tempistiche
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent } from '../../db/db';
 import {
@@ -196,9 +196,19 @@ function FlourRow({
 }
 
 function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+  const defaultFlour: FlourComponent = { name: '', brand: '', W: 280, pl: 0.55, protein: 12.5, percentage: 100 };
   const [flours, setFlours] = useState<FlourComponent[]>(
-    draft.mainFlourGroup?.flours ?? [{ name: '', brand: '', W: 280, pl: 0.55, protein: 12.5, percentage: 100 }]
+    draft.mainFlourGroup?.flours ?? [defaultFlour]
   );
+
+  // Auto-inizializza mainFlourGroup nel draft al mount se non ancora impostato
+  useEffect(() => {
+    if (!draft.mainFlourGroup) {
+      const fg = (normalizeFlourGroup as Function)([defaultFlour]) as FlourGroup;
+      update({ mainFlourGroup: fg });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateFlours = (newFlours: FlourComponent[]) => {
     // Auto-bilancio percentuali se 2+ farine
@@ -369,7 +379,12 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         label="Agente lievitante"
         options={agentOptions as any}
         value={draft.agentType}
-        onChange={v => update({ agentType: v as any, agentDosePct: undefined })}
+        onChange={v => {
+          const defaults: Record<string, number> = {
+            fresh_yeast: 0.3, instant_dry_yeast: 0.1, sourdough_wheat: 20
+          };
+          update({ agentType: v as any, agentDosePct: defaults[v] ?? 0.3 });
+        }}
       />
       {draft.agentType && (
         <SliderInput

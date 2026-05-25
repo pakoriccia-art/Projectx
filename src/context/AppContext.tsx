@@ -96,7 +96,23 @@ function reducer(state: AppState, action: Action): AppState {
     case 'WIZARD_UPDATE':
       return { ...state, wizardDraft: { ...state.wizardDraft, ...action.patch } };
     case 'WIZARD_RESET':
-      return { ...state, wizardDraft: {}, wizardStep: 1 };
+      // Inietta i valori default per i campi che hanno ?? nei componenti
+      // così canProceed() funziona senza che l'utente tocchi ogni campo
+      return { ...state, wizardDraft: {
+        totalFlourGrams:  1000,
+        numPanetti:       6,
+        hydration:        65,
+        salt:             2.0,
+        fat:              0,
+        altitudeM:        0,
+        waterHardnessPpm: 150,
+        puntataH:         8,
+        staglioH:         0.5,
+        apprettoH:        4,
+        maltDP:           200,
+        containerPreset:  'closed_box',
+        apprettoProtocol: 'ta',
+      }, wizardStep: 1 };
     case 'SESSION_START':
       return { ...state, activeSession: action.session, view: 'dashboard', tickState: null };
     case 'SESSION_UPDATE':
