@@ -5,8 +5,7 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from 'recharts';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine } from '../../hooks/useTickEngine';
@@ -342,6 +341,9 @@ function AlertFeed({ alerts, onClear }: { alerts: any[]; onClear: () => void }) 
 // ─── Gompertz Chart ───────────────────────────────────────────────────────────
 // Curva multi-segmento: ogni fase al proprio T (TA o frigo).
 // ReferenceLine verticali sulle transizioni di fase.
+// Scrollabile orizzontalmente: ~13px/h, larghezza proporzionale a maxH.
+const PX_PER_HOUR = 13;
+
 function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const proto = session.apprettoProtocol ?? 'ta';
   const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
@@ -354,6 +356,17 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
 
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;
+
+  // Calcola maxH per impostare la larghezza del grafico
+  const totalH = proto === 'ta'
+    ? (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
+    : proto === 'tc'
+    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5)
+    : proto === 'tc_puntata'
+    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
+    : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12);
+  const maxH     = Math.max(totalH * 1.5, 24);
+  const chartW   = Math.max(300, Math.round(maxH * PX_PER_HOUR));
 
   // Label protocollo leggibile
   const protoLabel: Record<string, string> = {
@@ -368,8 +381,9 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
           {tAmb.toFixed(1)}°C TA · {fridgeT}°C TC · {protoLabel[proto] ?? proto}
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={160}>
-        <LineChart data={points} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
+      {/* Scroll orizzontale quando il grafico è più largo dello schermo */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '0 -4px', paddingBottom: 4 }}>
+        <LineChart width={chartW} height={160} data={points} margin={{ top: 4, right: 16, bottom: 4, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="h" tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
             label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }} />
@@ -393,7 +407,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
           <Line type="monotone" dataKey="pct" stroke="var(--accent-brand)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
         </LineChart>
-      </ResponsiveContainer>
+      </div>
     </Card>
   );
 }

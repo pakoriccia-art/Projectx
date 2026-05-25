@@ -6,7 +6,7 @@ import { createContext, useContext, useReducer, type ReactNode } from 'react';
 import type { Session, FlourGroup, PrefermentoComponent } from '../db/db';
 
 // ─── Views ────────────────────────────────────────────────────────────────────
-export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools';
+export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner';
 
 // ─── Wizard draft (built incrementally across steps) ─────────────────────────
 export interface WizardDraft {

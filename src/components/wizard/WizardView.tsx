@@ -11,7 +11,7 @@ import {
 import {
   normalizeFlourGroup, computeCombinedInitialState,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
-  AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS,
+  AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
 } from '../../engine';
 
 const TOTAL_STEPS = 7;
@@ -35,19 +35,52 @@ function createDefaultPref(
 }
 
 // ─── Helper: crea Session da WizardDraft ─────────────────────────────────────
+// Costanti modello crescita lievito nei prefermenti
+// Doubling time a 20°C ≈ 2h; Arrhenius Ea ≈ 75 kJ/mol (lievito Saccharomyces)
+const YEAST_DOUBLING_20C = 2.0;   // ore
+const YEAST_EA_KJ        = 75;    // kJ/mol
+const R_GAS              = 8.314e-3; // kJ/(mol·K)
+const T_20C_K            = 293.15;   // K
+
+/**
+ * Stima la dose lievito efficace dell'impasto finale tenendo conto del lievito
+ * già cresciuto all'interno dei prefermenti biga/poolish.
+ * Restituisce anche l'ADU di "vantaggio iniziale" accumulato dai prefermenti.
+ */
+function computeEffectiveDose(
+  prefermenti: { type: string; yeastPct?: number; flourFraction: number; tempC?: number; durationH?: number }[],
+  mainDosePct: number,
+  aParams: { Ea: number },
+  aType: string,
+): { effectiveDosePct: number; prefInitialAdu: number } {
+  let yeastBoost    = 0;
+  let prefInitialAdu = 0;
+  const kRef25 = (kEffective as Function)(25, aParams.Ea, aType) as number;
+
+  for (const pref of prefermenti) {
+    if (pref.type === 'autolysis' || !pref.yeastPct) continue;
+    const tempK  = (pref.tempC ?? 16) + 273.15;
+    const doubH  = YEAST_DOUBLING_20C * Math.exp(YEAST_EA_KJ / R_GAS * (1 / tempK - 1 / T_20C_K));
+    const growth = Math.min(40, Math.pow(2, (pref.durationH ?? 12) / doubH));
+    // Contributo lievito attivo (% su farina totale)
+    yeastBoost += (pref.yeastPct ?? 0) * (pref.flourFraction / 100) * growth;
+    // ADU accumulato nel prefermento (proporzionale a frazione farina)
+    const kT    = (kEffective as Function)(pref.tempC ?? 16, aParams.Ea, aType) as number;
+    const kRatio = kRef25 > 1e-12 ? kT / kRef25 : 0;
+    prefInitialAdu += kRatio * (pref.durationH ?? 12) * (pref.flourFraction / 100);
+  }
+  return { effectiveDosePct: mainDosePct + yeastBoost, prefInitialAdu };
+}
+
 function buildSession(draft: WizardDraft): Session {
   const agent  = AGENT_GOMPERTZ as any;
   const aType  = draft.agentType ?? 'fresh_yeast';
   const aParams = agent[aType];
 
-  // fix: sourdough non ha dose di riferimento lineare → doseFactor = 1 fisso
+  // Dose di riferimento per scaling muMax (sourdough: nessun scaling lineare)
   const doseRef = aType === 'fresh_yeast' ? 0.3
     : aType === 'instant_dry_yeast' ? 0.1
-    : null;  // sourdough: nessun scaling lineare
-  const doseFactor = doseRef != null
-    ? (draft.agentDosePct ?? doseRef) / doseRef
-    : 1.0;
-  const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseFactor));
+    : null;
 
   const maltContrib = draft.maltDosePct
     ? (computeMaltAmylaseContrib as Function)(draft.maltDosePct, draft.maltDP ?? 200)
@@ -62,6 +95,16 @@ function buildSession(draft: WizardDraft): Session {
     ...p,
     flourGroup: p.flourGroup ?? mainFG,
   }));
+
+  // ── Bug fix: biga/poolish contribuiscono lievito già cresciuto ────────────
+  // Senza questa correzione, 0.05% nell'impasto finale con biga al 40%
+  // porta a previsioni >70h (il lievito del prefermento viene ignorato).
+  const mainDose = draft.agentDosePct ?? (doseRef ?? 0.1);
+  const { effectiveDosePct, prefInitialAdu } = computeEffectiveDose(
+    prefermenti, mainDose, aParams, aType,
+  );
+  const doseFactor = doseRef != null ? effectiveDosePct / doseRef : 1.0;
+  const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseFactor));
 
   const combined = (computeCombinedInitialState as Function)({
     prefermenti,
@@ -121,7 +164,9 @@ function buildSession(draft: WizardDraft): Session {
       dpLintner:   draft.maltDP ?? 200,
       addedTo:     'final_dough',
     } : undefined,
-    initialMaturationOffset: combined.initialMaturationOffset,
+    // Offset iniziale: contributo sourdough (engine) + ADU head-start da biga/poolish
+    // prefInitialAdu è in unità ADU; /10 per normalizzare alla scala di initialMaturationOffset
+    initialMaturationOffset: (combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10,
     initialPH:               combined.initialPH,
     combinedInitialState:    combined,
     targetBakeAt:            bakeAt,
