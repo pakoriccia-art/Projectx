@@ -385,7 +385,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
       </div>
       {/* Scroll orizzontale quando il grafico è più largo dello schermo */}
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '0 -4px', paddingBottom: 4 }}>
-        <LineChart width={chartW} height={160} data={points} margin={{ top: 4, right: 16, bottom: 4, left: -20 }}>
+        <LineChart width={chartW} height={180} data={points} margin={{ top: 4, right: 16, bottom: 4, left: -8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="h" tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
             label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }} />
@@ -468,7 +468,7 @@ export function DashboardView() {
   const remainingH = Math.max(0, (targetBake.getTime() - now.getTime()) / 3_600_000);
 
   return (
-    <div style={{ minHeight: '100dvh', padding: '20px var(--padding-h)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ minHeight: '100dvh', padding: 'var(--padding-v) var(--padding-h)', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -490,29 +490,30 @@ export function DashboardView() {
 
       {/* ── Hero Maturation ── */}
       <Card elevated>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 10 }}>
-          <Metric
-            label="Maturazione"
-            value={matPct.toFixed(1)}
-            unit="%"
-            color={
-              matPct >= 85 ? 'var(--state-optimal-hi)' :
-              matPct >= 65 ? 'var(--state-optimal-lo)' :
-              matPct >= 30 ? 'var(--state-approaching)' :
-              'var(--state-underfermented)'
-            }
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-            <Metric label="ADU" value={(ts?.cumulativeAdu ?? 0).toFixed(3)} color="var(--text-secondary)" />
-            <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} color="var(--accent-info)" />
-          </div>
-        </div>
+        {/* Metrica principale full-width */}
+        <Metric
+          label="Maturazione"
+          value={matPct.toFixed(1)}
+          unit="%"
+          color={
+            matPct >= 85 ? 'var(--state-optimal-hi)' :
+            matPct >= 65 ? 'var(--state-optimal-lo)' :
+            matPct >= 30 ? 'var(--state-approaching)' :
+            'var(--state-underfermented)'
+          }
+        />
         <ProgressBar pct={matPct} />
         {matPct >= 85 && (
-          <div style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--state-optimal-hi)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--state-optimal-hi)', fontFamily: 'var(--font-mono)' }}>
             ✓ Zona ottimale raggiunta
           </div>
         )}
+        {/* Metriche secondarie in griglia compatta 3-col */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
+          <Metric label="ADU" value={(ts?.cumulativeAdu ?? 0).toFixed(3)} color="var(--text-secondary)" />
+          <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} color="var(--accent-info)" />
+          <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} color="var(--text-secondary)" />
+        </div>
       </Card>
 
       {/* ── Malt warning ── */}

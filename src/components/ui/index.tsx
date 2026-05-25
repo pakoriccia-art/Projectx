@@ -298,3 +298,47 @@ export function StepHeader({ step, total, title }: { step: number; total: number
 }
 
 export { S };
+
+// ─── FormSection ──────────────────────────────────────────────────────────────
+// Raggruppa input correlati con un label-divider orizzontale e sfondo micro-elevato.
+// Sostituisce blocchi di flex-column flat senza contesto visivo.
+export function FormSection({
+  title, children, accent,
+}: { title: string; children: ReactNode; accent?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Divider con etichetta centrata */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
+        <span style={{
+          fontSize: '0.60rem', letterSpacing: '0.14em', textTransform: 'uppercase',
+          color: accent ?? 'var(--text-muted)', fontFamily: 'var(--font-mono)',
+          whiteSpace: 'nowrap',
+        }}>
+          {title}
+        </span>
+        <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
+      </div>
+      {/* Contenuto con sfondo leggermente differenziato */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 12,
+        background: 'rgba(255,255,255,0.015)',
+        borderRadius: 'var(--radius-md)',
+        padding: '12px 14px',
+        border: '1px solid rgba(255,255,255,0.04)',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Row2 ─────────────────────────────────────────────────────────────────────
+// Grid a 2 colonne bilanciata per affiancare coppie di input correlati.
+export function Row2({ children, gap = 10 }: { children: ReactNode; gap?: number }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap }}>
+      {children}
+    </div>
+  );
+}

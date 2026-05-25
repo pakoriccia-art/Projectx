@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
 import {
-  Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S,
+  Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2,
 } from '../ui';
 import {
   normalizeFlourGroup, computeCombinedInitialState,
@@ -257,14 +257,20 @@ function FlourRow({ flour, idx, total, onChange, onRemove }: {
           }}>×</button>
         )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+      {/* Forza reologica: W + P/L sempre affiancati */}
+      <Row2>
         <NumInput label="W" value={flour.W} onChange={v => onChange({ ...flour, W: v })} min={80} max={500} />
         <NumInput label="P/L" value={flour.pl} step={0.05} onChange={v => onChange({ ...flour, pl: v })} min={0.2} max={1.2} />
+      </Row2>
+      {/* Composizione: Proteine sola o affiancata a % blend */}
+      {total > 1 ? (
+        <Row2>
+          <NumInput label="Proteine" unit="%" value={flour.protein} step={0.5} onChange={v => onChange({ ...flour, protein: v })} min={7} max={17} />
+          <NumInput label="% blend" value={flour.percentage} onChange={v => onChange({ ...flour, percentage: v })} min={1} max={99} />
+        </Row2>
+      ) : (
         <NumInput label="Proteine" unit="%" value={flour.protein} step={0.5} onChange={v => onChange({ ...flour, protein: v })} min={7} max={17} />
-        {total > 1 && (
-          <NumInput label="%" value={flour.percentage} onChange={v => onChange({ ...flour, percentage: v })} min={1} max={99} />
-        )}
-      </div>
+      )}
     </Card>
   );
 }
@@ -312,34 +318,40 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
         }}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: 14 }}>
-        <SliderInput
-          label="% farina totale" unit="%"
-          value={pref.flourFraction}
-          onChange={v => onUpdate({ ...pref, flourFraction: v })}
-          min={5} max={70} step={1} color={color}
-        />
-        {pref.type !== 'autolysis' && (
-          <SliderInput
-            label="Idratazione pref." unit="%"
-            value={pref.hydration}
-            onChange={v => onUpdate({ ...pref, hydration: v })}
-            min={hydMin} max={hydMax} step={1}
-            color={color}
-          />
+      {/* ── Composizione ── */}
+      <FormSection title="Composizione" accent={color}>
+        {pref.type !== 'autolysis' ? (
+          <Row2>
+            <SliderInput label="% farina tot." unit="%" value={pref.flourFraction}
+              onChange={v => onUpdate({ ...pref, flourFraction: v })}
+              min={5} max={70} step={1} color={color} />
+            <SliderInput label="Idratazione" unit="%" value={pref.hydration}
+              onChange={v => onUpdate({ ...pref, hydration: v })}
+              min={hydMin} max={hydMax} step={1} color={color} />
+          </Row2>
+        ) : (
+          <SliderInput label="% farina tot." unit="%" value={pref.flourFraction}
+            onChange={v => onUpdate({ ...pref, flourFraction: v })}
+            min={5} max={70} step={1} color={color} />
         )}
-        <NumInput label="Temperatura" unit="°C"
-          value={pref.tempC} onChange={v => onUpdate({ ...pref, tempC: v })}
-          min={2} max={32} step={0.5} />
-        <NumInput label="Durata" unit="h"
-          value={pref.durationH} onChange={v => onUpdate({ ...pref, durationH: v })}
-          min={0.5} max={72} step={0.5} />
+      </FormSection>
+
+      {/* ── Parametri di maturazione ── */}
+      <FormSection title="Maturazione" accent={color}>
+        <Row2>
+          <NumInput label="Temperatura" unit="°C"
+            value={pref.tempC} onChange={v => onUpdate({ ...pref, tempC: v })}
+            min={2} max={32} step={0.5} />
+          <NumInput label="Durata" unit="h"
+            value={pref.durationH} onChange={v => onUpdate({ ...pref, durationH: v })}
+            min={0.5} max={72} step={0.5} />
+        </Row2>
         {pref.type !== 'autolysis' && (
           <NumInput label="Lievito" unit="%"
             value={pref.yeastPct ?? 0.05} onChange={v => onUpdate({ ...pref, yeastPct: v })}
             min={0.005} max={0.5} step={0.005} />
         )}
-      </div>
+      </FormSection>
 
       {/* Summary pill */}
       <div style={{
@@ -568,22 +580,22 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       </button>
 
       {showAdvanced && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <NumInput label="Altitudine" unit="m"
-            value={draft.altitudeM ?? 0} onChange={v => update({ altitudeM: v })}
-            min={0} max={4000} step={50} />
-          <NumInput label="Durezza acqua" unit="ppm CaCO₃"
-            value={draft.waterHardnessPpm ?? 150} onChange={v => update({ waterHardnessPpm: v })}
-            min={0} max={600} step={10} />
+        <FormSection title="Ambiente · Acqua">
+          <Row2>
+            <NumInput label="Altitudine" unit="m"
+              value={draft.altitudeM ?? 0} onChange={v => update({ altitudeM: v })}
+              min={0} max={4000} step={50} />
+            <NumInput label="Durezza acqua" unit="ppm"
+              value={draft.waterHardnessPpm ?? 150} onChange={v => update({ waterHardnessPpm: v })}
+              min={0} max={600} step={10} />
+          </Row2>
           {(draft.waterHardnessPpm ?? 150) !== 150 && (
-            <Card style={{ padding: '10px 14px' }}>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                W corretto: ×{(1 + 0.0008 * ((draft.waterHardnessPpm ?? 150) - 150)).toFixed(3)} ·
-                Proteolisi: ×{(1 - 0.0004 * ((draft.waterHardnessPpm ?? 150) - 150)).toFixed(3)}
-              </span>
-            </Card>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              W ×{(1 + 0.0008 * ((draft.waterHardnessPpm ?? 150) - 150)).toFixed(3)} ·
+              Proteolisi ×{(1 - 0.0004 * ((draft.waterHardnessPpm ?? 150) - 150)).toFixed(3)}
+            </div>
           )}
-        </div>
+        </FormSection>
       )}
     </div>
   );
@@ -749,59 +761,56 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           color="var(--state-cold)" />
       )}
 
-      {/* TA: puntata + staglio + appreto */}
-      {proto === 'ta' && <>
-        <SliderInput label="Puntata (TA)" value={puntata} onChange={v => update({ puntataH: v })}
-          min={0.5} max={24} step={0.5} unit="h" />
-        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
-          min={0.1} max={2} step={0.1} unit="h" />
-        <SliderInput label="Appreto (TA)" value={appreto} onChange={v => update({ apprettoH: v })}
-          min={0.5} max={12} step={0.5} unit="h" />
-      </>}
+      {/* ── TA: tutto a temperatura ambiente ── */}
+      {proto === 'ta' && (
+        <FormSection title="🌡 Tutto a temperatura ambiente">
+          <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
+            min={0.5} max={24} step={0.5} unit="h" />
+          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+            min={0.1} max={2} step={0.1} unit="h" />
+          <SliderInput label="Appreto" value={appreto} onChange={v => update({ apprettoH: v })}
+            min={0.5} max={12} step={0.5} unit="h" />
+        </FormSection>
+      )}
 
-      {/* TC: tutto in frigo — freddo totale + staglio */}
-      {proto === 'tc' && <>
-        <SliderInput label="Freddo totale (puntata + appreto in frigo)" value={freddo}
-          onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
-          color="var(--state-cold)" />
-        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
-          min={0.1} max={2} step={0.1} unit="h" />
-        <Card style={{ padding: '10px 14px', background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.2)' }}>
-          <span style={{ fontSize: '0.78rem', color: 'var(--state-cold)', fontFamily: 'var(--font-mono)' }}>
-            ❄ Tutto in frigo · puntata + appreto entrambi a freddo
-          </span>
-        </Card>
-      </>}
+      {/* ── TC: tutto in frigo ── */}
+      {proto === 'tc' && (
+        <FormSection title="❄ Tutto in frigo" accent="var(--state-cold)">
+          <SliderInput label="Freddo totale (puntata + appreto)" value={freddo}
+            onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
+            color="var(--state-cold)" />
+          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+            min={0.1} max={2} step={0.1} unit="h" />
+        </FormSection>
+      )}
 
-      {/* TC Puntata: puntata TC (freddo) + staglio + appreto TA */}
+      {/* ── TC Puntata: frigo → TA ── */}
       {proto === 'tc_puntata' && <>
-        <SliderInput label="Puntata in frigo (TC)" value={freddo}
-          onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
-          color="var(--state-cold)" />
-        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
-          min={0.1} max={2} step={0.1} unit="h" />
-        <SliderInput label="Appreto finale (TA)" value={appreto} onChange={v => update({ apprettoH: v })}
-          min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
-        <Card style={{ padding: '10px 14px', background: 'rgba(255,140,50,0.06)', border: '1px solid rgba(255,140,50,0.15)' }}>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-            ❄ Puntata in frigo → 🌡 Staglio + appreto a temperatura ambiente
-          </span>
-        </Card>
+        <FormSection title="❄ Puntata in frigo" accent="var(--state-cold)">
+          <SliderInput label="Durata puntata" value={freddo}
+            onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
+            color="var(--state-cold)" />
+        </FormSection>
+        <FormSection title="🌡 Staglio + appreto a TA">
+          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+            min={0.1} max={2} step={0.1} unit="h" />
+          <SliderInput label="Appreto finale" value={appreto} onChange={v => update({ apprettoH: v })}
+            min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
+        </FormSection>
       </>}
 
-      {/* TC Appreto: puntata TA + staglio + appreto TC (freddo) */}
+      {/* ── TC Appreto: TA → frigo ── */}
       {proto === 'tc_appreto' && <>
-        <SliderInput label="Puntata (TA)" value={puntata} onChange={v => update({ puntataH: v })}
-          min={0.5} max={24} step={0.5} unit="h" />
-        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
-          min={0.1} max={2} step={0.1} unit="h" />
-        <SliderInput label="Appreto in frigo (TC)" value={freddo} onChange={v => update({ tcHours: v })}
-          min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
-        <Card style={{ padding: '10px 14px', background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.2)' }}>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-            🌡 Puntata a TA → ❄ Staglio + appreto in frigo
-          </span>
-        </Card>
+        <FormSection title="🌡 Puntata a temperatura ambiente">
+          <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
+            min={0.5} max={24} step={0.5} unit="h" />
+          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+            min={0.1} max={2} step={0.1} unit="h" />
+        </FormSection>
+        <FormSection title="❄ Appreto in frigo" accent="var(--state-cold)">
+          <SliderInput label="Durata appreto" value={freddo} onChange={v => update({ tcHours: v })}
+            min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
+        </FormSection>
       </>}
 
       <Card>
