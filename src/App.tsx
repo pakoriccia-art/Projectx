@@ -4,10 +4,11 @@
  * Hooks globali: persistenza DB, notifiche Capacitor
  */
 import { AppProvider, useApp } from './context/AppContext';
-import { WizardView }     from './components/wizard/WizardView';
-import { DashboardView }  from './components/dashboard/DashboardView';
-import { HistoryView }    from './components/history/HistoryView';
-import { RottaView }      from './components/rotta/RottaView';
+import { WizardView }          from './components/wizard/WizardView';
+import { DashboardView }       from './components/dashboard/DashboardView';
+import { HistoryView }         from './components/history/HistoryView';
+import { RottaView }           from './components/rotta/RottaView';
+import { ReverseScalingView }  from './components/tools/ReverseScalingView';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
 
@@ -105,6 +106,23 @@ function HomeView() {
         >
           📋 Storico sessioni
         </button>
+
+        <button
+          onClick={() => dispatch({ type: 'NAV', view: 'tools' })}
+          style={{
+            background: 'transparent',
+            color: 'var(--text-secondary)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 'var(--radius-md)',
+            padding: '13px 20px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          🔢 Reverse Scaling
+        </button>
       </div>
 
       {/* Version badge */}
@@ -130,6 +148,7 @@ function AppRouter() {
     case 'dashboard': return <DashboardView />;
     case 'rotta':     return <RottaView />;
     case 'history':   return <HistoryView />;
+    case 'tools':     return <ReverseScalingView />;
     default:          return <HomeView />;
   }
 }
