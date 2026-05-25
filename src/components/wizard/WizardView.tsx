@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
 import {
-  Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2,
+  Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2, Metric,
 } from '../ui';
 import {
   normalizeFlourGroup, computeCombinedInitialState,
@@ -14,7 +14,7 @@ import {
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
 } from '../../engine';
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 // ─── Prefermento defaults ─────────────────────────────────────────────────────
 function createDefaultPref(
@@ -746,9 +746,9 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         label="Protocollo maturazione"
         options={[
           { value: 'ta',          label: 'TA',         desc: 'Tutto a temperatura ambiente' },
-          { value: 'tc',          label: 'TC',         desc: 'Tutto in frigo (puntata + appreto)' },
-          { value: 'tc_puntata',  label: 'TC Puntata', desc: 'Puntata in frigo → appreto TA' },
-          { value: 'tc_appreto',  label: 'TC Appreto', desc: 'Puntata TA → appreto in frigo' },
+          { value: 'tc',          label: 'TC',         desc: 'Tutto in frigo (puntata + appretto)' },
+          { value: 'tc_puntata',  label: 'TC Puntata', desc: 'Puntata in frigo → appretto TA' },
+          { value: 'tc_appreto',  label: 'TC Appretto', desc: 'Puntata TA → appretto in frigo' },
         ]}
         value={proto}
         onChange={v => update({ apprettoProtocol: v as any })}
@@ -766,9 +766,9 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         <FormSection title="🌡 Tutto a temperatura ambiente">
           <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
             min={0.5} max={24} step={0.5} unit="h" />
-          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
-          <SliderInput label="Appreto" value={appreto} onChange={v => update({ apprettoH: v })}
+          <SliderInput label="Appretto" value={appreto} onChange={v => update({ apprettoH: v })}
             min={0.5} max={12} step={0.5} unit="h" />
         </FormSection>
       )}
@@ -779,7 +779,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           <SliderInput label="Freddo totale (puntata + appreto)" value={freddo}
             onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
             color="var(--state-cold)" />
-          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>
       )}
@@ -791,24 +791,24 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
             color="var(--state-cold)" />
         </FormSection>
-        <FormSection title="🌡 Staglio + appreto a TA">
-          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+        <FormSection title="🌡 Staglio + appretto a TA">
+          <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
-          <SliderInput label="Appreto finale" value={appreto} onChange={v => update({ apprettoH: v })}
+          <SliderInput label="Appretto finale" value={appreto} onChange={v => update({ apprettoH: v })}
             min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
         </FormSection>
       </>}
 
-      {/* ── TC Appreto: TA → frigo ── */}
+      {/* ── TC Appretto: TA → frigo ── */}
       {proto === 'tc_appreto' && <>
         <FormSection title="🌡 Puntata a temperatura ambiente">
           <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
             min={0.5} max={24} step={0.5} unit="h" />
-          <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>
-        <FormSection title="❄ Appreto in frigo" accent="var(--state-cold)">
-          <SliderInput label="Durata appreto" value={freddo} onChange={v => update({ tcHours: v })}
+        <FormSection title="❄ Appretto in frigo" accent="var(--state-cold)">
+          <SliderInput label="Durata appretto" value={freddo} onChange={v => update({ tcHours: v })}
             min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
         </FormSection>
       </>}
@@ -840,6 +840,131 @@ function StepMetric({ label, value, unit, color }: { label: string; value: strin
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// STEP 8 — Riepilogo ricetta (read-only, pre-avvio sessione)
+// ═══════════════════════════════════════════════════════════════════════════════
+function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+  const hydration = draft.hydration ?? 65;
+  const salt      = draft.salt ?? 2;
+  const flour     = draft.totalFlourGrams ?? 0;
+  const panetti   = draft.numPanetti ?? 1;
+
+  // Peso panetto stimato = (farina + acqua + sale) / numPanetti
+  const totalDoughG = flour * (1 + hydration / 100 + salt / 100);
+  const panWeight   = panetti > 0 ? Math.round(totalDoughG / panetti) : 0;
+
+  const protoLabel: Record<string, string> = {
+    ta:         'Tutto TA',
+    tc:         'TC totale',
+    tc_puntata: 'TC Puntata',
+    tc_appreto: 'TC Appretto',
+  };
+  const agentLabel: Record<string, string> = {
+    fresh_yeast:       'LBF (fresco)',
+    instant_dry_yeast: 'IDY (secco)',
+    sourdough_wheat:   'LM (pasta madre)',
+  };
+  const styleLabel: Record<string, string> = {
+    napoletana:    'Napoletana',
+    contemporanea: 'Contemporanea',
+    teglia:        'Teglia',
+    pala:          'Pala',
+    nystyle:       'NY Style',
+  };
+
+  const isTcProto = draft.apprettoProtocol !== 'ta';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* ── Dimensioni impasto ── */}
+      <Card elevated>
+        <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)' }}>
+          Impasto
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Metric label="Farina" value={flour} unit="g" />
+          <Metric label="Panetti" value={panetti} />
+          <Metric label="Peso panetto" value={panWeight} unit="g" />
+          <Metric label="Idratazione" value={hydration} unit="%" />
+          <Metric label="Sale" value={salt} unit="%" />
+          {(draft.fat ?? 0) > 0 && <Metric label="Grassi" value={draft.fat!} unit="%" />}
+        </div>
+      </Card>
+
+      {/* ── Farina e stile ── */}
+      <Card>
+        <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          Farina e stile
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Metric label="Stile" value={styleLabel[draft.style ?? ''] ?? draft.style ?? '–'} />
+          <Metric label="W" value={draft.mainFlourGroup?.effectiveW != null ? draft.mainFlourGroup.effectiveW.toFixed(0) : '–'} />
+          <Metric label="Protocollo" value={protoLabel[draft.apprettoProtocol ?? 'ta'] ?? '–'} />
+          {draft.mainFlourGroup?.effectivePl != null && <Metric label="P/L" value={draft.mainFlourGroup.effectivePl.toFixed(2)} />}
+        </div>
+      </Card>
+
+      {/* ── Agente lievitante ── */}
+      <Card>
+        <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          Agente lievitante
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Metric label="Tipo" value={agentLabel[draft.agentType ?? ''] ?? draft.agentType ?? '–'} />
+          <Metric label="Dose" value={draft.agentDosePct ?? '–'} unit="%" />
+          {(draft.maltDosePct ?? 0) > 0 && <Metric label="Malto" value={draft.maltDosePct!} unit="%" />}
+        </div>
+      </Card>
+
+      {/* ── Tempistiche ── */}
+      <Card>
+        <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          Tempistiche
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {draft.apprettoProtocol !== 'tc' && (
+            <Metric label="Puntata TA" value={draft.puntataH ?? '–'} unit="h" />
+          )}
+          {isTcProto && (
+            <Metric label="Freddo" value={draft.tcHours ?? '–'} unit="h" color="var(--state-cold)" />
+          )}
+          <Metric label="Staglio" value={draft.staglioH ?? '–'} unit="h" />
+          {draft.apprettoProtocol !== 'tc' && (
+            <Metric label="Appretto" value={draft.apprettoH ?? '–'} unit="h" />
+          )}
+          {isTcProto && (
+            <Metric label="T frigo" value={draft.fridgeTempC ?? 4} unit="°C" color="var(--state-cold)" />
+          )}
+        </div>
+      </Card>
+
+      {/* ── Prefermenti ── */}
+      {draft.prefermenti && draft.prefermenti.length > 0 && (
+        <Card>
+          <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            Prefermenti
+          </div>
+          {draft.prefermenti.map((p: PrefermentoComponent, i: number) => (
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: i < draft.prefermenti!.length - 1 ? 8 : 0 }}>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 700, textTransform: 'capitalize' }}>{p.type}</span>
+              {' '}{p.flourFraction}% farina · {p.durationH}h · {p.tempC}°C · idr. {p.hydration}%
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* Nota avvio */}
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
+        textAlign: 'center', padding: '4px 0',
+      }}>
+        Premi "🍕 Avvia sessione" per iniziare il monitoraggio
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // WIZARD CONTAINER
 // ═══════════════════════════════════════════════════════════════════════════════
 const STEP_TITLES = [
@@ -850,6 +975,7 @@ const STEP_TITLES = [
   'Lievito',
   'Contenitore',
   'Tempistiche',
+  'Riepilogo',
 ];
 
 export function WizardView() {
@@ -895,10 +1021,11 @@ export function WizardView() {
     if (step === 5) return !!(draft.agentType && draft.agentDosePct);
     if (step === 6) return !!draft.containerPreset;
     if (step === 7) return !!(draft.puntataH && draft.apprettoProtocol);
+    if (step === 8) return true;
     return true;
   };
 
-  const StepComponent = [Step1, Step2, Step3, Step4, Step5, Step6, Step7][step - 1];
+  const StepComponent = [Step1, Step2, Step3, Step4, Step5, Step6, Step7, Step8][step - 1];
 
   return (
     <div style={{

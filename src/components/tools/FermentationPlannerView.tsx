@@ -18,7 +18,7 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, SnapButtons, S } from '../ui';
-import { kEffective, gompertz, AGENT_GOMPERTZ } from '../../engine';
+import { kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup } from '../../engine';
 
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ function computeAllProtocols(params: {
       protocol: 'ta', totalH, puntataH, staglioH, apprettoH,
       viability, viabilityNote: note,
       label: 'Tutto TA',
-      desc:  `Puntata ${puntataH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appreto ${apprettoH.toFixed(1)}h`,
+      desc:  `Puntata ${puntataH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto ${apprettoH.toFixed(1)}h`,
       stars: W >= 280 ? 2 : 3,
     });
   }
@@ -178,7 +178,7 @@ function computeAllProtocols(params: {
       tcHours: coldH_mixed, staglioH, apprettoH: warmH_mixed,
       viability, viabilityNote: note,
       label: 'TC Puntata',
-      desc: `Puntata fredda ${coldH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appreto TA ${warmH_mixed.toFixed(1)}h`,
+      desc: `Puntata fredda ${coldH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto TA ${warmH_mixed.toFixed(1)}h`,
       stars: viability === 'ok' ? 4 : 2,
     });
   }
@@ -191,7 +191,7 @@ function computeAllProtocols(params: {
       puntataH: warmH_mixed, staglioH, tcHours: coldH_mixed,
       viability, viabilityNote: note,
       label: 'TC Appreto',
-      desc: `Puntata TA ${warmH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appreto freddo ${coldH_mixed.toFixed(1)}h`,
+      desc: `Puntata TA ${warmH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto freddo ${coldH_mixed.toFixed(1)}h`,
       stars: viability === 'ok' ? 3 : 2,
     });
   }
@@ -393,6 +393,10 @@ export function FermentationPlannerView() {
   const [fridgeT,     setFridgeT]     = useState(4);
   const [staglioH,    setStaglioH]    = useState(0.5);
 
+  // Target cottura
+  const [targetDate,  setTargetDate]  = useState('');
+  const [targetTime,  setTargetTime]  = useState('12:00');
+
   // Prefermento opzionale
   const [hasPref,     setHasPref]     = useState(false);
   const [prefType,    setPrefType]    = useState<'poolish' | 'biga'>('biga');
@@ -424,19 +428,56 @@ export function FermentationPlannerView() {
     } catch { return []; }
   }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH]);
 
-  // Lancia wizard con i parametri del protocollo scelto
+  // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
+    // FlourGroup sintetico dal W selezionato nel planner
+    const flourArr = [{
+      name: 'Farina', brand: '', W, pl: 0.55, protein: 12.5,
+      ash: 0.55, amylaseActivity: 0.5, percentage: 100,
+    }];
+    const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
+
+    // Target cottura (opzionale)
+    let targetBakeAt: Date | undefined;
+    if (targetDate) {
+      targetBakeAt = new Date(`${targetDate}T${targetTime}`);
+    }
+
+    // Protocollo wizard (direct vs single_pref)
+    const protocol = hasPref ? ('single_pref' as const) : ('direct' as const);
+
+    // Prefermento per wizard (se presente)
+    const prefermenti = hasPref ? [{
+      id: `planner_${Date.now()}`,
+      type: prefType,
+      flourGroup: mainFlourGroup,
+      flourFraction: prefFrac,
+      hydration: prefType === 'biga' ? 48 : 100,
+      tempC: prefTemp,
+      durationH: prefDur,
+      yeastPct: prefYeast,
+    }] : [];
+
+    // WIZARD_RESET imposta wizardStep:1 + defaults (idratazione, sale, contenitore, etc.)
     dispatch({ type: 'WIZARD_RESET' });
+    // WIZARD_UPDATE sovrascrive con i valori del planner
     dispatch({ type: 'WIZARD_UPDATE', patch: {
-      apprettoProtocol: r.protocol,
-      puntataH:   r.puntataH  ?? 8,
-      staglioH:   r.staglioH,
-      apprettoH:  r.apprettoH ?? 4,
-      tcHours:    r.tcHours,
-      fridgeTempC: fridgeT,
+      style:            'napoletana',
+      protocol,
+      mainFlourGroup,
+      prefermenti,
       agentType,
-      agentDosePct: dosePct,
+      agentDosePct:     dosePct,
+      apprettoProtocol: r.protocol,
+      puntataH:         r.puntataH  ?? 8,
+      staglioH:         r.staglioH,
+      apprettoH:        r.apprettoH ?? 4,
+      tcHours:          r.tcHours,
+      fridgeTempC:      fridgeT,
+      targetBakeAt,
     }});
+    // Salta direttamente al riepilogo (step 8) — bypassando i 7 step di configurazione
+    dispatch({ type: 'WIZARD_STEP', step: 8 });
     dispatch({ type: 'NAV', view: 'wizard' });
   };
 
@@ -505,9 +546,43 @@ export function FermentationPlannerView() {
             min={10} max={38} step={0.5} unit="°C" />
           <PlannerSlider label="Temperatura frigo (TC)" value={fridgeT} onChange={setFridgeT}
             min={1} max={8} step={0.5} unit="°C" color="var(--state-cold)" />
-          <PlannerSlider label="Staglio + puntini" value={staglioH} onChange={setStaglioH}
+          <PlannerSlider label="Staglio" value={staglioH} onChange={setStaglioH}
             min={0.1} max={2} step={0.1} unit="h" color="var(--text-muted)" />
         </div>
+      </Card>
+
+      {/* ── Target cottura ── */}
+      <Card>
+        <div style={{ ...S.label, marginBottom: 12 }}>Target cottura (opzionale)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+          <input
+            type="date"
+            value={targetDate}
+            onChange={e => setTargetDate(e.target.value)}
+            style={{
+              background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
+              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', outline: 'none', width: '100%',
+            }}
+          />
+          <input
+            type="time"
+            value={targetTime}
+            onChange={e => setTargetTime(e.target.value)}
+            style={{
+              background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
+              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', outline: 'none', width: 95,
+            }}
+          />
+        </div>
+        {targetDate && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-brand)', marginTop: 8 }}>
+            Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
       </Card>
 
       {/* ── Prefermento ── */}

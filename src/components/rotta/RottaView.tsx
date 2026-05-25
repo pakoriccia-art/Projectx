@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Card, Metric, S } from '../ui';
+import { Card, Metric, S, SliderInput } from '../ui';
 import { kEffective } from '../../engine';
 
 const AGENT_SHORT: Record<string, string> = {
@@ -21,13 +21,17 @@ function RottaContent() {
   const ts      = state.tickState;
 
   // Stato locale (prima di applicare)
-  const [localT, setLocalT]           = useState(ts?.tempAmbient ?? 22);
-  const [localTcH, setLocalTcH]       = useState(session.tcHours ?? 0);
-  const [localFridgeT, setLocalFridgeT] = useState(session.fridgeTempC ?? 4);
-  const [localThreshold, setThreshold] = useState(session.alertThreshold ?? 85);
-  const [bakeShiftH, setBakeShiftH]   = useState(0);
+  const [localT, setLocalT]               = useState(ts?.tempAmbient ?? 22);
+  const [localTcH, setLocalTcH]           = useState(session.tcHours ?? 0);
+  const [localFridgeT, setLocalFridgeT]   = useState(session.fridgeTempC ?? 4);
+  const [localThreshold, setThreshold]    = useState(session.alertThreshold ?? 85);
+  const [bakeShiftH, setBakeShiftH]       = useState(0);
+  const [localPuntataH,  setLocalPuntataH]  = useState(session.puntataH  ?? 8);
+  const [localStaglioH,  setLocalStaglioH]  = useState(session.staglioH  ?? 0.5);
+  const [localApprettoH, setLocalApprettoH] = useState(session.apprettoH ?? 4);
 
-  const isTcProto = session.apprettoProtocol !== 'ta';
+  const proto = session.apprettoProtocol ?? 'ta';
+  const isTcProto = proto !== 'ta';
 
   const targetBake = session.targetBakeAt instanceof Date
     ? session.targetBakeAt
@@ -47,8 +51,11 @@ function RottaContent() {
   const apply = () => {
     dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
     dispatch({ type: 'SESSION_UPDATE', patch: {
-      tcHours:        localTcH > 0 ? localTcH : undefined,
+      tcHours:        isTcProto ? localTcH : undefined,
       fridgeTempC:    isTcProto ? localFridgeT : undefined,
+      puntataH:       localPuntataH,
+      staglioH:       localStaglioH,
+      apprettoH:      localApprettoH,
       alertThreshold: localThreshold,
       targetBakeAt:   newBakeAt,
     }});
@@ -124,26 +131,58 @@ function RottaContent() {
         </div>
       </Card>
 
-      {/* ── Freddo in corsa ── */}
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <span style={S.label}>Freddo in corsa (TC)</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
-            {localTcH > 0 ? `${localTcH}h` : 'disattivo'}
-          </span>
-        </div>
-        <input
-          type="range" min={0} max={72} step={1}
-          value={localTcH}
-          onChange={e => setLocalTcH(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
-        />
-        {localTcH > 0 && (
-          <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-            kRatio a {localFridgeT}°C ≈ {((kEffective as Function)(localFridgeT, session.agentEaKj, session.agentType) as number / kRef).toFixed(4)}
-            {' '}— rallentamento fisiologico
+      {/* ── Freddo in corsa (solo protocolli TC) ── */}
+      {isTcProto && (
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <span style={S.label}>Freddo in corsa (TC)</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
+              {localTcH > 0 ? `${localTcH}h` : 'disattivo'}
+            </span>
           </div>
-        )}
+          <input
+            type="range" min={0} max={72} step={1}
+            value={localTcH}
+            onChange={e => setLocalTcH(parseFloat(e.target.value))}
+            style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
+          />
+          {localTcH > 0 && (
+            <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+              kRatio a {localFridgeT}°C ≈ {((kEffective as Function)(localFridgeT, session.agentEaKj, session.agentType) as number / kRef).toFixed(4)}
+              {' '}— rallentamento fisiologico
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── Durate fasi ── */}
+      <Card>
+        <div style={{ ...S.label, marginBottom: 12 }}>Durate fasi</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Puntata TA — per protocolli 'ta' e 'tc_appreto' */}
+          {(proto === 'ta' || proto === 'tc_appreto') && (
+            <SliderInput label="Puntata TA" value={localPuntataH} onChange={setLocalPuntataH}
+              min={1} max={24} step={0.5} unit="h" color="var(--accent-brand)" />
+          )}
+          {/* Puntata TC — per protocolli 'tc' e 'tc_puntata' (usa localTcH) */}
+          {(proto === 'tc' || proto === 'tc_puntata') && (
+            <SliderInput label="Puntata TC (frigo)" value={localTcH} onChange={setLocalTcH}
+              min={1} max={72} step={1} unit="h" color="var(--state-cold)" />
+          )}
+          {/* Staglio — sempre visibile */}
+          <SliderInput label="Staglio" value={localStaglioH} onChange={setLocalStaglioH}
+            min={0.1} max={3} step={0.1} unit="h" color="var(--text-muted)" />
+          {/* Appretto TA — per protocolli 'ta' e 'tc_puntata' */}
+          {(proto === 'ta' || proto === 'tc_puntata') && (
+            <SliderInput label="Appretto TA" value={localApprettoH} onChange={setLocalApprettoH}
+              min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
+          )}
+          {/* Appretto TC — per protocollo 'tc_appreto' (usa localTcH) */}
+          {proto === 'tc_appreto' && (
+            <SliderInput label="Appretto TC (frigo)" value={localTcH} onChange={setLocalTcH}
+              min={1} max={48} step={1} unit="h" color="var(--state-cold)" />
+          )}
+        </div>
       </Card>
 
       {/* ── Temperatura frigo (solo protocolli TC) ── */}

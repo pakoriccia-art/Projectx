@@ -30,12 +30,12 @@ function useClock() {
 
 // ─── Phase labels ─────────────────────────────────────────────────────────────
 const PHASE_LABELS: Record<string, { label: string; color: string }> = {
-  bulk_room:    { label: 'Puntata – TA',   color: 'var(--accent-brand)' },
-  bulk_fridge:  { label: 'Puntata – TC',   color: 'var(--state-cold)'   },
-  balled_room:  { label: 'Appreto – TA',   color: 'var(--accent-brand)' },
-  balled_fridge:{ label: 'Appreto – TC',   color: 'var(--state-cold)'   },
-  proofing:     { label: 'Lievitazione',   color: 'var(--state-optimal-lo)' },
-  baking:       { label: 'Cottura',        color: 'var(--accent-warning)' },
+  bulk_room:    { label: 'Puntata – TA',    color: 'var(--accent-brand)' },
+  bulk_fridge:  { label: 'Puntata – TC',    color: 'var(--state-cold)'   },
+  balled_room:  { label: 'Appretto – TA',   color: 'var(--accent-brand)' },
+  balled_fridge:{ label: 'Appretto – TC',   color: 'var(--state-cold)'   },
+  proofing:     { label: 'Lievitazione',    color: 'var(--state-optimal-lo)' },
+  baking:       { label: 'Cottura',         color: 'var(--accent-warning)' },
 };
 
 const PHASE_ORDER = ['bulk_room','bulk_fridge','balled_room','balled_fridge','proofing','baking'] as const;
@@ -71,7 +71,7 @@ function buildMultiSegmentData(
     proto === 'ta' ? [
       { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
       { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appreto TA',    color: 'var(--accent-brand)' },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)' },
     ]
     : proto === 'tc' ? [
       { durationH: tcH,               tempC: fridgeT,  label: 'Freddo totale', color: 'var(--state-cold)'   },
@@ -80,12 +80,12 @@ function buildMultiSegmentData(
     : proto === 'tc_puntata' ? [
       { durationH: tcH,               tempC: fridgeT,  label: 'Puntata TC',    color: 'var(--state-cold)'   },
       { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appreto TA',    color: 'var(--accent-brand)' },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)' },
     ]
     : /* tc_appreto */ [
       { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
       { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: tcH,               tempC: fridgeT,  label: 'Appreto TC',    color: 'var(--state-cold)'   },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC',   color: 'var(--state-cold)'   },
     ];
 
   const kRef    = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
@@ -457,6 +457,8 @@ export function DashboardView() {
     );
   }
 
+  const [confirmEnd, setConfirmEnd] = useState(false);
+
   const matPct = ts?.maturationPct ?? 0;
   const phase = ts?.phase ?? 'bulk_room';
   const phaseInfo = PHASE_LABELS[phase] ?? { label: phase, color: 'var(--text-secondary)' };
@@ -545,11 +547,27 @@ export function DashboardView() {
         <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'rotta' })}>
           🧭 Aggiusta Rotta
         </Btn>
-        <Btn variant="danger" onClick={() => {
-          if (confirm('Terminare la sessione corrente?')) dispatch({ type: 'SESSION_END' });
-        }}>
-          ■ Termina sessione
-        </Btn>
+        {confirmEnd ? (
+          <>
+            <div style={{
+              background: 'rgba(214,48,49,0.12)', border: '1px solid rgba(214,48,49,0.35)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+              fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--state-critical)',
+            }}>
+              ⚠ Vuoi davvero terminare? I dati NON saranno salvati.
+            </div>
+            <Btn variant="danger" onClick={() => dispatch({ type: 'SESSION_END' })}>
+              ■ Conferma Termina
+            </Btn>
+            <Btn variant="secondary" onClick={() => setConfirmEnd(false)}>
+              ← Annulla
+            </Btn>
+          </>
+        ) : (
+          <Btn variant="danger" onClick={() => setConfirmEnd(true)}>
+            ■ Termina sessione
+          </Btn>
+        )}
       </div>
 
     </div>
