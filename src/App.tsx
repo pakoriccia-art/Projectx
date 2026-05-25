@@ -3,6 +3,7 @@
  * Routing basato su AppContext (view state machine, no react-router)
  * Hooks globali: persistenza DB, notifiche Capacitor
  */
+import { Component, type ReactNode } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { WizardView }          from './components/wizard/WizardView';
 import { DashboardView }       from './components/dashboard/DashboardView';
@@ -11,6 +12,58 @@ import { RottaView }           from './components/rotta/RottaView';
 import { ReverseScalingView }  from './components/tools/ReverseScalingView';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
+
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback?: string },
+  { error: string | null }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message ?? String(e) };
+  }
+  componentDidCatch(e: Error) {
+    console.error('[ErrorBoundary]', e);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16,
+          padding: '24px', background: 'var(--bg-base)',
+        }}>
+          <div style={{ fontSize: '2rem' }}>⚠️</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--state-critical)' }}>
+            Errore di rendering
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
+            color: 'var(--text-muted)', textAlign: 'center', maxWidth: 340,
+            background: 'rgba(214,48,49,0.1)', padding: '12px 16px',
+            borderRadius: 8, border: '1px solid rgba(214,48,49,0.3)',
+          }}>
+            {this.state.error}
+          </div>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{
+              background: 'var(--accent-brand)', color: '#0a0806',
+              border: 'none', borderRadius: 8, padding: '12px 24px',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            ← Torna alla home
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── Effetti globali (dentro AppProvider) ─────────────────────────────────────
 function AppEffects() {
@@ -144,11 +197,11 @@ function HomeView() {
 function AppRouter() {
   const { state } = useApp();
   switch (state.view) {
-    case 'wizard':    return <WizardView />;
-    case 'dashboard': return <DashboardView />;
-    case 'rotta':     return <RottaView />;
-    case 'history':   return <HistoryView />;
-    case 'tools':     return <ReverseScalingView />;
+    case 'wizard':    return <ErrorBoundary><WizardView /></ErrorBoundary>;
+    case 'dashboard': return <ErrorBoundary><DashboardView /></ErrorBoundary>;
+    case 'rotta':     return <ErrorBoundary><RottaView /></ErrorBoundary>;
+    case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
+    case 'tools':     return <ErrorBoundary><ReverseScalingView /></ErrorBoundary>;
     default:          return <HomeView />;
   }
 }

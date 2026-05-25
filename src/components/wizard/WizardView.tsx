@@ -657,12 +657,20 @@ function Step6({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 // STEP 7 — Tempistiche
 // ═══════════════════════════════════════════════════════════════════════════════
 function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+  const proto   = draft.apprettoProtocol ?? 'ta';
   const puntata = draft.puntataH ?? 8;
   const staglio = draft.staglioH ?? 0.5;
   const appreto = draft.apprettoH ?? 4;
   const freddo  = draft.tcHours ?? 12;
-  const hasFreddo = draft.apprettoProtocol === 'tc' || draft.apprettoProtocol === 'misto';
-  const totalH = puntata + staglio + appreto + (hasFreddo ? freddo : 0);
+
+  // Calcolo durata totale per protocollo
+  // TA:    puntata + staglio + appreto (tutto TA)
+  // TC:    freddo + staglio            (tutto in frigo, puntata+appreto compresi nel freddo)
+  // Misto: freddo + staglio + appreto  (freddo=puntata TC, poi appreto a TA)
+  const totalH =
+    proto === 'ta'    ? puntata + staglio + appreto
+    : proto === 'tc'  ? freddo + staglio
+    : /* misto */       freddo + staglio + appreto;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -671,21 +679,52 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         options={[
           { value: 'ta',    label: 'TA',    desc: 'Tutto a temperatura ambiente' },
           { value: 'tc',    label: 'TC',    desc: 'Tutto in frigo (freddo)' },
-          { value: 'misto', label: 'Misto', desc: 'Freddo + TA finale' },
+          { value: 'misto', label: 'Misto', desc: 'Puntata freddo + appreto TA' },
         ]}
-        value={draft.apprettoProtocol}
+        value={proto}
         onChange={v => update({ apprettoProtocol: v as any })}
       />
-      <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
-        min={0.5} max={24} step={0.5} unit="h" />
-      <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
-        min={0.1} max={2} step={0.1} unit="h" />
-      <SliderInput label="Appreto" value={appreto} onChange={v => update({ apprettoH: v })}
-        min={0.5} max={12} step={0.5} unit="h" />
-      {hasFreddo && (
-        <SliderInput label="Fase freddo" value={freddo} onChange={v => update({ tcHours: v })}
-          min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
-      )}
+
+      {/* TA: puntata + staglio + appreto */}
+      {proto === 'ta' && <>
+        <SliderInput label="Puntata (TA)" value={puntata} onChange={v => update({ puntataH: v })}
+          min={0.5} max={24} step={0.5} unit="h" />
+        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          min={0.1} max={2} step={0.1} unit="h" />
+        <SliderInput label="Appreto (TA)" value={appreto} onChange={v => update({ apprettoH: v })}
+          min={0.5} max={12} step={0.5} unit="h" />
+      </>}
+
+      {/* TC: tutto in frigo — un solo slider "freddo totale" + staglio */}
+      {proto === 'tc' && <>
+        <SliderInput label="Freddo totale (puntata + appreto in frigo)" value={freddo}
+          onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
+          color="var(--state-cold)" />
+        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          min={0.1} max={2} step={0.1} unit="h" />
+        <Card style={{ padding: '10px 14px', background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.2)' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--state-cold)', fontFamily: 'var(--font-mono)' }}>
+            ❄ Tutto in frigo · pallina formata e apprettata a freddo
+          </span>
+        </Card>
+      </>}
+
+      {/* Misto: puntata TC (freddo) + staglio + appreto TA */}
+      {proto === 'misto' && <>
+        <SliderInput label="Puntata in frigo (freddo)" value={freddo}
+          onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
+          color="var(--state-cold)" />
+        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          min={0.1} max={2} step={0.1} unit="h" />
+        <SliderInput label="Appreto finale (TA)" value={appreto} onChange={v => update({ apprettoH: v })}
+          min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
+        <Card style={{ padding: '10px 14px', background: 'rgba(255,140,50,0.06)', border: '1px solid rgba(255,140,50,0.15)' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            ❄ Puntata in frigo → 🌡 Staglio + appreto a temperatura ambiente
+          </span>
+        </Card>
+      </>}
+
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <StepMetric label="Durata totale" value={totalH.toFixed(1)} unit="h" />
@@ -774,26 +813,36 @@ export function WizardView() {
   const StepComponent = [Step1, Step2, Step3, Step4, Step5, Step6, Step7][step - 1];
 
   return (
-    <div style={{ minHeight: '100dvh', padding: '22px var(--padding-h)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{
+      height: '100dvh', overflow: 'hidden',
+      padding: '22px var(--padding-h) 0',
+      display: 'flex', flexDirection: 'column',
+    }}>
       <StepHeader step={step} total={TOTAL_STEPS} title={STEP_TITLES[step - 1]} />
 
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '16px' }}>
+      {/* Contenuto scrollabile */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '8px', minHeight: 0 }}>
         <StepComponent draft={draft} update={update} />
       </div>
 
-      {/* Error banner */}
-      {buildError && (
-        <div style={{
-          margin: '8px 0', padding: '10px 14px',
-          background: 'rgba(214,48,49,0.15)', border: '1px solid rgba(214,48,49,0.4)',
-          borderRadius: 'var(--radius-sm)', fontSize: '0.8rem',
-          color: 'var(--state-critical)', fontFamily: 'var(--font-mono)',
-        }}>
-          ⚠ Errore: {buildError}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '16px' }}>
+      {/* Pulsanti sempre visibili in fondo */}
+      <div style={{
+        flexShrink: 0,
+        paddingTop: '12px',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        display: 'flex', flexDirection: 'column', gap: '10px',
+        background: 'var(--bg-base)',
+      }}>
+        {buildError && (
+          <div style={{
+            padding: '10px 14px',
+            background: 'rgba(214,48,49,0.15)', border: '1px solid rgba(214,48,49,0.4)',
+            borderRadius: 'var(--radius-sm)', fontSize: '0.8rem',
+            color: 'var(--state-critical)', fontFamily: 'var(--font-mono)',
+          }}>
+            ⚠ {buildError}
+          </div>
+        )}
         <Btn onClick={next} disabled={!canProceed()}>
           {step < TOTAL_STEPS ? 'Continua →' : '🍕 Avvia sessione'}
         </Btn>
