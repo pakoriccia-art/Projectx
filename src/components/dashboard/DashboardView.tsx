@@ -68,17 +68,19 @@ function buildGompertzData(
 
 // ─── Sweet Spot Card ──────────────────────────────────────────────────────────
 // Engine sweetSpot(session, currentAdu, currentTempC) → { status, hoursUntilPeak, peakPct }
+// Usa tempAmbient (aggiornato immediatamente dall'utente) non tempDough (inerzia termica)
 function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
+  const tAmb = ts?.tempAmbient ?? 22;   // reagisce subito al cambio utente
   const spot = useMemo(() => {
     try {
       const result = (sweetSpot as Function)(
         session,
-        ts?.cumulativeAdu ?? 0,   // currentAdu  (era erroneamente la temperatura)
-        ts?.tempDough ?? 22,       // currentTempC
+        ts?.cumulativeAdu ?? 0,
+        tAmb,                           // temperatura ambiente corrente
       ) as { status: string; hoursUntilPeak: number; peakPct: number } | null;
       return result;
     } catch { return null; }
-  }, [session, ts?.cumulativeAdu, ts?.tempDough]);
+  }, [session, ts?.cumulativeAdu, tAmb]);
 
   if (!spot) return null;
 
@@ -112,7 +114,7 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
 
       {!isPast && hoursLeft > 0 && (
         <div style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-          Stima: ~{hoursLeft.toFixed(1)}h al sweet spot a {(ts?.tempDough ?? 22).toFixed(1)}°C
+          Stima: ~{hoursLeft.toFixed(1)}h al sweet spot a {tAmb.toFixed(1)}°C amb.
         </div>
       )}
     </Card>
@@ -270,8 +272,9 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4);
 
-  // Temperatura effettiva: usa tempDough se disponibile, altrimenti tempAmbient
-  const tempC = ts?.tempDough ?? ts?.tempAmbient ?? 22;
+  // Usa tempAmbient: risponde immediatamente al cambio utente.
+  // tempDough segue con inerzia termica (ore) → non adatto per preview live.
+  const tempC = ts?.tempAmbient ?? 22;
 
   const data = useMemo(() =>
     buildGompertzData(
