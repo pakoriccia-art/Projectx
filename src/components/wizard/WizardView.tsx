@@ -72,7 +72,16 @@ function buildSession(draft: WizardDraft): Session {
     combined.effectiveAmylaseIndex, maltContrib
   );
 
-  const totalH = (draft.puntataH ?? 8) + (draft.staglioH ?? 0.5) + (draft.apprettoH ?? 4);
+  const _proto = draft.apprettoProtocol ?? 'ta';
+  const _p = draft.puntataH ?? 8;
+  const _s = draft.staglioH ?? 0.5;
+  const _a = draft.apprettoH ?? 4;
+  const _tc = draft.tcHours ?? 12;
+  const totalH =
+    _proto === 'ta'         ? _p + _s + _a
+    : _proto === 'tc'       ? _tc + _s
+    : _proto === 'tc_puntata' ? _tc + _s + _a
+    : /* tc_appreto */        _p + _s + _tc;
   const bakeAt = draft.targetBakeAt ?? new Date(Date.now() + totalH * 3_600_000);
 
   return {
@@ -103,6 +112,7 @@ function buildSession(draft: WizardDraft): Session {
     staglioH:               draft.staglioH ?? 0.5,
     apprettoH:              draft.apprettoH ?? 4,
     tcHours:                draft.tcHours,
+    fridgeTempC:            draft.fridgeTempC ?? 4,
     numPanetti:             draft.numPanetti ?? 6,
     altitudeM:              draft.altitudeM ?? 0,
     waterHardnessPpm:       draft.waterHardnessPpm ?? 150,
@@ -662,28 +672,37 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const staglio = draft.staglioH ?? 0.5;
   const appreto = draft.apprettoH ?? 4;
   const freddo  = draft.tcHours ?? 12;
+  const fridgeT = draft.fridgeTempC ?? 4;
 
-  // Calcolo durata totale per protocollo
-  // TA:    puntata + staglio + appreto (tutto TA)
-  // TC:    freddo + staglio            (tutto in frigo, puntata+appreto compresi nel freddo)
-  // Misto: freddo + staglio + appreto  (freddo=puntata TC, poi appreto a TA)
+  // Durata totale per protocollo
   const totalH =
-    proto === 'ta'    ? puntata + staglio + appreto
-    : proto === 'tc'  ? freddo + staglio
-    : /* misto */       freddo + staglio + appreto;
+    proto === 'ta'          ? puntata + staglio + appreto
+    : proto === 'tc'        ? freddo + staglio
+    : proto === 'tc_puntata' ? freddo + staglio + appreto
+    : /* tc_appreto */        puntata + staglio + freddo;
+
+  const isTcProto = proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <SnapButtons
         label="Protocollo maturazione"
         options={[
-          { value: 'ta',    label: 'TA',    desc: 'Tutto a temperatura ambiente' },
-          { value: 'tc',    label: 'TC',    desc: 'Tutto in frigo (freddo)' },
-          { value: 'misto', label: 'Misto', desc: 'Puntata freddo + appreto TA' },
+          { value: 'ta',          label: 'TA',         desc: 'Tutto a temperatura ambiente' },
+          { value: 'tc',          label: 'TC',         desc: 'Tutto in frigo (puntata + appreto)' },
+          { value: 'tc_puntata',  label: 'TC Puntata', desc: 'Puntata in frigo → appreto TA' },
+          { value: 'tc_appreto',  label: 'TC Appreto', desc: 'Puntata TA → appreto in frigo' },
         ]}
         value={proto}
         onChange={v => update({ apprettoProtocol: v as any })}
       />
+
+      {/* Temperatura frigo — visibile per tutti i protocolli TC */}
+      {isTcProto && (
+        <SliderInput label="Temperatura frigo" value={fridgeT}
+          onChange={v => update({ fridgeTempC: v })} min={1} max={8} step={0.5} unit="°C"
+          color="var(--state-cold)" />
+      )}
 
       {/* TA: puntata + staglio + appreto */}
       {proto === 'ta' && <>
@@ -695,7 +714,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           min={0.5} max={12} step={0.5} unit="h" />
       </>}
 
-      {/* TC: tutto in frigo — un solo slider "freddo totale" + staglio */}
+      {/* TC: tutto in frigo — freddo totale + staglio */}
       {proto === 'tc' && <>
         <SliderInput label="Freddo totale (puntata + appreto in frigo)" value={freddo}
           onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
@@ -704,14 +723,14 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           min={0.1} max={2} step={0.1} unit="h" />
         <Card style={{ padding: '10px 14px', background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.2)' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--state-cold)', fontFamily: 'var(--font-mono)' }}>
-            ❄ Tutto in frigo · pallina formata e apprettata a freddo
+            ❄ Tutto in frigo · puntata + appreto entrambi a freddo
           </span>
         </Card>
       </>}
 
-      {/* Misto: puntata TC (freddo) + staglio + appreto TA */}
-      {proto === 'misto' && <>
-        <SliderInput label="Puntata in frigo (freddo)" value={freddo}
+      {/* TC Puntata: puntata TC (freddo) + staglio + appreto TA */}
+      {proto === 'tc_puntata' && <>
+        <SliderInput label="Puntata in frigo (TC)" value={freddo}
           onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
           color="var(--state-cold)" />
         <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
@@ -721,6 +740,21 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         <Card style={{ padding: '10px 14px', background: 'rgba(255,140,50,0.06)', border: '1px solid rgba(255,140,50,0.15)' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
             ❄ Puntata in frigo → 🌡 Staglio + appreto a temperatura ambiente
+          </span>
+        </Card>
+      </>}
+
+      {/* TC Appreto: puntata TA + staglio + appreto TC (freddo) */}
+      {proto === 'tc_appreto' && <>
+        <SliderInput label="Puntata (TA)" value={puntata} onChange={v => update({ puntataH: v })}
+          min={0.5} max={24} step={0.5} unit="h" />
+        <SliderInput label="Staglio + puntini" value={staglio} onChange={v => update({ staglioH: v })}
+          min={0.1} max={2} step={0.1} unit="h" />
+        <SliderInput label="Appreto in frigo (TC)" value={freddo} onChange={v => update({ tcHours: v })}
+          min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
+        <Card style={{ padding: '10px 14px', background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.2)' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            🌡 Puntata a TA → ❄ Staglio + appreto in frigo
           </span>
         </Card>
       </>}

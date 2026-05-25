@@ -41,29 +41,101 @@ const PHASE_LABELS: Record<string, { label: string; color: string }> = {
 
 const PHASE_ORDER = ['bulk_room','bulk_fridge','balled_room','balled_fridge','proofing','baking'] as const;
 
-// ─── Gompertz preview chart data (temperature-aware) ─────────────────────────
-// Usa kEffective(tempC) per simulare il rate reale invece di adu=h fisso.
-// La curva si aggiorna quando cambia T_amb o il protocollo.
-function buildGompertzData(
-  agentMuMax: number, agentLambda: number, agentAsymptote: number,
-  totalH: number,
-  tempC: number, agentEaKj: number, agentType: string,
-) {
-  const maxH  = Math.max(totalH * 1.5, 24);
-  const steps = 80;
-  const kRef  = (kEffective as Function)(25, agentEaKj, agentType) as number;
-  const kT    = (kEffective as Function)(tempC, agentEaKj, agentType) as number;
-  const ratio = kRef > 1e-12 ? kT / kRef : 1;   // accelerazione/decelerazione rispetto a 25°C
+// ─── Fasi valide per protocollo ───────────────────────────────────────────────
+const PROTOCOL_PHASES: Record<string, string[]> = {
+  ta:         ['bulk_room',   'balled_room',   'proofing', 'baking'],
+  tc:         ['bulk_fridge', 'balled_fridge', 'proofing', 'baking'],
+  tc_puntata: ['bulk_fridge', 'balled_room',   'proofing', 'baking'],
+  tc_appreto: ['bulk_room',   'balled_fridge', 'proofing', 'baking'],
+};
 
-  const points: { h: number; pct: number }[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const h   = (i / steps) * maxH;
-    const adu = h * ratio;   // ADU = ore × kRatio(T) — reagisce a temperatura
-    const raw = (gompertz as Function)(adu, agentMuMax, agentLambda, agentAsymptote) as number;
-    const pct = isNaN(raw) ? 0 : raw;
-    points.push({ h: parseFloat(h.toFixed(2)), pct: parseFloat(pct.toFixed(1)) });
+// ─── Gompertz multi-segmento (temperature-aware per fase) ─────────────────────
+// Ogni fase ha la propria temperatura (TA o frigo) → ADU accumula a ritmi diversi.
+// La curva si aggiorna quando cambia T_amb, fridgeTempC, o il protocollo.
+function buildMultiSegmentData(
+  session: {
+    apprettoProtocol: string;
+    puntataH: number; staglioH: number; apprettoH: number;
+    tcHours?: number; fridgeTempC?: number;
+    agentEaKj: number; agentType: string;
+    agentMuMax: number; agentLambda: number; agentAsymptote: number;
+    initialMaturationOffset?: number;
+  },
+  tAmbient: number,
+): { points: { h: number; pct: number }[]; transitions: { h: number; label: string; color: string }[] } {
+  const fridgeT = session.fridgeTempC ?? 4;
+  const proto   = session.apprettoProtocol ?? 'ta';
+  const tcH     = session.tcHours ?? 12;
+
+  type Seg = { durationH: number; tempC: number; label: string; color: string };
+  const segments: Seg[] =
+    proto === 'ta' ? [
+      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appreto TA',    color: 'var(--accent-brand)' },
+    ]
+    : proto === 'tc' ? [
+      { durationH: tcH,               tempC: fridgeT,  label: 'Freddo totale', color: 'var(--state-cold)'   },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
+    ]
+    : proto === 'tc_puntata' ? [
+      { durationH: tcH,               tempC: fridgeT,  label: 'Puntata TC',    color: 'var(--state-cold)'   },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appreto TA',    color: 'var(--accent-brand)' },
+    ]
+    : /* tc_appreto */ [
+      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Appreto TC',    color: 'var(--state-cold)'   },
+    ];
+
+  const kRef    = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
+  const totalH  = segments.reduce((s, seg) => s + seg.durationH, 0);
+  const maxH    = Math.max(totalH * 1.5, 24);
+  const stepH   = maxH / 80;  // ~80 punti totali
+
+  let cumulativeAdu = (session.initialMaturationOffset ?? 0) * 10;
+  const points:      { h: number; pct: number }[] = [];
+  const transitions: { h: number; label: string; color: string }[] = [];
+  let segStartH = 0;
+
+  for (let si = 0; si < segments.length; si++) {
+    const seg  = segments[si];
+    const kT   = (kEffective as Function)(seg.tempC, session.agentEaKj, session.agentType) as number;
+    const ratio = kRef > 1e-12 ? kT / kRef : 1;
+    const segEndH  = segStartH + seg.durationH;
+    const nSteps   = Math.max(1, Math.round(seg.durationH / stepH));
+    const segStepH = seg.durationH / nSteps;
+
+    for (let i = 1; i <= nSteps; i++) {
+      cumulativeAdu += segStepH * ratio;
+      const h   = segStartH + i * segStepH;
+      const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
+    }
+
+    if (si < segments.length - 1) {
+      transitions.push({ h: segEndH, label: seg.label, color: seg.color });
+    }
+    segStartH = segEndH;
   }
-  return points;
+
+  // Estensione oltre totalH a tAmbient per mostrare il plateau
+  const extraH = maxH - totalH;
+  if (extraH > 0.1) {
+    const kT    = (kEffective as Function)(tAmbient, session.agentEaKj, session.agentType) as number;
+    const ratio = kRef > 1e-12 ? kT / kRef : 1;
+    const nSteps   = Math.max(1, Math.round(extraH / stepH));
+    const extraStepH = extraH / nSteps;
+    for (let i = 1; i <= nSteps; i++) {
+      cumulativeAdu += extraStepH * ratio;
+      const h   = totalH + i * extraStepH;
+      const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
+    }
+  }
+
+  return { points, transitions };
 }
 
 // ─── Sweet Spot Card ──────────────────────────────────────────────────────────
@@ -122,13 +194,18 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
 }
 
 // ─── Phase Stepper ────────────────────────────────────────────────────────────
-function PhaseStepper({ currentPhase, onPhaseChange }: { currentPhase: string; onPhaseChange: (p: string) => void }) {
+// Mostra solo le fasi valide per il protocollo selezionato (+ proofing + baking sempre presenti)
+function PhaseStepper({ currentPhase, onPhaseChange, protocol }: {
+  currentPhase: string; onPhaseChange: (p: string) => void; protocol?: string;
+}) {
+  const allowedPhases = PROTOCOL_PHASES[protocol ?? 'ta'] ?? [...PHASE_ORDER];
   return (
     <Card>
       <span style={{ ...S.label, display: 'block', marginBottom: 10 }}>Fase corrente</span>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {PHASE_ORDER.map(p => {
+        {allowedPhases.map(p => {
           const info = PHASE_LABELS[p];
+          if (!info) return null;
           const active = currentPhase === p;
           return (
             <button key={p} onClick={() => onPhaseChange(p)} style={{
@@ -263,40 +340,36 @@ function AlertFeed({ alerts, onClear }: { alerts: any[]; onClear: () => void }) 
 }
 
 // ─── Gompertz Chart ───────────────────────────────────────────────────────────
+// Curva multi-segmento: ogni fase al proprio T (TA o frigo).
+// ReferenceLine verticali sulle transizioni di fase.
 function GompertzChart({ session, ts }: { session: any; ts: any }) {
-  // totalH dipende dal protocollo (TC/Misto usano tcHours, non puntataH)
-  const proto  = session.apprettoProtocol ?? 'ta';
-  const totalH = proto === 'tc'
-    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5)
-    : proto === 'misto'
-    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
-    : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4);
+  const proto = session.apprettoProtocol ?? 'ta';
+  const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
 
-  // Usa tempAmbient: risponde immediatamente al cambio utente.
-  // tempDough segue con inerzia termica (ore) → non adatto per preview live.
-  const tempC = ts?.tempAmbient ?? 22;
+  const { points, transitions } = useMemo(() => {
+    try { return buildMultiSegmentData(session, tAmb); }
+    catch { return { points: [], transitions: [] }; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, tAmb]);
 
-  const data = useMemo(() =>
-    buildGompertzData(
-      session.agentMuMax, session.agentLambda, session.agentAsymptote ?? 100,
-      totalH, tempC, session.agentEaKj, session.agentType,
-    ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [session.agentMuMax, session.agentLambda, session.agentAsymptote,
-     session.agentEaKj, session.agentType, totalH, tempC]
-  );
   const elapsed = ts?.elapsedH ?? 0;
+  const fridgeT = session.fridgeTempC ?? 4;
+
+  // Label protocollo leggibile
+  const protoLabel: Record<string, string> = {
+    ta: 'TA', tc: 'TC', tc_puntata: 'TC Puntata', tc_appreto: 'TC Appreto',
+  };
 
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={S.label}>Curva Gompertz</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-          {tempC.toFixed(1)}°C · {proto.toUpperCase()}
+          {tAmb.toFixed(1)}°C TA · {fridgeT}°C TC · {protoLabel[proto] ?? proto}
         </span>
       </div>
       <ResponsiveContainer width="100%" height={160}>
-        <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
+        <LineChart data={points} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis dataKey="h" tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
             label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }} />
@@ -306,10 +379,17 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
             formatter={(v: number) => [`${v.toFixed(1)}%`, 'Maturazione']}
             labelFormatter={(l: number) => `t = ${l}h`}
           />
+          {/* Posizione attuale */}
           <ReferenceLine x={elapsed} stroke="var(--accent-brand)" strokeDasharray="4 4"
             label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 9, fontFamily: 'var(--font-mono)' }} />
+          {/* Soglie maturazione */}
           <ReferenceLine y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
           <ReferenceLine y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
+          {/* Transizioni di fase */}
+          {transitions.map(t => (
+            <ReferenceLine key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
+              label={{ value: t.label, position: 'top', fill: t.color, fontSize: 8, fontFamily: 'var(--font-mono)' }} />
+          ))}
           <Line type="monotone" dataKey="pct" stroke="var(--accent-brand)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
         </LineChart>
@@ -438,7 +518,7 @@ export function DashboardView() {
       <AltitudeCard altitudeM={session.altitudeM ?? 0} />
 
       {/* ── Phase Stepper ── */}
-      <PhaseStepper currentPhase={phase} onPhaseChange={setPhase} />
+      <PhaseStepper currentPhase={phase} onPhaseChange={setPhase} protocol={session.apprettoProtocol} />
 
       {/* ── Alerts ── */}
       <AlertFeed alerts={state.alerts} onClear={() => dispatch({ type: 'ALERT_CLEAR' })} />

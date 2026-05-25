@@ -100,11 +100,12 @@ export interface Session {
   containerPreset: 'bare' | 'film' | 'open_box' | 'glass_covered' | 'plastic_bag' | 'closed_box' | 'closed_box_double';
 
   // Protocollo fermentazione
-  apprettoProtocol: 'ta' | 'tc' | 'misto';
+  apprettoProtocol: 'ta' | 'tc' | 'tc_puntata' | 'tc_appreto';
   puntataH: number;
   staglioH: number;
   apprettoH: number;
   tcHours?: number;
+  fridgeTempC?: number;            // Temperatura frigo per protocolli TC; default 4°C
 
   // v2.4.0 — nuovi campi Schema
   numPanetti?: number;                 // §2.14.4 inerzia bifase

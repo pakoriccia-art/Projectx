@@ -23,8 +23,11 @@ function RottaContent() {
   // Stato locale (prima di applicare)
   const [localT, setLocalT]           = useState(ts?.tempAmbient ?? 22);
   const [localTcH, setLocalTcH]       = useState(session.tcHours ?? 0);
+  const [localFridgeT, setLocalFridgeT] = useState(session.fridgeTempC ?? 4);
   const [localThreshold, setThreshold] = useState(session.alertThreshold ?? 85);
   const [bakeShiftH, setBakeShiftH]   = useState(0);
+
+  const isTcProto = session.apprettoProtocol !== 'ta';
 
   const targetBake = session.targetBakeAt instanceof Date
     ? session.targetBakeAt
@@ -45,6 +48,7 @@ function RottaContent() {
     dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
     dispatch({ type: 'SESSION_UPDATE', patch: {
       tcHours:        localTcH > 0 ? localTcH : undefined,
+      fridgeTempC:    isTcProto ? localFridgeT : undefined,
       alertThreshold: localThreshold,
       targetBakeAt:   newBakeAt,
     }});
@@ -136,11 +140,32 @@ function RottaContent() {
         />
         {localTcH > 0 && (
           <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-            kRatio a 4°C ≈ {((kEffective as Function)(4, session.agentEaKj, session.agentType) as number / kRef).toFixed(4)}
+            kRatio a {localFridgeT}°C ≈ {((kEffective as Function)(localFridgeT, session.agentEaKj, session.agentType) as number / kRef).toFixed(4)}
             {' '}— rallentamento fisiologico
           </div>
         )}
       </Card>
+
+      {/* ── Temperatura frigo (solo protocolli TC) ── */}
+      {isTcProto && (
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <span style={S.label}>Temperatura frigo</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
+              {localFridgeT}°C
+            </span>
+          </div>
+          <input
+            type="range" min={1} max={8} step={0.5}
+            value={localFridgeT}
+            onChange={e => setLocalFridgeT(parseFloat(e.target.value))}
+            style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
+          />
+          <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+            Aggiorna la curva Gompertz nei segmenti a freddo
+          </div>
+        </Card>
+      )}
 
       {/* ── Soglia alert ── */}
       <Card>

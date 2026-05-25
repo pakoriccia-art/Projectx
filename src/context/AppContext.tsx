@@ -33,11 +33,12 @@ export interface WizardDraft {
   // Step 6
   containerPreset?: Session['containerPreset'];
   // Step 7
-  apprettoProtocol?: 'ta' | 'tc' | 'misto';
+  apprettoProtocol?: 'ta' | 'tc' | 'tc_puntata' | 'tc_appreto';
   puntataH?: number;
   staglioH?: number;
   apprettoH?: number;
   tcHours?: number;
+  fridgeTempC?: number;
   targetBakeAt?: Date;
 }
 
@@ -109,6 +110,8 @@ function reducer(state: AppState, action: Action): AppState {
         puntataH:         8,
         staglioH:         0.5,
         apprettoH:        4,
+        tcHours:          12,
+        fridgeTempC:      4,
         maltDP:           200,
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
