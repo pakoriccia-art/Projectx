@@ -1,11 +1,22 @@
 /**
  * PizzaMatrix — Root App
  * Routing basato su AppContext (view state machine, no react-router)
- * Views: home → wizard → dashboard | history | rotta
+ * Hooks globali: persistenza DB, notifiche Capacitor
  */
 import { AppProvider, useApp } from './context/AppContext';
-import { WizardView } from './components/wizard/WizardView';
-import { DashboardView } from './components/dashboard/DashboardView';
+import { WizardView }     from './components/wizard/WizardView';
+import { DashboardView }  from './components/dashboard/DashboardView';
+import { HistoryView }    from './components/history/HistoryView';
+import { RottaView }      from './components/rotta/RottaView';
+import { useSessionPersistence }     from './hooks/useSessionPersistence';
+import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
+
+// ─── Effetti globali (dentro AppProvider) ─────────────────────────────────────
+function AppEffects() {
+  useSessionPersistence();
+  useCapacitorNotifications();
+  return null;
+}
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 function HomeView() {
@@ -55,7 +66,7 @@ function HomeView() {
         Modello predittivo Gompertz · Hill W-decay · CTM×Arrhenius · pH dinamico
       </div>
 
-      {/* CTA */}
+      {/* CTAs */}
       <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <button
           onClick={() => {
@@ -63,18 +74,16 @@ function HomeView() {
             dispatch({ type: 'NAV', view: 'wizard' });
           }}
           style={{
-            ...{
-              background: 'var(--accent-brand)',
-              color: '#0a0806',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              padding: '16px 20px',
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 700,
-              fontSize: '1rem',
-              cursor: 'pointer',
-              width: '100%',
-            }
+            background: 'var(--accent-brand)',
+            color: '#0a0806',
+            border: 'none',
+            borderRadius: 'var(--radius-md)',
+            padding: '16px 20px',
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 700,
+            fontSize: '1rem',
+            cursor: 'pointer',
+            width: '100%',
           }}
         >
           🍕 Nuovo impasto
@@ -113,109 +122,6 @@ function HomeView() {
   );
 }
 
-// ─── Rotta / Adjust Protocol placeholder ─────────────────────────────────────
-function RottaView() {
-  const { dispatch } = useApp();
-  return (
-    <div style={{
-      minHeight: '100dvh', padding: '24px var(--padding-h)',
-      display: 'flex', flexDirection: 'column', gap: 20,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })} style={{
-          background: 'none', border: 'none', color: 'var(--accent-brand)',
-          fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer',
-        }}>←</button>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-          Aggiusta Rotta
-        </h2>
-      </div>
-      <div style={{
-        background: 'var(--bg-elevated)',
-        borderRadius: 'var(--radius-lg)',
-        padding: 20,
-        fontFamily: 'var(--font-body)',
-        color: 'var(--text-secondary)',
-        fontSize: '0.88rem',
-        lineHeight: 1.6,
-      }}>
-        <p style={{ margin: 0 }}>
-          La funzionalità "Aggiusta Rotta" permette di modificare temperatura ambiente, fase e soglie
-          in corsa. In arrivo nella prossima versione.
-        </p>
-        <div style={{ marginTop: 16, fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          Features in sviluppo:
-        </div>
-        <ul style={{ marginTop: 8, paddingLeft: 18, color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-          <li>Cambio temperatura ambiente con ricalcolo τ</li>
-          <li>Slittamento target cottura</li>
-          <li>Aggiunta freddo in corsa</li>
-          <li>Override W e soglia maturazione</li>
-        </ul>
-      </div>
-      <button
-        onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}
-        style={{
-          background: 'var(--accent-brand)', color: '#0a0806',
-          border: 'none', borderRadius: 'var(--radius-md)',
-          padding: '13px 20px', fontFamily: 'var(--font-mono)',
-          fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer',
-        }}
-      >
-        ← Torna al dashboard
-      </button>
-    </div>
-  );
-}
-
-// ─── History placeholder ──────────────────────────────────────────────────────
-function HistoryView() {
-  const { dispatch } = useApp();
-  return (
-    <div style={{
-      minHeight: '100dvh', padding: '24px var(--padding-h)',
-      display: 'flex', flexDirection: 'column', gap: 20,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={() => dispatch({ type: 'NAV', view: 'home' })} style={{
-          background: 'none', border: 'none', color: 'var(--accent-brand)',
-          fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer',
-        }}>←</button>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-          Storico sessioni
-        </h2>
-      </div>
-      <div style={{
-        background: 'var(--bg-elevated)',
-        borderRadius: 'var(--radius-lg)',
-        padding: 24,
-        textAlign: 'center',
-        color: 'var(--text-muted)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: '0.85rem',
-      }}>
-        <div style={{ fontSize: '2rem', marginBottom: 12 }}>📋</div>
-        Nessuna sessione completata ancora.
-        <div style={{ marginTop: 8, fontSize: '0.72rem' }}>
-          Le sessioni terminate vengono salvate su IndexedDB (Dexie v4)
-        </div>
-      </div>
-      <button
-        onClick={() => dispatch({ type: 'NAV', view: 'home' })}
-        style={{
-          background: 'transparent', color: 'var(--text-secondary)',
-          border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 'var(--radius-md)',
-          padding: '13px 20px', fontFamily: 'var(--font-mono)',
-          fontSize: '0.9rem', cursor: 'pointer',
-        }}
-      >
-        ← Home
-      </button>
-    </div>
-  );
-}
-
 // ─── Router ───────────────────────────────────────────────────────────────────
 function AppRouter() {
   const { state } = useApp();
@@ -232,6 +138,7 @@ function AppRouter() {
 export default function App() {
   return (
     <AppProvider>
+      <AppEffects />
       <AppRouter />
     </AppProvider>
   );

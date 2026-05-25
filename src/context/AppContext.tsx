@@ -81,6 +81,7 @@ type Action =
   | { type: 'WIZARD_UPDATE'; patch: Partial<WizardDraft> }
   | { type: 'WIZARD_RESET' }
   | { type: 'SESSION_START'; session: Session }
+  | { type: 'SESSION_UPDATE'; patch: Partial<Session> }
   | { type: 'TICK'; patch: Partial<TickState> }
   | { type: 'ALERT_ADD'; alert: AppState['alerts'][0] }
   | { type: 'ALERT_CLEAR' }
@@ -98,6 +99,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, wizardDraft: {}, wizardStep: 1 };
     case 'SESSION_START':
       return { ...state, activeSession: action.session, view: 'dashboard', tickState: null };
+    case 'SESSION_UPDATE':
+      return state.activeSession
+        ? { ...state, activeSession: { ...state.activeSession, ...action.patch } }
+        : state;
     case 'TICK':
       return { ...state, tickState: state.tickState ? { ...state.tickState, ...action.patch } : action.patch as TickState };
     case 'ALERT_ADD':
