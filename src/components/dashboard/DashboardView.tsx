@@ -144,14 +144,16 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
   const tAmb = ts?.tempAmbient ?? 22;   // reagisce subito al cambio utente
   const spot = useMemo(() => {
     try {
+      // Aggiunge offset ADU iniziale da biga/poolish per "ore al picco" corretto
+      const effectiveAdu = (ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10;
       const result = (sweetSpot as Function)(
         session,
-        ts?.cumulativeAdu ?? 0,
+        effectiveAdu,
         tAmb,                           // temperatura ambiente corrente
       ) as { status: string; hoursUntilPeak: number; peakPct: number } | null;
       return result;
     } catch { return null; }
-  }, [session, ts?.cumulativeAdu, tAmb]);
+  }, [session, ts?.cumulativeAdu, tAmb, session.initialMaturationOffset]);
 
   if (!spot) return null;
 

@@ -192,12 +192,19 @@ class PizzaMatrixDB extends Dexie {
     super('PizzaMatrixDB');
 
     // Version 3 — §5.1 KB
+    // .upgrade() migra sessioni legacy con apprettoProtocol='misto' → 'tc_puntata'
     this.version(3).stores({
       sessions:          '++id, status, createdAt, [status+createdAt], style',
       process_log:       '++id, [sessionId+recordedAt], sessionId, recordedAt',
       alerts:            '++id, sessionId, [sessionId+level], createdAt',
       projection_cache:  '++id, &sessionId, computedAt',
-    });
+    }).upgrade(tx =>
+      tx.table('sessions').toCollection().modify((session: any) => {
+        if (session.apprettoProtocol === 'misto') {
+          session.apprettoProtocol = 'tc_puntata';
+        }
+      })
+    );
   }
 }
 

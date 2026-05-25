@@ -54,11 +54,13 @@ const R_GAS              = 8.314e-3;
 const T_20C_K            = 293.15;
 
 // ─── Helper: inverte Gompertz per trovare ADU al target% ─────────────────────
-// gompertz = asymptote * exp(-exp(muMax * (lambda - ADU) + 1))
-// Soluzione: ADU = lambda - (ln(-ln(target/asymptote)) - 1) / muMax
+// Il motore usa Zwietering 1990: A*exp(-exp((muMax*e/A)*(lambda-ADU)+1))
+// Il coefficiente effettivo è muMax*e/A, NON muMax.
+// Inversione corretta: ADU = lambda - (ln(-ln(target/A)) - 1) * A / (muMax * e)
 function invertGompertz(target: number, muMax: number, lambda: number, asymptote = 100): number {
   const x = Math.log(-Math.log(Math.max(0.001, target / asymptote)));
-  return lambda - (x - 1) / muMax;
+  // Zwietering 1990: coefficiente = muMax * Math.E / asymptote
+  return lambda - (x - 1) * asymptote / (muMax * Math.E);
 }
 
 // ─── Helper: stima effective dose incluso contributo prefermenti ──────────────
