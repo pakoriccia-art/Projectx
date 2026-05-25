@@ -16,7 +16,7 @@ import {
 import {
   gompertz, sweetSpot, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
-  maltAlertLevel,
+  maltAlertLevel, kEffective,
 } from '../../engine';
 
 // ─── Clock ───────────────────────────────────────────────────────────────────
@@ -41,18 +41,26 @@ const PHASE_LABELS: Record<string, { label: string; color: string }> = {
 
 const PHASE_ORDER = ['bulk_room','bulk_fridge','balled_room','balled_fridge','proofing','baking'] as const;
 
-// ─── Gompertz preview chart data ─────────────────────────────────────────────
+// ─── Gompertz preview chart data (temperature-aware) ─────────────────────────
+// Usa kEffective(tempC) per simulare il rate reale invece di adu=h fisso.
+// La curva si aggiorna quando cambia T_amb o il protocollo.
 function buildGompertzData(
   agentMuMax: number, agentLambda: number, agentAsymptote: number,
-  totalH: number
+  totalH: number,
+  tempC: number, agentEaKj: number, agentType: string,
 ) {
-  const points: { h: number; pct: number; current?: boolean }[] = [];
-  const steps = 60;
+  const maxH  = Math.max(totalH * 1.5, 24);
+  const steps = 80;
+  const kRef  = (kEffective as Function)(25, agentEaKj, agentType) as number;
+  const kT    = (kEffective as Function)(tempC, agentEaKj, agentType) as number;
+  const ratio = kRef > 1e-12 ? kT / kRef : 1;   // accelerazione/decelerazione rispetto a 25°C
+
+  const points: { h: number; pct: number }[] = [];
   for (let i = 0; i <= steps; i++) {
-    const h = (i / steps) * Math.max(totalH * 1.5, 24);
-    // Approximate ADU at each hour (at ref 25°C, kRatio=1): ADU ≈ h
-    const adu = h;
-    const pct = (gompertz as Function)(adu, agentMuMax, agentLambda, agentAsymptote) as number;
+    const h   = (i / steps) * maxH;
+    const adu = h * ratio;   // ADU = ore × kRatio(T) — reagisce a temperatura
+    const raw = (gompertz as Function)(adu, agentMuMax, agentLambda, agentAsymptote) as number;
+    const pct = isNaN(raw) ? 0 : raw;
     points.push({ h: parseFloat(h.toFixed(2)), pct: parseFloat(pct.toFixed(1)) });
   }
   return points;
@@ -254,16 +262,36 @@ function AlertFeed({ alerts, onClear }: { alerts: any[]; onClear: () => void }) 
 
 // ─── Gompertz Chart ───────────────────────────────────────────────────────────
 function GompertzChart({ session, ts }: { session: any; ts: any }) {
-  const totalH = (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4) + (session.tcHours ?? 0);
+  // totalH dipende dal protocollo (TC/Misto usano tcHours, non puntataH)
+  const proto  = session.apprettoProtocol ?? 'ta';
+  const totalH = proto === 'tc'
+    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5)
+    : proto === 'misto'
+    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
+    : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4);
+
+  // Temperatura effettiva: usa tempDough se disponibile, altrimenti tempAmbient
+  const tempC = ts?.tempDough ?? ts?.tempAmbient ?? 22;
+
   const data = useMemo(() =>
-    buildGompertzData(session.agentMuMax, session.agentLambda, session.agentAsymptote ?? 100, totalH),
-    [session.agentMuMax, session.agentLambda, session.agentAsymptote, totalH]
+    buildGompertzData(
+      session.agentMuMax, session.agentLambda, session.agentAsymptote ?? 100,
+      totalH, tempC, session.agentEaKj, session.agentType,
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.agentMuMax, session.agentLambda, session.agentAsymptote,
+     session.agentEaKj, session.agentType, totalH, tempC]
   );
-  const elapsed = ts ? ts.elapsedH : 0;
+  const elapsed = ts?.elapsedH ?? 0;
 
   return (
     <Card>
-      <span style={{ ...S.label, display: 'block', marginBottom: 10 }}>Curva Gompertz</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={S.label}>Curva Gompertz</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+          {tempC.toFixed(1)}°C · {proto.toUpperCase()}
+        </span>
+      </div>
       <ResponsiveContainer width="100%" height={160}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
