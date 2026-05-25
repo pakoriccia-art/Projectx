@@ -2,7 +2,7 @@
  * PizzaMatrix — Shared UI Primitives
  * Design system §6: tokens, typography, interaction patterns
  */
-import { type InputHTMLAttributes, type ReactNode, useState } from 'react';
+import { type InputHTMLAttributes, type ReactNode, useState, useEffect } from 'react';
 
 const S = {
   // Card
@@ -100,6 +100,10 @@ export function Metric({ label, value, unit, color }: { label: string; value: st
 }
 
 // ─── NumInput (fix floating point §9 bug #8) ──────────────────────────────────
+// Bug fix: onChange non deve propagare valori intermedi durante la digitazione
+// (es. typing "350" propagava 3 → 35 → 350 ad ogni tasto).
+// Ora il valore viene committato solo su blur o tasto Enter.
+// useEffect sincronizza il display se il prop value cambia dall'esterno.
 export function NumInput({
   label, value, onChange, min, max, step = 1, unit,
   ...rest
@@ -107,14 +111,16 @@ export function NumInput({
   label: string; value: number; onChange: (v: number) => void;
   min?: number; max?: number; step?: number; unit?: string;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'>) {
-  const [raw, setRaw] = useState(String(value));
+  const [raw, setRaw]       = useState(String(value));
+  const [dirty, setDirty]   = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setRaw(e.target.value);
-    const parsed = parseFloat(e.target.value);
-    if (!isNaN(parsed)) onChange(parsed);
-  };
-  const handleBlur = () => {
+  // Sincronizza display quando il valore esterno cambia (es. wizard reset)
+  useEffect(() => {
+    if (!dirty) setRaw(String(value));
+  }, [value, dirty]);
+
+  const commit = () => {
+    setDirty(false);
     const parsed = parseFloat(raw);
     if (isNaN(parsed)) { setRaw(String(value)); return; }
     const clamped = min != null && max != null
@@ -129,7 +135,9 @@ export function NumInput({
       <label style={S.label}>{label}{unit ? ` (${unit})` : ''}</label>
       <input
         type="number" value={raw}
-        onChange={handleChange} onBlur={handleBlur}
+        onChange={e => { setRaw(e.target.value); setDirty(true); }}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         min={min} max={max} step={step}
         style={S.input} {...rest}
       />

@@ -649,7 +649,7 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             <SliderInput
               label="Dose malto" value={draft.maltDosePct ?? 0.3}
               onChange={v => update({ maltDosePct: v })}
-              min={0.1} max={1.0} step={0.05} unit="% su farina"
+              min={0.1} max={3.0} step={0.05} unit="% su farina"
               color="var(--pref-biga)" />
             <NumInput
               label="Potere diastatico" unit="°Lintner"

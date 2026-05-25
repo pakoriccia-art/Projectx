@@ -177,10 +177,14 @@ const SALT_INHIBITION_PARAMS = {
 /** Blend W non-lineare — §2.14.1 */
 const W_BLEND_NONLINEAR_K = 0.0003;  // da calibrare su alveografo [§10]
 
-/** Malto diastatico — §2.15 */
+/** Malto diastatico — §2.15
+ * maltAmylaseScale calibrato: 1% dose a 200°L contribuisce +0.60 all'amylaseIndex totale.
+ * Farina tipica (FN=340) ha index~0.51 → con 1%/200°L totale=1.11 (+26% velocità ADU).
+ * Rif: amylaseCorrectedRate usa rateScale=0.4; scala precedente (1.2) era ~50× sottostimata.
+ */
 const MALT_PARAMS = {
   refDPLintner:     200,
-  maltAmylaseScale: 1.2,
+  maltAmylaseScale: 60,
   alertAdvisory:    1.50,
   alertCritical:    1.80,
   maxSafeIndex:     2.00,
