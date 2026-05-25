@@ -59,19 +59,23 @@ function buildGompertzData(
 }
 
 // ─── Sweet Spot Card ──────────────────────────────────────────────────────────
+// Engine sweetSpot(session, currentAdu, currentTempC) → { status, hoursUntilPeak, peakPct }
 function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
   const spot = useMemo(() => {
     try {
-      return (sweetSpot as Function)(session, ts?.tempDough ?? 22) as {
-        startH: number; endH: number; peakH: number; confidence: number;
-      };
+      const result = (sweetSpot as Function)(
+        session,
+        ts?.cumulativeAdu ?? 0,   // currentAdu  (era erroneamente la temperatura)
+        ts?.tempDough ?? 22,       // currentTempC
+      ) as { status: string; hoursUntilPeak: number; peakPct: number } | null;
+      return result;
     } catch { return null; }
-  }, [session, ts?.tempDough]);
+  }, [session, ts?.cumulativeAdu, ts?.tempDough]);
 
   if (!spot) return null;
-  const now = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
-  const elapsed = (Date.now() - now.getTime()) / 3_600_000;
-  const remaining = Math.max(0, spot.startH - elapsed);
+
+  const isPast  = spot.status === 'past_peak';
+  const hoursLeft = Math.max(0, spot.hoursUntilPeak ?? 0);
 
   return (
     <Card elevated>
@@ -79,20 +83,28 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
         <span style={S.label}>Sweet Spot</span>
         <span style={{
           fontSize: '0.68rem', fontFamily: 'var(--font-mono)',
-          background: 'rgba(255,140,50,0.15)', color: 'var(--accent-brand)',
+          background: isPast ? 'rgba(0,184,148,0.15)' : 'rgba(255,140,50,0.15)',
+          color: isPast ? 'var(--state-optimal-hi)' : 'var(--accent-brand)',
           borderRadius: 4, padding: '2px 6px',
         }}>
-          conf. {(spot.confidence * 100).toFixed(0)}%
+          target {spot.peakPct ?? 85}%
         </span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <Metric label="Inizio" value={spot.startH.toFixed(1)} unit="h" color="var(--state-optimal-lo)" />
-        <Metric label="Picco" value={spot.peakH.toFixed(1)} unit="h" color="var(--accent-brand)" />
-        <Metric label="Fine" value={spot.endH.toFixed(1)} unit="h" color="var(--state-approaching)" />
-      </div>
-      {remaining > 0 && (
+
+      {isPast ? (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-optimal-hi)' }}>
+          ✓ Zona ottimale raggiunta — inforna!
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Metric label="Ore al picco" value={hoursLeft.toFixed(1)} unit="h" color="var(--accent-brand)" />
+          <Metric label="Maturazione target" value={`${spot.peakPct ?? 85}`} unit="%" color="var(--state-optimal-lo)" />
+        </div>
+      )}
+
+      {!isPast && hoursLeft > 0 && (
         <div style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-          Mancano ~{remaining.toFixed(1)}h al sweet spot
+          Stima: ~{hoursLeft.toFixed(1)}h al sweet spot a {(ts?.tempDough ?? 22).toFixed(1)}°C
         </div>
       )}
     </Card>
