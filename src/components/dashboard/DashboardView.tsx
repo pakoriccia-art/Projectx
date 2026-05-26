@@ -85,9 +85,10 @@ function buildMultiSegmentData(
       { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : /* tc_appreto */ [
-      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
-      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC',   color: 'var(--state-cold)',   phase: 'balled_fridge' },
+      { durationH: session.puntataH,   tempC: tAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)',       phase: 'bulk_room'    },
+      { durationH: session.staglioH,   tempC: tAmbient, label: 'Staglio',     color: 'var(--text-muted)',         phase: 'balled_room'  },
+      { durationH: tcH,                tempC: fridgeT,  label: 'Appretto TC', color: 'var(--state-cold)',         phase: 'balled_fridge' },
+      ...(session.apprettoH > 0 ? [{ durationH: session.apprettoH, tempC: tAmbient, label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' }] : []),
     ];
 
   // Riscala i segmenti PRECEDENTI alla fase corrente in base al tempo effettivo trascorso.
@@ -458,7 +459,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5)
     : proto === 'tc_puntata'
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
-    : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12);
+    : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12) + (session.apprettoH ?? 0);
   const maxH     = Math.max(totalH * 1.5, 24);
   const chartW   = Math.max(300, Math.round(maxH * PX_PER_HOUR));
 

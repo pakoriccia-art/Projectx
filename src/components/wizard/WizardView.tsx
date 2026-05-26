@@ -101,6 +101,24 @@ function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: 
   return Math.max(W0 * 0.6, W0 * decay);
 }
 
+// ─── Calcolo tempo di riscaldo: da T frigo a 18°C (servizio) con legge di Newton ─
+// Specula thermalTimeConstantSphere del motore (costanti identiche: CP_WATER=4186, CP_FLOUR=1840,
+// RHO_DOUGH=1050, H_AIR=8). Restituisce le ORE per portare il core del panetto a 18°C a tAmb.
+// Ritorna 0 se tAmb ≤ 18°C (ambiente freddo → riscaldo impossibile) o fridgeTempC ≥ 18°C.
+function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number): number {
+  const T_SERVICE = 18;                                    // °C — temperatura servizio target
+  if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
+  const h   = Math.max(0.01, hydrationPct / 100);
+  const cp  = 4186 * h + 1840 * (1 - h);                  // J/(kg·K) — calore specifico impasto
+  const V   = panMassKg / 1050;                           // m³ — volume panetto
+  const r   = Math.cbrt((3 * V) / (4 * Math.PI));         // m — raggio sfera equivalente
+  const A   = 4 * Math.PI * r * r;                        // m² — superficie
+  const tau = (panMassKg * cp) / (8 * A);                 // s — τ sferica (H_AIR=8 W/m²K)
+  const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
+  if (ratio <= 0) return 0;
+  return Math.max(0, (tau * Math.log(ratio)) / 3600);     // ore
+}
+
 function buildSession(draft: WizardDraft): Session {
   const agent  = AGENT_GOMPERTZ as any;
   const aType  = draft.agentType ?? 'fresh_yeast';
@@ -158,13 +176,22 @@ function buildSession(draft: WizardDraft): Session {
   const _proto = draft.apprettoProtocol ?? 'ta';
   const _p = draft.puntataH ?? 8;
   const _s = draft.staglioH ?? 0.5;
-  const _a = draft.apprettoH ?? 4;
   const _tc = draft.tcHours ?? 12;
+
+  // Per tc_appreto: apprettoH = tempo di riscaldo calcolato dinamicamente (frigo → 18°C servizio)
+  // T ambiente 22°C assunta — il wizard non raccoglie tAmb.
+  const _warmup = _proto === 'tc_appreto' ? (() => {
+    const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
+    const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
+    return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22);
+  })() : 0;
+  const _a = _proto === 'tc_appreto' ? _warmup : (draft.apprettoH ?? 4);
+
   const totalH =
-    _proto === 'ta'         ? _p + _s + _a
-    : _proto === 'tc'       ? _tc + _s
+    _proto === 'ta'           ? _p + _s + _a
+    : _proto === 'tc'         ? _tc + _s
     : _proto === 'tc_puntata' ? _tc + _s + _a
-    : /* tc_appreto */        _p + _s + _tc;
+    : /* tc_appreto */          _p + _s + _tc + _a;
   const bakeAt = draft.targetBakeAt ?? new Date(Date.now() + totalH * 3_600_000);
 
   return {
@@ -193,7 +220,7 @@ function buildSession(draft: WizardDraft): Session {
     apprettoProtocol:       draft.apprettoProtocol ?? 'ta',
     puntataH:               draft.puntataH ?? 8,
     staglioH:               draft.staglioH ?? 0.5,
-    apprettoH:              draft.apprettoH ?? 4,
+    apprettoH:              _a,
     tcHours:                draft.tcHours,
     fridgeTempC:            draft.fridgeTempC ?? 4,
     numPanetti:             draft.numPanetti ?? 6,
@@ -232,15 +259,15 @@ function Step1({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         onChange={v => update({ style: v as any })} />
       <NumInput label="Farina totale" unit="g"
         value={draft.totalFlourGrams ?? 1000} onChange={v => update({ totalFlourGrams: v })}
-        min={200} max={10000} step={50} />
+        min={200} max={9000} step={50} />
       <NumInput label="Numero panetti"
         value={draft.numPanetti ?? 6} onChange={v => update({ numPanetti: Math.round(v) })}
-        min={1} max={50} step={1} />
+        min={1} max={100} step={1} />
       <Card style={{ background: 'rgba(255,140,50,0.08)', border: '1px solid rgba(255,140,50,0.2)' }}>
         <span style={{ ...S.label, color: 'var(--accent-brand)' }}>Peso panetto stimato</span>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, marginTop: 4 }}>
           {draft.totalFlourGrams && draft.numPanetti
-            ? `~${Math.round((draft.totalFlourGrams * (1 + (65 / 100))) / draft.numPanetti)}g`
+            ? `~${Math.round((draft.totalFlourGrams * (1 + ((draft.hydration ?? 65) / 100))) / draft.numPanetti)}g`
             : '—'}
         </div>
       </Card>
@@ -779,12 +806,20 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const freddo  = draft.tcHours ?? 12;
   const fridgeT = draft.fridgeTempC ?? 4;
 
+  // Riscaldo TA finale (solo tc_appreto): ore per portare il panetto da frigo a 18°C
+  // T ambiente assunta 22°C (default cucina) poiché il wizard non raccoglie tAmb.
+  const warmupHDisplay = proto === 'tc_appreto' ? (() => {
+    const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
+    const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
+    return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22);
+  })() : 0;
+
   // Durata totale per protocollo
   const totalH =
-    proto === 'ta'          ? puntata + staglio + appreto
-    : proto === 'tc'        ? freddo + staglio
+    proto === 'ta'           ? puntata + staglio + appreto
+    : proto === 'tc'         ? freddo + staglio
     : proto === 'tc_puntata' ? freddo + staglio + appreto
-    : /* tc_appreto */        puntata + staglio + freddo;
+    : /* tc_appreto */         puntata + staglio + freddo + warmupHDisplay;
 
   const isTcProto = proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto';
 
@@ -847,7 +882,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         </FormSection>
       </>}
 
-      {/* ── TC Appretto: TA → frigo ── */}
+      {/* ── TC Appretto: TA → frigo → riscaldo ── */}
       {proto === 'tc_appreto' && <>
         <FormSection title="🌡 Puntata a temperatura ambiente">
           <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
@@ -858,6 +893,23 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         <FormSection title="❄ Appretto in frigo" accent="var(--state-cold)">
           <SliderInput label="Durata appretto" value={freddo} onChange={v => update({ tcHours: v })}
             min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
+        </FormSection>
+        <FormSection title="🌡 Riscaldo TA finale" accent="var(--state-approaching)">
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '10px 14px', background: 'rgba(253,203,110,0.08)',
+            borderRadius: 'var(--radius-sm)', border: '1px solid rgba(253,203,110,0.18)',
+          }}>
+            <span style={{ ...S.label, color: 'var(--state-approaching)' }}>
+              Da {fridgeT}°C → 18°C (servizio)
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--state-approaching)' }}>
+              {warmupHDisplay > 0.05 ? `${warmupHDisplay.toFixed(1)}h` : '< 5 min'}
+            </span>
+          </div>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+            Calcolato con legge di Newton · τ sferica · T ambiente 22°C assunta
+          </span>
         </FormSection>
       </>}
 
@@ -899,6 +951,12 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
   // Peso panetto stimato = (farina + acqua + sale) / numPanetti
   const totalDoughG = flour * (1 + hydration / 100 + salt / 100);
   const panWeight   = panetti > 0 ? Math.round(totalDoughG / panetti) : 0;
+
+  // Per tc_appreto: tempo di riscaldo TA finale (calcolato dinamicamente)
+  const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
+  const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto'
+    ? computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22)
+    : 0;
 
   const protoLabel: Record<string, string> = {
     ta:         'Tutto TA',
@@ -977,8 +1035,11 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
             <Metric label="Freddo" value={draft.tcHours ?? '–'} unit="h" color="var(--state-cold)" />
           )}
           <Metric label="Staglio" value={draft.staglioH ?? '–'} unit="h" />
-          {draft.apprettoProtocol !== 'tc' && (
+          {draft.apprettoProtocol !== 'tc' && draft.apprettoProtocol !== 'tc_appreto' && (
             <Metric label="Appretto" value={draft.apprettoH ?? '–'} unit="h" />
+          )}
+          {draft.apprettoProtocol === 'tc_appreto' && (
+            <Metric label="Riscaldo TA" value={warmupHStep8.toFixed(1)} unit="h" color="var(--state-approaching)" />
           )}
           {isTcProto && (
             <Metric label="T frigo" value={draft.fridgeTempC ?? 4} unit="°C" color="var(--state-cold)" />

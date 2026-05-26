@@ -46,6 +46,7 @@ interface PlanResult {
   desc:      string;
   stars:     number;       // 1-5
   matAtTarget?: number;   // maturazione% stimata all'orario target (se impostato)
+  warmupH?:  number;      // ore riscaldo TA finale (solo tc_appreto)
 }
 
 // ─── Costanti modello crescita lievito ───────────────────────────────────────
@@ -87,6 +88,31 @@ function computeEffectiveDoseAndAdu(
   return { effectiveDose: mainDose + yeastBoost, initialAdu };
 }
 
+// ─── Costanti modello termico (specchiate dall'engine, identiche a thermalTimeConstantSphere) ─
+const TH_CP_WATER  = 4186;   // J/(kg·K)
+const TH_CP_FLOUR  = 1840;   // J/(kg·K)
+const TH_RHO_DOUGH = 1050;   // kg/m³
+const TH_H_AIR     = 8;      // W/(m²·K) — convezione naturale aria in ambiente chiuso
+
+/**
+ * Ore per portare il core del panetto da fridgeTempC a 18°C (servizio) a tAmb.
+ * Usa legge di Newton + τ sferica (thermalTimeConstantSphere del motore).
+ * Ritorna 0 se tAmb ≤ 18°C (riscaldo impossibile) o fridgeTempC ≥ 18°C (già caldo).
+ */
+function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number): number {
+  const T_SERVICE = 18;
+  if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
+  const h   = Math.max(0.01, hydrationPct / 100);
+  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
+  const V   = panMassKg / TH_RHO_DOUGH;
+  const r   = Math.cbrt((3 * V) / (4 * Math.PI));
+  const A   = 4 * Math.PI * r * r;
+  const tau = (panMassKg * cp) / (TH_H_AIR * A);   // secondi
+  const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
+  if (ratio <= 0) return 0;
+  return Math.max(0, (tau * Math.log(ratio)) / 3600);  // ore
+}
+
 // ─── Helper: viabilità W vs ore di fermentazione effettiva ───────────────────
 // Le ore in frigo contano 20% rispetto alle ore a TA per il degrado proteolitico
 function assessW(W: number, warmH: number, coldH: number): { viability: Viability; note?: string } {
@@ -106,6 +132,7 @@ function computeAllProtocols(params: {
   tAmb: number; fridgeT: number;
   staglioH: number;
   targetTotalH?: number;  // opzionale per i protocolli misti
+  warmupH?: number;       // ore riscaldo TA finale per tc_appreto (Newton's law)
 }): PlanResult[] {
   const { W, agentType, agentDosePct, aParams, pref, tAmb, fridgeT, staglioH } = params;
 
@@ -179,15 +206,25 @@ function computeAllProtocols(params: {
   const taTotal = rAmb > 0 ? aduNeeded / rAmb + staglioH : 24;
   const tcTotal = rFri > 0 ? aduNeeded / rFri + staglioH : 72;
   const targetTotalH = params.targetTotalH ?? (taTotal + tcTotal) / 2;
-  const remainingH   = Math.max(1, targetTotalH - staglioH);
 
   // Formula analitica: coldH × kFri + warmH × kAmb = ADU_needed, coldH + warmH = remainingH
   // → coldH = (remainingH × rAmb − aduNeeded) / (rAmb − rFri)
   const denominator = rAmb - rFri;
+
+  // ── TC Puntata: nessuna fase di riscaldo — usa il tempo pieno per fermentazione ─
+  const remainingH_puntata = Math.max(1, targetTotalH - staglioH);
   const coldH_mixed = denominator > 1e-12
-    ? (remainingH * rAmb - aduNeeded) / denominator
+    ? (remainingH_puntata * rAmb - aduNeeded) / denominator
     : null;
-  const warmH_mixed = coldH_mixed !== null ? remainingH - coldH_mixed : null;
+  const warmH_mixed = coldH_mixed !== null ? remainingH_puntata - coldH_mixed : null;
+
+  // ── TC Appreto: il warmupH è riservato al riscaldo finale → fermentazione sul tempo rimanente ─
+  const wH = params.warmupH ?? 0;
+  const remainingH_appreto = Math.max(1, targetTotalH - staglioH - wH);
+  const coldH_appreto = denominator > 1e-12
+    ? (remainingH_appreto * rAmb - aduNeeded) / denominator
+    : null;
+  const warmH_appreto = coldH_appreto !== null ? remainingH_appreto - coldH_appreto : null;
 
   // ── TC Puntata ───────────────────────────────────────────────────────────────
   if (coldH_mixed !== null && warmH_mixed !== null && coldH_mixed > 0.5 && warmH_mixed > 0.5) {
@@ -203,14 +240,16 @@ function computeAllProtocols(params: {
   }
 
   // ── TC Appreto ───────────────────────────────────────────────────────────────
-  if (coldH_mixed !== null && warmH_mixed !== null && coldH_mixed > 0.5 && warmH_mixed > 0.5) {
-    const { viability, note } = assessW(W, warmH_mixed, coldH_mixed);
+  if (coldH_appreto !== null && warmH_appreto !== null && coldH_appreto > 0.5 && warmH_appreto > 0.5) {
+    const { viability, note } = assessW(W, warmH_appreto, coldH_appreto);
+    const warmupSuffix = wH > 0.05 ? ` + Riscaldo TA ${wH.toFixed(1)}h` : '';
     results.push({
       protocol: 'tc_appreto', totalH: targetTotalH,
-      puntataH: warmH_mixed, staglioH, tcHours: coldH_mixed,
+      puntataH: warmH_appreto, staglioH, tcHours: coldH_appreto,
+      warmupH: wH > 0.05 ? wH : undefined,
       viability, viabilityNote: note,
       label: 'TC Appreto',
-      desc: `Puntata TA ${warmH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto freddo ${coldH_mixed.toFixed(1)}h`,
+      desc: `Puntata TA ${warmH_appreto.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto freddo ${coldH_appreto.toFixed(1)}h${warmupSuffix}`,
       stars: viability === 'ok' ? 3 : 2,
     });
   }
@@ -260,6 +299,7 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
         { durationH: result.puntataH ?? 0, tempC: tAmb },
         { durationH: s, tempC: tAmb },
         { durationH: result.tcHours ?? 0, tempC: fridgeT },
+        ...(result.warmupH ? [{ durationH: result.warmupH, tempC: tAmb }] : []),
       ];
 
     for (const seg of segs) {
@@ -359,6 +399,17 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
         {result.desc}
       </div>
+
+      {result.warmupH !== undefined && result.warmupH > 0.05 && (
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 6,
+          padding: '4px 8px', background: 'rgba(253,203,110,0.1)',
+          borderRadius: 4, border: '1px solid rgba(253,203,110,0.2)',
+          color: 'var(--state-approaching)',
+        }}>
+          🌡 Riscaldo TA finale: <strong>{result.warmupH.toFixed(1)}h</strong> (frigo → 18°C)
+        </div>
+      )}
 
       {result.matAtTarget !== undefined && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 6 }}>
@@ -469,12 +520,16 @@ export function FermentationPlannerView() {
   );
   const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseRef != null ? effectiveDose / doseRef : 1.0));
 
+  // Massa panetto — usata per il calcolo del riscaldo tc_appreto
+  const panMassKg = (totalFlourG * (1 + hydration / 100 + 0.028)) / 1000 / Math.max(1, numPanetti);
+  const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb);
+
   // Calcolo ottimale per tutti i protocolli (targetTotalH dalle ore fino a cottura)
   const results = useMemo(() => {
     try {
-      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake });
+      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner });
     } catch { return []; }
-  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake]);
+  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner]);
 
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
@@ -518,7 +573,7 @@ export function FermentationPlannerView() {
       apprettoProtocol: r.protocol,
       puntataH:         r.puntataH  ?? 8,
       staglioH:         r.staglioH,
-      apprettoH:        r.apprettoH ?? 4,
+      apprettoH:        r.protocol === 'tc_appreto' ? (r.warmupH ?? 0) : (r.apprettoH ?? 4),
       tcHours:          r.tcHours,
       fridgeTempC:      fridgeT,
       targetBakeAt,
