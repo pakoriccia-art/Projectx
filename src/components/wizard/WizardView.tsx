@@ -13,6 +13,7 @@ import {
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
 } from '../../engine';
+import { WizardInputSchema } from '../../lib/schemas';
 
 const TOTAL_STEPS = 8;
 
@@ -120,6 +121,15 @@ function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: nu
 }
 
 function buildSession(draft: WizardDraft): Session {
+  // ── Validazione Zod (guardia data-layer, limiti speculari ai max UI) ────────
+  const parsed = WizardInputSchema.safeParse({
+    totalFlourGrams: draft.totalFlourGrams,
+    numPanetti:      draft.numPanetti,
+  });
+  if (!parsed.success) {
+    const msg = parsed.error.issues.map(i => i.message).join(' · ');
+    throw new Error(msg);
+  }
   const agent  = AGENT_GOMPERTZ as any;
   const aType  = draft.agentType ?? 'fresh_yeast';
   const aParams = agent[aType];
@@ -259,7 +269,7 @@ function Step1({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         onChange={v => update({ style: v as any })} />
       <NumInput label="Farina totale" unit="g"
         value={draft.totalFlourGrams ?? 1000} onChange={v => update({ totalFlourGrams: v })}
-        min={200} max={9000} step={50} />
+        min={200} max={13_000} step={50} />
       <NumInput label="Numero panetti"
         value={draft.numPanetti ?? 6} onChange={v => update({ numPanetti: Math.round(v) })}
         min={1} max={100} step={1} />

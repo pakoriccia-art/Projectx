@@ -632,7 +632,7 @@ export function FermentationPlannerView() {
           />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <PlannerSlider label="Farina totale" value={totalFlourG} onChange={setTotalFlourG}
-              min={100} max={3000} step={50} unit="g" color="var(--text-primary)" />
+              min={100} max={13_000} step={50} unit="g" color="var(--text-primary)" />
             <PlannerSlider label="Panetti" value={numPanetti} onChange={setNumPanetti}
               min={1} max={20} step={1} color="var(--text-muted)" />
           </div>
