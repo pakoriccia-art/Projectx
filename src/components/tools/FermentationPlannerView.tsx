@@ -113,6 +113,41 @@ function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: nu
   return Math.max(0, (tau * Math.log(ratio)) / 3600);  // ore
 }
 
+/**
+ * ADU accumulato durante la risalita termica (stemperamento) da fridgeTempC verso tAmb.
+ * Integrazione numerica di Riemann (N=20 passi) su T(t) = tAmb + (fridgeT−tAmb)·exp(−t/τ).
+ * τ sferica = thermalTimeConstantSphere (costanti identiche a computeWarmupH).
+ *
+ * Garantisce l'allineamento esatto target bake ↔ sweet spot (85%):
+ *   ADU_totale @ targetTotalH = (aduNeeded − ADU_ramp) + ADU_ramp = aduNeeded → 85% ✓
+ *
+ * Ritorna 0 se wH ≤ 0.
+ */
+function computeRampAdu(
+  panMassKg: number, hydrationPct: number,
+  fridgeTempC: number, tAmb: number, wH: number,
+  Ea: number, agentType: string, kRef: number,
+): number {
+  if (wH <= 0 || kRef <= 1e-12) return 0;
+  const h    = Math.max(0.01, hydrationPct / 100);
+  const cp   = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
+  const V    = panMassKg / TH_RHO_DOUGH;
+  const r    = Math.cbrt((3 * V) / (4 * Math.PI));
+  const A    = 4 * Math.PI * r * r;
+  const tau  = (panMassKg * cp) / (TH_H_AIR * A);   // τ [s]
+  const N    = 20;
+  const dt_h = wH / N;
+  const dt_s = dt_h * 3600;
+  let adu    = 0;
+  for (let i = 0; i < N; i++) {
+    const t_mid = (i + 0.5) * dt_s;
+    const T     = tAmb + (fridgeTempC - tAmb) * Math.exp(-t_mid / tau);
+    const k     = (kEffective as Function)(T, Ea, agentType) as number;
+    adu        += (k / kRef) * dt_h;
+  }
+  return adu;
+}
+
 // ─── Helper: viabilità W vs ore di fermentazione effettiva ───────────────────
 // Le ore in frigo contano 20% rispetto alle ore a TA per il degrado proteolitico
 function assessW(W: number, warmH: number, coldH: number): { viability: Viability; note?: string } {
@@ -133,6 +168,7 @@ function computeAllProtocols(params: {
   staglioH: number;
   targetTotalH?: number;  // opzionale per i protocolli misti
   warmupH?: number;       // ore riscaldo TA finale per tc_appreto (Newton's law)
+  rampAdu?: number;       // ADU accumulato durante lo stemperamento (integrazione numerica)
 }): PlanResult[] {
   const { W, agentType, agentDosePct, aParams, pref, tAmb, fridgeT, staglioH } = params;
 
@@ -218,20 +254,35 @@ function computeAllProtocols(params: {
     : null;
   const warmH_mixed = coldH_mixed !== null ? remainingH_puntata - coldH_mixed : null;
 
-  // ── TC Appreto: il warmupH è riservato al riscaldo finale → fermentazione sul tempo rimanente ─
+  // ── TC Appreto: il warmupH è riservato allo stemperamento finale ────────────
+  // L'ADU accumulato durante la risalita termica (rampAdu) viene sottratto da
+  // aduNeeded prima di risolvere il sistema freddo/caldo, così il target bake
+  // coincide esattamente con l'inizio dello sweet spot (85% maturazione).
   const wH = params.warmupH ?? 0;
   const remainingH_appreto = Math.max(1, targetTotalH - staglioH - wH);
+  // aduNeeded_appreto = ADU da accumulare nelle sole fasi puntata+freddo
+  // (il resto verrà contribuito dallo stemperamento)
+  const aduNeeded_appreto = Math.max(0.01, aduNeeded - (params.rampAdu ?? 0));
   const coldH_appreto = denominator > 1e-12
-    ? (remainingH_appreto * rAmb - aduNeeded) / denominator
+    ? (remainingH_appreto * rAmb - aduNeeded_appreto) / denominator
     : null;
   const warmH_appreto = coldH_appreto !== null ? remainingH_appreto - coldH_appreto : null;
 
   // ── TC Puntata ───────────────────────────────────────────────────────────────
   if (coldH_mixed !== null && warmH_mixed !== null && coldH_mixed > 0.5 && warmH_mixed > 0.5) {
     const { viability, note } = assessW(W, warmH_mixed, coldH_mixed);
+    // matAtTarget: per costruzione rFri·coldH + rAmb·warmH = aduNeeded → 85% se targetTotalH è fornito
+    const matAtTarget_puntata: number | undefined = params.targetTotalH !== undefined
+      ? (() => {
+          const aduAtBake = initialAdu + rFri * coldH_mixed + rAmb * warmH_mixed;
+          const raw = (gompertz as Function)(aduAtBake, muMax, aParams.lambda, 100) as number;
+          return isNaN(raw) ? undefined : Math.min(100, Math.max(0, raw));
+        })()
+      : undefined;
     results.push({
       protocol: 'tc_puntata', totalH: targetTotalH,
       tcHours: coldH_mixed, staglioH, apprettoH: warmH_mixed,
+      matAtTarget: matAtTarget_puntata,
       viability, viabilityNote: note,
       label: 'TC Puntata',
       desc: `Puntata fredda ${coldH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto TA ${warmH_mixed.toFixed(1)}h`,
@@ -243,10 +294,19 @@ function computeAllProtocols(params: {
   if (coldH_appreto !== null && warmH_appreto !== null && coldH_appreto > 0.5 && warmH_appreto > 0.5) {
     const { viability, note } = assessW(W, warmH_appreto, coldH_appreto);
     const warmupSuffix = wH > 0.05 ? ` + Riscaldo TA ${wH.toFixed(1)}h` : '';
+    // matAtTarget: ADU_totale @ targetBake = aduNeeded_appreto + rampAdu = aduNeeded → 85% per costruzione
+    const matAtTarget_appreto: number | undefined = params.targetTotalH !== undefined
+      ? (() => {
+          const aduAtBake = initialAdu + rAmb * warmH_appreto + rFri * coldH_appreto + (params.rampAdu ?? 0);
+          const raw = (gompertz as Function)(aduAtBake, muMax, aParams.lambda, 100) as number;
+          return isNaN(raw) ? undefined : Math.min(100, Math.max(0, raw));
+        })()
+      : undefined;
     results.push({
       protocol: 'tc_appreto', totalH: targetTotalH,
       puntataH: warmH_appreto, staglioH, tcHours: coldH_appreto,
       warmupH: wH > 0.05 ? wH : undefined,
+      matAtTarget: matAtTarget_appreto,
       viability, viabilityNote: note,
       label: 'TC Appreto',
       desc: `Puntata TA ${warmH_appreto.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto freddo ${coldH_appreto.toFixed(1)}h${warmupSuffix}`,
@@ -295,12 +355,24 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
         { durationH: s, tempC: tAmb },
         { durationH: result.apprettoH ?? 0, tempC: tAmb },
       ]
-      : [
-        { durationH: result.puntataH ?? 0, tempC: tAmb },
-        { durationH: s, tempC: tAmb },
-        { durationH: result.tcHours ?? 0, tempC: fridgeT },
-        ...(result.warmupH ? [{ durationH: result.warmupH, tempC: tAmb }] : []),
-      ];
+      : (() => {
+          // Ramp tc_appreto: 5 sub-passi con T(t) = tAmb+(fridgeT-tAmb)·exp(-t/τ_approx)
+          // τ_approx: sfera ~280g, hyd 65% → ~10800s (approssimazione fissa per la curva)
+          const TAU_APPROX_S = 10800;
+          const rampSegs = result.warmupH
+            ? Array.from({ length: 5 }, (_, i) => {
+                const t = (i + 0.5) * (result.warmupH! / 5) * 3600;
+                const T = tAmb + (fridgeT - tAmb) * Math.exp(-t / TAU_APPROX_S);
+                return { durationH: result.warmupH! / 5, tempC: T };
+              })
+            : [];
+          return [
+            { durationH: result.puntataH ?? 0, tempC: tAmb },
+            { durationH: s,                    tempC: tAmb },
+            { durationH: result.tcHours ?? 0,  tempC: fridgeT },
+            ...rampSegs,
+          ];
+        })();
 
     for (const seg of segs) {
       const kT = (kEffective as Function)(seg.tempC, aParams.Ea, agentType) as number;
@@ -520,16 +592,25 @@ export function FermentationPlannerView() {
   );
   const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseRef != null ? effectiveDose / doseRef : 1.0));
 
-  // Massa panetto — usata per il calcolo del riscaldo tc_appreto
+  // Massa panetto — usata per riscaldo e integrazione ramp tc_appreto
   const panMassKg = (totalFlourG * (1 + hydration / 100 + 0.028)) / 1000 / Math.max(1, numPanetti);
   const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb);
+
+  // ADU accumulato durante lo stemperamento (integrazione Riemann N=20)
+  // Sottratto da aduNeeded prima di risolvere il split TA/TC per tc_appreto,
+  // garantendo che target bake ≡ inizio sweet spot (85% maturazione).
+  const rampAduPlanner = (() => {
+    if (warmupHPlanner <= 0) return 0;
+    const kRef = (kEffective as Function)(25, aParams.Ea, agentType) as number;
+    return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef);
+  })();
 
   // Calcolo ottimale per tutti i protocolli (targetTotalH dalle ore fino a cottura)
   const results = useMemo(() => {
     try {
-      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner });
+      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner, rampAdu: rampAduPlanner });
     } catch { return []; }
-  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner]);
+  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner]);
 
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
