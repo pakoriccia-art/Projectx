@@ -81,6 +81,8 @@ type Action =
   | { type: 'WIZARD_STEP'; step: number }
   | { type: 'WIZARD_UPDATE'; patch: Partial<WizardDraft> }
   | { type: 'WIZARD_RESET' }
+  /** Reset + patch + step in un'unica transizione atomica — evita flash intermedi (Bug 6) */
+  | { type: 'WIZARD_RESET_WITH_PATCH'; patch: Partial<WizardDraft>; step?: number }
   | { type: 'SESSION_START'; session: Session }
   | { type: 'SESSION_UPDATE'; patch: Partial<Session> }
   | { type: 'TICK'; patch: Partial<TickState> }
@@ -116,6 +118,25 @@ function reducer(state: AppState, action: Action): AppState {
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
       }, wizardStep: 1 };
+    case 'WIZARD_RESET_WITH_PATCH':
+      return { ...state, wizardDraft: {
+        totalFlourGrams:  1000,
+        numPanetti:       6,
+        hydration:        65,
+        salt:             2.0,
+        fat:              0,
+        altitudeM:        0,
+        waterHardnessPpm: 150,
+        puntataH:         8,
+        staglioH:         0.5,
+        apprettoH:        4,
+        tcHours:          12,
+        fridgeTempC:      4,
+        maltDP:           200,
+        containerPreset:  'closed_box',
+        apprettoProtocol: 'ta',
+        ...action.patch,                // sovrascrive i default con i valori del planner
+      }, wizardStep: action.step ?? 1 };
     case 'SESSION_START':
       return { ...state, activeSession: action.session, view: 'dashboard', tickState: null };
     case 'SESSION_UPDATE':

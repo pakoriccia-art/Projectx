@@ -131,8 +131,8 @@ function RottaContent() {
               {spotCurr ? (
                 <>
                   <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    {typeof spotCurr.hoursUntilPeak === 'number' && (spotCurr.hoursUntilPeak as number) > 0
-                      ? `+${(spotCurr.hoursUntilPeak as number).toFixed(1)}h`
+                    {Number.isFinite(spotCurr.hoursUntilPeak) && spotCurr.hoursUntilPeak > 0
+                      ? `+${spotCurr.hoursUntilPeak.toFixed(1)}h`
                       : 'In finestra'}
                   </div>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
@@ -148,8 +148,8 @@ function RottaContent() {
               {spotNew ? (
                 <>
                   <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-brand)' }}>
-                    {typeof spotNew.hoursUntilPeak === 'number' && (spotNew.hoursUntilPeak as number) > 0
-                      ? `+${(spotNew.hoursUntilPeak as number).toFixed(1)}h`
+                    {Number.isFinite(spotNew.hoursUntilPeak) && spotNew.hoursUntilPeak > 0
+                      ? `+${spotNew.hoursUntilPeak.toFixed(1)}h`
                       : 'In finestra'}
                   </div>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
@@ -160,8 +160,8 @@ function RottaContent() {
             </div>
           </div>
           {spotCurr && spotNew &&
-            typeof spotCurr.hoursUntilPeak === 'number' &&
-            typeof spotNew.hoursUntilPeak === 'number' && (
+            Number.isFinite(spotCurr.hoursUntilPeak) &&
+            Number.isFinite(spotNew.hoursUntilPeak) && (
             <div style={{
               marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)',
               fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
@@ -170,14 +170,14 @@ function RottaContent() {
               <span>Δ picco con nuova T</span>
               <span style={{
                 fontWeight: 700,
-                color: (spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) > 0
+                color: spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak > 0
                   ? 'var(--state-cold)'
-                  : (spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) < 0
+                  : spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak < 0
                   ? 'var(--state-optimal-lo)'
                   : 'var(--text-muted)',
               }}>
-                {(spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number) > 0 ? '+' : ''}
-                {((spotNew.hoursUntilPeak as number) - (spotCurr.hoursUntilPeak as number)).toFixed(1)}h
+                {spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak > 0 ? '+' : ''}
+                {(spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak).toFixed(1)}h
               </span>
             </div>
           )}

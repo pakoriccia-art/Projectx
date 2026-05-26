@@ -58,8 +58,10 @@ const T_20C_K            = 293.15;
 // Il motore usa Zwietering 1990: A*exp(-exp((muMax*e/A)*(lambda-ADU)+1))
 // Il coefficiente effettivo è muMax*e/A, NON muMax.
 // Inversione corretta: ADU = lambda - (ln(-ln(target/A)) - 1) * A / (muMax * e)
+// Clamp in (0,1) esclusivo per prevenire log(0) o log(negativo) se target ≥ asymptote.
 function invertGompertz(target: number, muMax: number, lambda: number, asymptote = 100): number {
-  const x = Math.log(-Math.log(Math.max(0.001, target / asymptote)));
+  const safeRatio = Math.max(1e-4, Math.min(target / asymptote, 1 - 1e-4));
+  const x = Math.log(-Math.log(safeRatio));
   // Zwietering 1990: coefficiente = muMax * Math.E / asymptote
   return lambda - (x - 1) * asymptote / (muMax * Math.E);
 }
@@ -505,10 +507,8 @@ export function FermentationPlannerView() {
       yeastPct: prefType === 'riporto' ? undefined : prefYeast,
     }] : [];
 
-    // WIZARD_RESET imposta wizardStep:1 + defaults (idratazione, sale, contenitore, etc.)
-    dispatch({ type: 'WIZARD_RESET' });
-    // WIZARD_UPDATE sovrascrive con i valori del planner
-    dispatch({ type: 'WIZARD_UPDATE', patch: {
+    // Transizione atomica: reset + patch + step 8 in un solo dispatch (evita flash Step1)
+    dispatch({ type: 'WIZARD_RESET_WITH_PATCH', step: 8, patch: {
       style,
       protocol,
       mainFlourGroup,
@@ -526,8 +526,6 @@ export function FermentationPlannerView() {
       hydration,
       numPanetti,
     }});
-    // Salta direttamente al riepilogo (step 8) — bypassando i 7 step di configurazione
-    dispatch({ type: 'WIZARD_STEP', step: 8 });
     dispatch({ type: 'NAV', view: 'wizard' });
   };
 
@@ -675,6 +673,11 @@ export function FermentationPlannerView() {
             {hoursUntilBake === undefined && (
               <span style={{ color: 'var(--state-critical)', marginLeft: 10 }}>· data nel passato</span>
             )}
+          </div>
+        )}
+        {hoursUntilBake !== undefined && hoursUntilBake < staglioH + 2 && (
+          <div style={{ color: 'var(--state-critical)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
+            ⚠ Meno di {(staglioH + 2).toFixed(0)}h al target — protocolli misti non disponibili
           </div>
         )}
       </Card>

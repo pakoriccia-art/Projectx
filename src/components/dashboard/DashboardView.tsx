@@ -110,6 +110,7 @@ function buildMultiSegmentData(
       cumulativeAdu += segStepH * ratio;
       const h   = segStartH + i * segStepH;
       const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
       points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
     }
 
@@ -130,6 +131,7 @@ function buildMultiSegmentData(
       cumulativeAdu += extraStepH * ratio;
       const h   = totalH + i * extraStepH;
       const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN (tail): ADU=', cumulativeAdu);
       points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
     }
   }
@@ -404,7 +406,7 @@ function AlertFeed({ alerts, onClear }: { alerts: any[]; onClear: () => void }) 
           fontFamily: 'var(--font-mono)', fontSize: '0.72rem', cursor: 'pointer',
         }}>Pulisci</button>
       </div>
-      {[...alerts].reverse().slice(0, 5).map(a => (
+      {[...(alerts ?? [])].reverse().slice(0, 5).map(a => (
         <AlertBadge key={a.id} level={a.level} message={a.message} />
       ))}
     </div>
