@@ -106,7 +106,17 @@ function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: 
 // Specula thermalTimeConstantSphere del motore (costanti identiche: CP_WATER=4186, CP_FLOUR=1840,
 // RHO_DOUGH=1050, H_AIR=8). Restituisce le ORE per portare il core del panetto a 18°C a tAmb.
 // Ritorna 0 se tAmb ≤ 18°C (ambiente freddo → riscaldo impossibile) o fridgeTempC ≥ 18°C.
-function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number): number {
+/**
+ * Ore necessarie affinché il panetto raggiunga 18°C partendo da fridgeTempC,
+ * usando Newton's law of cooling con geometria sferica.
+ * tauMultiplier ≥ 1.0 amplifica l'inerzia termica in base al contenitore
+ * (es. closed_box = 2.5×, plastic_bag = 2.2×) — speculare all'engine
+ * applyContainerResistance() usato nel tick loop.
+ */
+function computeWarmupH(
+  panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number,
+  tauMultiplier = 1.0,
+): number {
   const T_SERVICE = 18;                                    // °C — temperatura servizio target
   if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
   const h   = Math.max(0.01, hydrationPct / 100);
@@ -114,7 +124,8 @@ function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: nu
   const V   = panMassKg / 1050;                           // m³ — volume panetto
   const r   = Math.cbrt((3 * V) / (4 * Math.PI));         // m — raggio sfera equivalente
   const A   = 4 * Math.PI * r * r;                        // m² — superficie
-  const tau = (panMassKg * cp) / (8 * A);                 // s — τ sferica (H_AIR=8 W/m²K)
+  // τ moltiplicato per tauMultiplier del contenitore (inerzia extra da coperchio/borsa)
+  const tau = (panMassKg * cp) / (8 * A) * tauMultiplier; // s — τ sferica con resistenza contenitore
   const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
   if (ratio <= 0) return 0;
   return Math.max(0, (tau * Math.log(ratio)) / 3600);     // ore
@@ -190,10 +201,14 @@ function buildSession(draft: WizardDraft): Session {
 
   // Per tc_appreto: apprettoH = tempo di riscaldo calcolato dinamicamente (frigo → 18°C servizio)
   // T ambiente 22°C assunta — il wizard non raccoglie tAmb.
+  // Il tauMultiplier del contenitore viene applicato per riflettere l'inerzia del contenitore
+  // scelto (es. closed_box → τ × 2.5): coerente con applyContainerResistance() nel tick loop.
   const _warmup = _proto === 'tc_appreto' ? (() => {
     const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22);
+    const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+    const tauMult = cPreset?.tauMultiplier ?? 1.0;
+    return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22, tauMult);
   })() : 0;
   const _a = _proto === 'tc_appreto' ? _warmup : (draft.apprettoH ?? 4);
 
@@ -818,10 +833,13 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
   // Riscaldo TA finale (solo tc_appreto): ore per portare il panetto da frigo a 18°C
   // T ambiente assunta 22°C (default cucina) poiché il wizard non raccoglie tAmb.
+  // Applica tauMultiplier del contenitore selezionato (inerzia termica).
   const warmupHDisplay = proto === 'tc_appreto' ? (() => {
     const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22);
+    const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+    const tauMult = cPreset?.tauMultiplier ?? 1.0;
+    return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22, tauMult);
   })() : 0;
 
   // Durata totale per protocollo
@@ -962,10 +980,14 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
   const totalDoughG = flour * (1 + hydration / 100 + salt / 100);
   const panWeight   = panetti > 0 ? Math.round(totalDoughG / panetti) : 0;
 
-  // Per tc_appreto: tempo di riscaldo TA finale (calcolato dinamicamente)
+  // Per tc_appreto: tempo di riscaldo TA finale (calcolato dinamicamente, con inerzia contenitore)
   const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
   const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto'
-    ? computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22)
+    ? (() => {
+        const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+        const tauMult = cPreset?.tauMultiplier ?? 1.0;
+        return computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMult);
+      })()
     : 0;
 
   const protoLabel: Record<string, string> = {

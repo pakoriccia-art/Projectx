@@ -161,8 +161,10 @@ function buildMultiSegmentData(
 
 // ─── Sweet Spot Card ──────────────────────────────────────────────────────────
 // Engine sweetSpot(session, currentAdu, currentTempC) → { status, hoursUntilPeak, peakPct }
-// Usa tempAmbient (aggiornato immediatamente dall'utente) non tempDough (inerzia termica)
-function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
+// Usa tempAmbient (aggiornato immediatamente dall'utente) non tempDough (inerzia termica).
+// remainingH = ore al target cottura pianificato (countdown del clock); usata per TC protocols
+// dove la proiezione a temperatura costante darebbe un valore scorretto (impasto freddo).
+function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; remainingH: number }) {
   const tAmb = ts?.tempAmbient ?? 22;   // reagisce subito al cambio utente
   const spot = useMemo(() => {
     try {
@@ -179,8 +181,15 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
 
   if (!spot) return null;
 
-  const isPast  = spot.status === 'past_peak';
+  const isPast    = spot.status === 'past_peak';
   const hoursLeft = Math.max(0, spot.hoursUntilPeak ?? 0);
+  // Quando l'impasto è in TC, la proiezione a temperatura costante è fuorviante (può dare
+  // centinaia di ore). Se remainingH è disponibile e plausibile, è la fonte primaria.
+  const hasSchedule     = remainingH > 0;
+  const isColdPhase     = (ts?.phase === 'balled_fridge' || ts?.phase === 'bulk_fridge');
+  // Divergenza significativa: proiezione a T costante distante > 2h dal piano
+  const estimateDiverges = hasSchedule && Math.abs(hoursLeft - remainingH) > 2;
+  const primaryH = hasSchedule ? remainingH : hoursLeft;
 
   return (
     <Card elevated>
@@ -202,14 +211,25 @@ function SweetSpotCard({ session, ts }: { session: any; ts: any }) {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Metric label="Ore al picco" value={hoursLeft.toFixed(1)} unit="h" color="var(--accent-brand)" />
+          <Metric
+            label={hasSchedule ? 'Al target cottura' : 'Ore al picco'}
+            value={primaryH.toFixed(1)}
+            unit="h"
+            color="var(--accent-brand)"
+          />
           <Metric label="Maturazione target" value={`${spot.peakPct ?? 85}`} unit="%" color="var(--state-optimal-lo)" />
         </div>
       )}
 
-      {!isPast && hoursLeft > 0 && (
+      {/* Nota proiezione a T costante — mostrata solo quando stima diverge dal piano */}
+      {!isPast && estimateDiverges && isColdPhase && (
+        <div style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          ❄ In TC · stima a {tAmb.toFixed(1)}°C costante: ~{hoursLeft.toFixed(1)}h
+        </div>
+      )}
+      {!isPast && !estimateDiverges && hoursLeft > 0 && (
         <div style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-          Stima: ~{hoursLeft.toFixed(1)}h al sweet spot a {tAmb.toFixed(1)}°C amb.
+          Stima: ~{primaryH.toFixed(1)}h al sweet spot a {tAmb.toFixed(1)}°C amb.
         </div>
       )}
     </Card>
@@ -452,6 +472,17 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;
 
+  // Linea verticale "target cottura" sul grafico: x = ore dalla sessione al targetBakeAt
+  const targetBakeH = useMemo(() => {
+    try {
+      const t0   = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
+      const tBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : (session.targetBakeAt ? new Date(session.targetBakeAt) : null);
+      if (!tBake) return null;
+      const h = (tBake.getTime() - t0.getTime()) / 3_600_000;
+      return h > 0 ? parseFloat(h.toFixed(2)) : null;
+    } catch { return null; }
+  }, [session.startedAt, session.targetBakeAt]);
+
   // Calcola maxH per impostare la larghezza del grafico
   const totalH = proto === 'ta'
     ? (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
@@ -491,6 +522,11 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
           {/* Posizione attuale */}
           <ReferenceLine x={elapsed} stroke="var(--accent-brand)" strokeDasharray="4 4"
             label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 9, fontFamily: 'var(--font-mono)' }} />
+          {/* Target cottura pianificato — allineato con il countdown in header */}
+          {targetBakeH != null && (
+            <ReferenceLine x={targetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
+              label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
+          )}
           {/* Soglie maturazione */}
           <ReferenceLine y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
           <ReferenceLine y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
@@ -578,7 +614,7 @@ export function DashboardView() {
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: phaseInfo.color }}>{phaseInfo.label}</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-            +{elapsedH.toFixed(1)}h · -{remainingH.toFixed(1)}h
+            +{elapsedH.toFixed(1)}h · {remainingH > 0 ? `${remainingH.toFixed(1)}h ⏳` : '🍕 cottura'}
           </div>
         </div>
       </div>
@@ -615,7 +651,7 @@ export function DashboardView() {
       <MaltBadge session={session} />
 
       {/* ── Sweet Spot ── */}
-      <SweetSpotCard session={session} ts={ts} />
+      <SweetSpotCard session={session} ts={ts} remainingH={remainingH} />
 
       {/* ── Quality Profile ── */}
       <QualityProfileCard session={session} />
