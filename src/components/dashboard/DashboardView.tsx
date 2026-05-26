@@ -61,32 +61,51 @@ function buildMultiSegmentData(
     initialMaturationOffset?: number;
   },
   tAmbient: number,
+  currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
+  elapsedH?: number,       // ts.elapsedH — ore totali trascorse dall'avvio sessione
 ): { points: { h: number; pct: number }[]; transitions: { h: number; label: string; color: string }[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
   const tcH     = session.tcHours ?? 12;
 
-  type Seg = { durationH: number; tempC: number; label: string; color: string };
+  type Seg = { durationH: number; tempC: number; label: string; color: string; phase: string };
   const segments: Seg[] =
     proto === 'ta' ? [
-      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)' },
+      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : proto === 'tc' ? [
-      { durationH: tcH,               tempC: fridgeT,  label: 'Freddo totale', color: 'var(--state-cold)'   },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Freddo totale', color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
     ]
     : proto === 'tc_puntata' ? [
-      { durationH: tcH,               tempC: fridgeT,  label: 'Puntata TC',    color: 'var(--state-cold)'   },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)' },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Puntata TC',    color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : /* tc_appreto */ [
-      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)' },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)'   },
-      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC',   color: 'var(--state-cold)'   },
+      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC',   color: 'var(--state-cold)',   phase: 'balled_fridge' },
     ];
+
+  // Riscala i segmenti PRECEDENTI alla fase corrente in base al tempo effettivo trascorso.
+  // Se l'utente ha avanzato PRIMA del previsto (elapsedH < plannedBefore): comprime i segmenti passati.
+  // Se è in ritardo o in linea (elapsedH >= plannedBefore): i segmenti restano invariati.
+  if (currentPhase && elapsedH != null && elapsedH > 0) {
+    const iCurr = segments.findIndex(s => s.phase === currentPhase);
+    if (iCurr > 0) {
+      const plannedBefore = segments.slice(0, iCurr).reduce((sum, s) => sum + s.durationH, 0);
+      if (plannedBefore > 0.01) {
+        const actualBefore = Math.min(elapsedH, plannedBefore);
+        const scale = actualBefore / plannedBefore;
+        for (let i = 0; i < iCurr; i++) {
+          segments[i] = { ...segments[i], durationH: Math.max(0.01, segments[i].durationH * scale) };
+        }
+      }
+    }
+  }
 
   const kRef    = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
   const totalH  = segments.reduce((s, seg) => s + seg.durationH, 0);
@@ -424,10 +443,10 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
 
   const { points, transitions } = useMemo(() => {
-    try { return buildMultiSegmentData(session, tAmb); }
+    try { return buildMultiSegmentData(session, tAmb, ts?.phase, ts?.elapsedH); }
     catch { return { points: [], transitions: [] }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, tAmb]);
+  }, [session, tAmb, ts?.phase, ts?.elapsedH]);
 
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;
