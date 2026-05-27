@@ -18,7 +18,11 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, SnapButtons, S } from '../ui';
-import { kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup } from '../../engine';
+import {
+  kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
+  computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
+} from '../../engine';
+import { WaterTempResultCard } from './WaterTempView';
 
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
@@ -546,9 +550,10 @@ export function FermentationPlannerView() {
   const [W,           setW]           = useState(280);
   const [agentType,   setAgentType]   = useState<'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat'>('fresh_yeast');
   const [dosePct,     setDosePct]     = useState(0.3);
-  const [tAmb,        setTAmb]        = useState(22);
-  const [fridgeT,     setFridgeT]     = useState(4);
-  const [staglioH,    setStaglioH]    = useState(0.5);
+  const [tAmb,          setTAmb]          = useState(22);
+  const [fridgeT,       setFridgeT]       = useState(4);
+  const [staglioH,      setStaglioH]      = useState(0.5);
+  const [kneadingMethod, setKneadingMethod] = useState<KneadingMethod>('spiral');
 
   // Parametri impasto (per il wizard)
   const [style,       setStyle]       = useState<'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle'>('napoletana');
@@ -661,6 +666,8 @@ export function FermentationPlannerView() {
       totalFlourGrams:  totalFlourG,
       hydration,
       numPanetti,
+      tLaboratorio:     tAmb,       // §2.7: T_lab al momento dell'impasto = T_amb planner
+      kneadingMethod:   kneadingMethod,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -757,7 +764,7 @@ export function FermentationPlannerView() {
         </div>
       </Card>
 
-      {/* ── Temperature + Staglio ── */}
+      {/* ── Temperature + Staglio + Impastatrice ── */}
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <PlannerSlider label="Temperatura ambiente" value={tAmb} onChange={setTAmb}
@@ -766,6 +773,19 @@ export function FermentationPlannerView() {
             min={1} max={8} step={0.5} unit="°C" color="var(--state-cold)" />
           <PlannerSlider label="Staglio" value={staglioH} onChange={setStaglioH}
             min={0.1} max={2} step={0.1} unit="h" color="var(--text-muted)" />
+          <SnapButtons<KneadingMethod>
+            label="Impastatrice"
+            options={Object.entries(KNEADING_METHODS_FRICTION).map(([k, v]) => ({
+              value: k as KneadingMethod,
+              label: v.label,
+            }))}
+            value={kneadingMethod}
+            onChange={setKneadingMethod}
+          />
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            C_attrito {KNEADING_METHODS_FRICTION[kneadingMethod].cFrictionLo}–{KNEADING_METHODS_FRICTION[kneadingMethod].cFrictionHi}°C
+            · {KNEADING_METHODS_FRICTION[kneadingMethod].notes}
+          </div>
         </div>
       </Card>
 
@@ -873,6 +893,36 @@ export function FermentationPlannerView() {
           </div>
         )}
       </Card>
+
+      {/* ── Acqua di impastamento (DDT live) ── */}
+      {results.length > 0 && (() => {
+        const DDT_MAP: Record<string, number> = {
+          napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
+        };
+        const waterG   = Math.round(totalFlourG * (hydration / 100));
+        const tPref    = hasPref ? prefTemp : undefined;
+        const ddtDef   = DDT_MAP[style] ?? 24;
+        const wResult  = (computeWaterTempDDT as Function)({
+          ddtTarget:       ddtDef,
+          tempAmbient:     tAmb,
+          kneadingMethod,
+          waterTotalGrams: waterG,
+          tempPreferment:  tPref,
+        });
+        return (
+          <Card>
+            <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+              💧 Acqua di impastamento
+            </div>
+            <WaterTempResultCard
+              result={wResult}
+              showFormula={true}
+              ddtTarget={ddtDef}
+              tAmbient={tAmb}
+            />
+          </Card>
+        );
+      })()}
 
       {/* ── Risultati ── */}
       <div>

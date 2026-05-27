@@ -517,9 +517,11 @@ const DDT_BY_STYLE_DASH: Record<string, number> = {
   napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
 };
 
-function ImpastoPreparazioneCard({ session, ts }: { session: any; ts: any }) {
-  // Usa ts?.tempAmbient live se disponibile, altrimenti tLaboratorio dalla sessione
-  const tAmb   = ts?.tempAmbient ?? session.tLaboratorio ?? 20;
+function ImpastoPreparazioneCard({ session, ts: _ts }: { session: any; ts: any }) {
+  // Usa tLaboratorio della sessione (fisso al momento dell'impasto, non live)
+  // ts non è usato qui: la raccomandazione T_acqua si riferisce al momento
+  // dell'impasto (avvenuto all'avvio sessione), non alla T_amb corrente.
+  const tAmb   = session.tLaboratorio ?? 20;
   const waterG = Math.round(session.totalFlourGrams * (session.hydration / 100));
   const tPref  = (session.prefermenti?.length ?? 0) > 0
     ? session.prefermenti.reduce((s: number, p: any) => s + (p.tempC ?? 16), 0) / session.prefermenti.length
