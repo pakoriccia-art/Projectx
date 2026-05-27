@@ -3,7 +3,7 @@
  *
  * WaterTempResultCard — display puro, senza stato interno.
  * Riceve un WaterTempResult già calcolato e mostra:
- *   • Modalità liquid: T_acqua consigliata con colore contestuale
+ *   • Modalità liquid: T_acqua + grammi totali con colore contestuale
  *   • Modalità ice: grammi ghiaccio + grammi acqua liquida
  *
  * Usato in:
@@ -46,10 +46,17 @@ export function WaterTempResultCard({
 }) {
   const color = resultColor(result);
 
+  // ── Stringa formula completa (valori sostituiti) ──────────────────────────
+  const formulaStr = ddtTarget != null && tAmbient != null
+    ? result.factors === 4
+      ? `${ddtTarget}×4 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − T_pref − ${result.cFriction}`
+      : `${ddtTarget}×3 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − ${result.cFriction}`
+    : null;
+
   // ── Modalità compact: riga orizzontale inline ─────────────────────────────
   if (compact) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
         {result.mode === 'liquid' ? (
           <>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -58,9 +65,12 @@ export function WaterTempResultCard({
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color }}>
               {result.tWaterLiquid!.toFixed(1)}°C
             </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              · {result.waterTotalGrams}g
+            </span>
             {result.tWaterCalc < 10 && (
               <span style={{ fontSize: '0.7rem', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
-                (fredda)
+                (fredda — frigo)
               </span>
             )}
           </>
@@ -73,7 +83,7 @@ export function WaterTempResultCard({
               {result.iceGrams}g
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              + {result.liquidGrams}g acqua
+              + {result.liquidGrams}g acqua ({result.waterTotalGrams}g tot.)
             </span>
           </>
         )}
@@ -90,15 +100,23 @@ export function WaterTempResultCard({
       {result.mode === 'liquid' ? (
         /* Acqua liquida */
         <>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          {/* Temperatura + grammi in evidenza */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ ...S.value, fontSize: '2rem', color }}>
               {result.tWaterLiquid!.toFixed(1)}
             </span>
             <span style={{ ...S.unit, fontSize: '0.95rem' }}>°C</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', marginLeft: 4 }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700,
+              color: 'var(--text-primary)', marginLeft: 6,
+            }}>
+              {result.waterTotalGrams}g
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', marginLeft: 2 }}>
               acqua liquida
             </span>
           </div>
+
           {result.tWaterCalc < 10 && (
             <div style={{ fontSize: '0.73rem', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
               ℹ Usa acqua di frigorifero
@@ -146,19 +164,23 @@ export function WaterTempResultCard({
               <div style={{ ...S.unit }}>g</div>
             </div>
           </div>
+          {/* Totale */}
+          <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            Totale acqua ricetta: {result.waterTotalGrams}g
+          </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             Acqua a {result.tWaterEffective}°C · Ghiaccio a 0°C · L=80 cal/g
           </div>
         </>
       )}
 
-      {/* Formula DDT (opzionale) */}
-      {showFormula && ddtTarget != null && tAmbient != null && (
-        <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6, marginTop: 2 }}>
-          {result.factors === 4
-            ? `${ddtTarget}×4 − T_amb − T_far − T_pref − ${result.cFriction}`
-            : `${ddtTarget}×3 − ${tAmbient} − T_far − ${result.cFriction}`
-          }
+      {/* Formula DDT (opzionale) — tutti i valori sostituiti */}
+      {showFormula && formulaStr != null && (
+        <div style={{
+          fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+          borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6, marginTop: 2,
+        }}>
+          {formulaStr}
           {' '}= <strong style={{ color }}>{result.tWaterCalc.toFixed(1)}°C</strong>
         </div>
       )}

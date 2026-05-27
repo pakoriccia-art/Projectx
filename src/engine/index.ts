@@ -210,6 +210,10 @@ export interface WaterTempResult {
   cFriction:       number;
   /** Numero di fattori: 3 (diretto) | 4 (indiretto con pre-impasto). */
   factors:         3 | 4;
+  /** Temperatura farina usata nel calcolo [°C] — per formula completa. */
+  tempFlour:       number;
+  /** Massa totale acqua della ricetta [g] — per mostrare le dosi. */
+  waterTotalGrams: number;
 }
 
 /**
@@ -262,10 +266,12 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
   if (tWaterCalc >= ICE_THRESHOLD_C) {
     return {
       tWaterCalc,
-      mode:         'liquid',
-      tWaterLiquid: Math.min(35, Math.max(1, tWaterCalc)),
+      mode:            'liquid',
+      tWaterLiquid:    Math.min(35, Math.max(1, tWaterCalc)),
       cFriction,
       factors,
+      tempFlour,
+      waterTotalGrams,
     };
   }
 
@@ -286,5 +292,7 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
     tWaterEffective: tAvail,
     cFriction,
     factors,
+    tempFlour,
+    waterTotalGrams,
   };
 }
