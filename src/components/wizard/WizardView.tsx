@@ -102,6 +102,73 @@ function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: 
   return Math.max(W0 * 0.6, W0 * decay);
 }
 
+// ─── Costanti termofisiche (specchio di FermentationPlannerView) ─────────────
+const TH_CP_WATER  = 4186;   // J/(kg·K) — calore specifico acqua
+const TH_CP_FLOUR  = 1840;   // J/(kg·K) — calore specifico farina
+const TH_RHO_DOUGH = 1050;   // kg/m³    — densità impasto
+const TH_H_AIR     = 8;      // W/(m²·K) — convezione naturale aria in ambiente chiuso
+
+/** Inverse analitica di Gompertz (Zwietering 1990): ADU al quale maturation = targetPct% */
+function invertGompertzWizard(targetPct: number, muMax: number, lambda: number, asymptote = 100): number {
+  const safeRatio = Math.max(1e-4, Math.min(targetPct / asymptote, 1 - 1e-4));
+  return lambda - (Math.log(-Math.log(safeRatio)) - 1) * asymptote / (muMax * Math.E);
+}
+
+/**
+ * ADU accumulato durante la risalita termica (stemperamento) da fridgeTempC verso tAmb.
+ * Integrazione numerica di Riemann con N=20 passi su T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ).
+ * tauMultiplier applica la resistenza termica del contenitore (coerente con computeWarmupH).
+ */
+function computeRampAduWizard(
+  panMassKg: number, hydrationPct: number,
+  fridgeTempC: number, tAmb: number, wH: number,
+  Ea: number, agentType: string, kRef: number,
+  tauMultiplier = 1.0,
+): number {
+  if (wH <= 0 || kRef <= 1e-12) return 0;
+  const h   = Math.max(0.01, hydrationPct / 100);
+  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
+  const V   = panMassKg / TH_RHO_DOUGH;
+  const r   = Math.cbrt((3 * V) / (4 * Math.PI));
+  const A   = 4 * Math.PI * r * r;
+  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;  // s
+  const N = 20; const dt_h = wH / N; const dt_s = dt_h * 3600;
+  let adu = 0;
+  for (let i = 0; i < N; i++) {
+    const T = tAmb + (fridgeTempC - tAmb) * Math.exp(-((i + 0.5) * dt_s) / tau);
+    const k = (kEffective as Function)(T, Ea, agentType) as number;
+    adu += (k / kRef) * dt_h;
+  }
+  return adu;
+}
+
+/**
+ * Back-calcola la durata ottimale della Puntata TA per tc_appreto in modo che
+ * ADU(puntata) + ADU(staglio) + ADU(TC) + ADU(ramp) = ADU_target(85%).
+ * tcHours è fissato dall'utente → nessuna circolarità.
+ * Ritorna 0 se il solo TC supera già il target (tcHours troppo lungo per il lievito usato).
+ *
+ * Formula: puntataH = (aduTarget − initialAdu − rAmb·staglioH − rFri·tcHours − rampAdu) / rAmb
+ */
+function computeOptimalPuntataH(p: {
+  muMax: number; lambda: number; agentType: string; Ea: number;
+  fridgeTempC: number; tcHours: number; staglioH: number;
+  panMassKg: number; hydrationPct: number;
+  tauMultiplier: number; warmupH: number;
+  initialAdu: number; tAmb?: number;
+}): number {
+  const tAmb  = p.tAmb ?? 22;
+  const kRef  = (kEffective as Function)(25, p.Ea, p.agentType) as number;
+  if (kRef <= 1e-12) return 0;
+  const rAmb  = ((kEffective as Function)(tAmb, p.Ea, p.agentType) as number) / kRef;
+  const rFri  = ((kEffective as Function)(p.fridgeTempC, p.Ea, p.agentType) as number) / kRef;
+  const aduT  = invertGompertzWizard(85, p.muMax, p.lambda);
+  const rampAdu = computeRampAduWizard(p.panMassKg, p.hydrationPct, p.fridgeTempC, tAmb,
+                                        p.warmupH, p.Ea, p.agentType, kRef, p.tauMultiplier);
+  const needed = aduT - p.initialAdu - rAmb * p.staglioH - rFri * p.tcHours - rampAdu;
+  return rAmb > 1e-12 ? Math.max(0, needed / rAmb) : 0;
+}
+
 // ─── Calcolo tempo di riscaldo: da T frigo a 18°C (servizio) con legge di Newton ─
 // Specula thermalTimeConstantSphere del motore (costanti identiche: CP_WATER=4186, CP_FLOUR=1840,
 // RHO_DOUGH=1050, H_AIR=8). Restituisce le ORE per portare il core del panetto a 18°C a tAmb.
@@ -120,12 +187,12 @@ function computeWarmupH(
   const T_SERVICE = 18;                                    // °C — temperatura servizio target
   if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
   const h   = Math.max(0.01, hydrationPct / 100);
-  const cp  = 4186 * h + 1840 * (1 - h);                  // J/(kg·K) — calore specifico impasto
-  const V   = panMassKg / 1050;                           // m³ — volume panetto
+  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);   // J/(kg·K) — calore specifico impasto
+  const V   = panMassKg / TH_RHO_DOUGH;                   // m³ — volume panetto
   const r   = Math.cbrt((3 * V) / (4 * Math.PI));         // m — raggio sfera equivalente
   const A   = 4 * Math.PI * r * r;                        // m² — superficie
   // τ moltiplicato per tauMultiplier del contenitore (inerzia extra da coperchio/borsa)
-  const tau = (panMassKg * cp) / (8 * A) * tauMultiplier; // s — τ sferica con resistenza contenitore
+  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier; // s — τ sferica con resistenza contenitore
   const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
   if (ratio <= 0) return 0;
   return Math.max(0, (tau * Math.log(ratio)) / 3600);     // ore
@@ -195,7 +262,6 @@ function buildSession(draft: WizardDraft): Session {
   );
 
   const _proto = draft.apprettoProtocol ?? 'ta';
-  const _p = draft.puntataH ?? 8;
   const _s = draft.staglioH ?? 0.5;
   const _tc = draft.tcHours ?? 12;
 
@@ -211,6 +277,25 @@ function buildSession(draft: WizardDraft): Session {
     return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22, tauMult);
   })() : 0;
   const _a = _proto === 'tc_appreto' ? _warmup : (draft.apprettoH ?? 4);
+
+  // Per tc_appreto: puntataH è back-calcolata (override del cursore) in modo che la curva
+  // di Gompertz cumula ADU(puntata)+ADU(staglio)+ADU(TC)+ADU(ramp) = ADU_85% esattamente
+  // alla fine del protocollo. Gli altri protocolli usano il valore del cursore.
+  const _p = _proto === 'tc_appreto' ? (() => {
+    const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
+    const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
+    const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+    // initialAdu include sia lievito madre che prefermento (biga/poolish)
+    const initAdu2  = ((combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10) * 10;
+    return computeOptimalPuntataH({
+      muMax, lambda: aParams.lambda, agentType: aType, Ea: aParams.Ea,
+      fridgeTempC: draft.fridgeTempC ?? 4,
+      tcHours: _tc, staglioH: _s,
+      panMassKg: panMassKg2, hydrationPct: draft.hydration ?? 65,
+      tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
+      warmupH: _warmup, initialAdu: initAdu2,
+    });
+  })() : (draft.puntataH ?? 8);
 
   const totalH =
     _proto === 'ta'           ? _p + _s + _a
@@ -243,7 +328,7 @@ function buildSession(draft: WizardDraft): Session {
     alertThreshold:         85,
     containerPreset:        draft.containerPreset ?? 'closed_box',
     apprettoProtocol:       draft.apprettoProtocol ?? 'ta',
-    puntataH:               draft.puntataH ?? 8,
+    puntataH:               _p,   // tc_appreto → back-calcolato; altri → slider utente
     staglioH:               draft.staglioH ?? 0.5,
     apprettoH:              _a,
     tcHours:                draft.tcHours,
@@ -842,12 +927,32 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22, tauMult);
   })() : 0;
 
+  // Puntata TA ottimale (solo tc_appreto): calcolata per raggiungere 85% esattamente
+  // al termine del protocollo. Usa muMax semplificato (solo dose, senza prefermento)
+  // per l'anteprima; il valore esatto con prefermento viene calcolato in buildSession.
+  const puntataHOptimalDisplay = proto === 'tc_appreto' ? (() => {
+    const aT2   = draft.agentType ?? 'fresh_yeast';
+    const aP2   = (AGENT_GOMPERTZ as any)[aT2] as { Ea: number; lambda: number; muMax: number };
+    const dRef2 = aT2 === 'fresh_yeast' ? 0.3 : aT2 === 'instant_dry_yeast' ? 0.1 : 1.0;
+    const muMax2 = aP2.muMax * Math.max(0.1, Math.min(2, (draft.agentDosePct ?? dRef2) / dRef2));
+    const totalDG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
+    const panKg2  = totalDG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
+    const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+    return computeOptimalPuntataH({
+      muMax: muMax2, lambda: aP2.lambda, agentType: aT2, Ea: aP2.Ea,
+      fridgeTempC: fridgeT, tcHours: freddo, staglioH: staglio,
+      panMassKg: panKg2, hydrationPct: draft.hydration ?? 65,
+      tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
+      warmupH: warmupHDisplay, initialAdu: 0,
+    });
+  })() : puntata;
+
   // Durata totale per protocollo
   const totalH =
     proto === 'ta'           ? puntata + staglio + appreto
     : proto === 'tc'         ? freddo + staglio
     : proto === 'tc_puntata' ? freddo + staglio + appreto
-    : /* tc_appreto */         puntata + staglio + freddo + warmupHDisplay;
+    : /* tc_appreto */         puntataHOptimalDisplay + staglio + freddo + warmupHDisplay;
 
   const isTcProto = proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto';
 
@@ -913,8 +1018,22 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {/* ── TC Appretto: TA → frigo → riscaldo ── */}
       {proto === 'tc_appreto' && <>
         <FormSection title="🌡 Puntata a temperatura ambiente">
-          <SliderInput label="Puntata" value={puntata} onChange={v => update({ puntataH: v })}
-            min={0.5} max={24} step={0.5} unit="h" />
+          {/* Puntata TA: calcolata automaticamente per tc_appreto — non modificabile dall'utente */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '10px 14px', background: 'rgba(255,140,50,0.08)',
+            borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255,140,50,0.22)',
+          }}>
+            <span style={{ ...S.label, color: 'var(--accent-brand)' }}>
+              ⏱ Puntata TA ottimale
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent-brand)' }}>
+              {puntataHOptimalDisplay.toFixed(1)}h
+            </span>
+          </div>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+            Calcolato: Gompertz inversa · ADU_target − TC − staglio − ramp termico
+          </span>
           <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>
@@ -980,15 +1099,27 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
   const totalDoughG = flour * (1 + hydration / 100 + salt / 100);
   const panWeight   = panetti > 0 ? Math.round(totalDoughG / panetti) : 0;
 
-  // Per tc_appreto: tempo di riscaldo TA finale (calcolato dinamicamente, con inerzia contenitore)
+  // Per tc_appreto: tempo di riscaldo TA finale e puntata ottimale (con inerzia contenitore)
   const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
+  const cPresetStep8   = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+  const tauMultStep8   = cPresetStep8?.tauMultiplier ?? 1.0;
   const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto'
-    ? (() => {
-        const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
-        const tauMult = cPreset?.tauMultiplier ?? 1.0;
-        return computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMult);
-      })()
+    ? computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMultStep8)
     : 0;
+  // Puntata ottimale per step 8: muMax semplificato (senza prefermento, per anteprima)
+  const puntataHStep8  = draft.apprettoProtocol === 'tc_appreto' ? (() => {
+    const aT8   = draft.agentType ?? 'fresh_yeast';
+    const aP8   = (AGENT_GOMPERTZ as any)[aT8] as { Ea: number; lambda: number; muMax: number };
+    const dRef8 = aT8 === 'fresh_yeast' ? 0.3 : aT8 === 'instant_dry_yeast' ? 0.1 : 1.0;
+    const muMax8 = aP8.muMax * Math.max(0.1, Math.min(2, (draft.agentDosePct ?? dRef8) / dRef8));
+    return computeOptimalPuntataH({
+      muMax: muMax8, lambda: aP8.lambda, agentType: aT8, Ea: aP8.Ea,
+      fridgeTempC: draft.fridgeTempC ?? 4,
+      tcHours: draft.tcHours ?? 12, staglioH: draft.staglioH ?? 0.5,
+      panMassKg: panMassKgStep8, hydrationPct: hydration,
+      tauMultiplier: tauMultStep8, warmupH: warmupHStep8, initialAdu: 0,
+    });
+  })() : (draft.puntataH ?? 8);
 
   const protoLabel: Record<string, string> = {
     ta:         'Tutto TA',
@@ -1061,7 +1192,12 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {draft.apprettoProtocol !== 'tc' && (
-            <Metric label="Puntata TA" value={draft.puntataH ?? '–'} unit="h" />
+            <Metric
+              label="Puntata TA"
+              value={draft.apprettoProtocol === 'tc_appreto' ? puntataHStep8.toFixed(1) : (draft.puntataH ?? '–')}
+              unit="h"
+              color={draft.apprettoProtocol === 'tc_appreto' ? 'var(--accent-brand)' : undefined}
+            />
           )}
           {isTcProto && (
             <Metric label="Freddo" value={draft.tcHours ?? '–'} unit="h" color="var(--state-cold)" />
@@ -1161,7 +1297,8 @@ export function WizardView() {
     if (step === 4) return !!(draft.hydration && draft.salt !== undefined);
     if (step === 5) return !!(draft.agentType && draft.agentDosePct);
     if (step === 6) return !!draft.containerPreset;
-    if (step === 7) return !!(draft.puntataH && draft.apprettoProtocol);
+    // tc_appreto: puntataH calcolata automaticamente → basta avere il protocollo
+    if (step === 7) return !!(draft.apprettoProtocol && (draft.apprettoProtocol === 'tc_appreto' || draft.puntataH));
     if (step === 8) return true;
     return true;
   };

@@ -15,7 +15,7 @@ import {
 import {
   gompertz, sweetSpot, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
-  maltAlertLevel, kEffective,
+  maltAlertLevel, kEffective, CONTAINER_THERMAL_PRESETS,
 } from '../../engine';
 
 // ─── Clock ───────────────────────────────────────────────────────────────────
@@ -59,6 +59,9 @@ function buildMultiSegmentData(
     agentEaKj: number; agentType: string;
     agentMuMax: number; agentLambda: number; agentAsymptote: number;
     initialMaturationOffset?: number;
+    // Extra fields per warmup progressivo (tc_appreto)
+    numPanetti?: number; hydration?: number; containerPreset?: string;
+    totalFlourGrams?: number; salt?: number;
   },
   tAmbient: number,
   currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
@@ -88,7 +91,25 @@ function buildMultiSegmentData(
       { durationH: session.puntataH,   tempC: tAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)',       phase: 'bulk_room'    },
       { durationH: session.staglioH,   tempC: tAmbient, label: 'Staglio',     color: 'var(--text-muted)',         phase: 'balled_room'  },
       { durationH: tcH,                tempC: fridgeT,  label: 'Appretto TC', color: 'var(--state-cold)',         phase: 'balled_fridge' },
-      ...(session.apprettoH > 0 ? [{ durationH: session.apprettoH, tempC: tAmbient, label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' }] : []),
+      // Riscaldo TA: N=5 sub-segmenti con T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ)
+      // per rispecchiare computeRampAdu e coerente con l'engine useTickEngine.
+      ...(session.apprettoH > 0 ? (() => {
+        const h2  = Math.max(0.01, (session.hydration ?? 65) / 100);
+        const cp2 = 4186 * h2 + 1840 * (1 - h2);
+        const totalDG2  = (session.totalFlourGrams ?? 1000) * (1 + h2 + (session.salt ?? 2) / 100);
+        const panKg2    = totalDG2 / 1000 / Math.max(1, session.numPanetti ?? 6);
+        const V2 = panKg2 / 1050;
+        const r2 = Math.cbrt((3 * V2) / (4 * Math.PI));
+        const A2 = 4 * Math.PI * r2 * r2;
+        const tauMult2  = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[session.containerPreset ?? 'bare']?.tauMultiplier ?? 1.0;
+        const tau2      = (panKg2 * cp2) / (8 * A2) * tauMult2;  // secondi
+        return Array.from({ length: 5 }, (_, i) => {
+          const tMid = (i + 0.5) * (session.apprettoH / 5) * 3600;  // s dall'inizio riscaldo
+          const T    = tAmbient + (fridgeT - tAmbient) * Math.exp(-tMid / tau2);
+          return { durationH: session.apprettoH / 5, tempC: T,
+            label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' as const };
+        });
+      })() : []),
     ];
 
   // Riscala i segmenti PRECEDENTI alla fase corrente in base al tempo effettivo trascorso.
