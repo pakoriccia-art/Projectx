@@ -567,11 +567,11 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
             labelFormatter={(l: number) => `t = ${l}h`}
           />
           {/* Posizione attuale */}
-          <ReferenceLine x={elapsed} stroke="var(--accent-brand)" strokeDasharray="4 4"
+          <ReferenceLine yAxisId="left" x={elapsed} stroke="var(--accent-brand)" strokeDasharray="4 4"
             label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 9, fontFamily: 'var(--font-mono)' }} />
           {/* Target cottura pianificato — allineato con il countdown in header */}
           {targetBakeH != null && (
-            <ReferenceLine x={targetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
+            <ReferenceLine yAxisId="left" x={targetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
           {/* Soglie maturazione (asse sinistro) */}
@@ -579,7 +579,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
           <ReferenceLine yAxisId="left" y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
           {/* Transizioni di fase */}
           {transitions.map(t => (
-            <ReferenceLine key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
+            <ReferenceLine yAxisId="left" key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
               label={{ value: t.label, position: 'top', fill: t.color, fontSize: 8, fontFamily: 'var(--font-mono)' }} />
           ))}
           {/* Curva maturazione Gompertz (asse sinistro) */}
