@@ -135,7 +135,7 @@ function buildMultiSegmentData(
   const stepH   = maxH / 80;  // ~80 punti totali
 
   let cumulativeAdu = (session.initialMaturationOffset ?? 0) * 10;
-  const points:      { h: number; pct: number }[] = [];
+  const points:      { h: number; pct: number; tempC: number }[] = [];
   const transitions: { h: number; label: string; color: string }[] = [];
   let segStartH = 0;
 
@@ -152,7 +152,7 @@ function buildMultiSegmentData(
       const h   = segStartH + i * segStepH;
       const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
     }
 
     if (si < segments.length - 1) {
@@ -173,7 +173,7 @@ function buildMultiSegmentData(
       const h   = totalH + i * extraStepH;
       const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN (tail): ADU=', cumulativeAdu);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)) });
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), tempC: parseFloat(tAmbient.toFixed(1)) });
     }
   }
 
@@ -515,6 +515,10 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const maxH     = Math.max(totalH * 1.5, 24);
   const chartW   = Math.max(300, Math.round(maxH * PX_PER_HOUR));
 
+  // Tick asse X: ogni 2h se maxH ≤ 12, ogni 4h se ≤ 24, ogni 6h oltre
+  const xTickStep = maxH <= 12 ? 2 : maxH <= 24 ? 4 : 6;
+  const xTicks = Array.from({ length: Math.floor(maxH / xTickStep) + 1 }, (_, i) => i * xTickStep);
+
   // Label protocollo leggibile
   const protoLabel: Record<string, string> = {
     ta: 'TA', tc: 'TC', tc_puntata: 'TC Puntata', tc_appreto: 'TC Appreto',
@@ -530,14 +534,36 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
       </div>
       {/* Scroll orizzontale quando il grafico è più largo dello schermo */}
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '0 -4px', paddingBottom: 4 }}>
-        <LineChart width={chartW} height={180} data={points} margin={{ top: 4, right: 16, bottom: 4, left: -8 }}>
+        <LineChart width={chartW} height={200} data={points} margin={{ top: 4, right: 40, bottom: 4, left: -8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="h" tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
-            label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }} />
-          <YAxis tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }} domain={[0, 100]} />
+          <XAxis
+            dataKey="h"
+            type="number"
+            domain={[0, maxH]}
+            ticks={xTicks}
+            tickFormatter={(v: number) => `${v}`}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
+            label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }}
+          />
+          {/* Asse sinistro: maturazione % */}
+          <YAxis yAxisId="left"
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
+            domain={[0, 100]}
+          />
+          {/* Asse destro: T impasto °C */}
+          <YAxis yAxisId="right" orientation="right"
+            domain={[0, 50]}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: 'var(--state-cold)' }}
+            tickFormatter={(v: number) => `${v}°`}
+            width={32}
+          />
           <Tooltip
             contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}
-            formatter={(v: number) => [`${v.toFixed(1)}%`, 'Maturazione']}
+            formatter={(v: number, name: string) =>
+              name === 'tempC'
+                ? [`${(v as number).toFixed(1)}°C`, 'T impasto']
+                : [`${(v as number).toFixed(1)}%`, 'Maturazione']
+            }
             labelFormatter={(l: number) => `t = ${l}h`}
           />
           {/* Posizione attuale */}
@@ -548,16 +574,20 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
             <ReferenceLine x={targetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
-          {/* Soglie maturazione */}
-          <ReferenceLine y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
-          <ReferenceLine y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
+          {/* Soglie maturazione (asse sinistro) */}
+          <ReferenceLine yAxisId="left" y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
+          <ReferenceLine yAxisId="left" y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
           {/* Transizioni di fase */}
           {transitions.map(t => (
             <ReferenceLine key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
               label={{ value: t.label, position: 'top', fill: t.color, fontSize: 8, fontFamily: 'var(--font-mono)' }} />
           ))}
-          <Line type="monotone" dataKey="pct" stroke="var(--accent-brand)" strokeWidth={2}
+          {/* Curva maturazione Gompertz (asse sinistro) */}
+          <Line yAxisId="left" type="monotone" dataKey="pct" stroke="var(--accent-brand)" strokeWidth={2}
             dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
+          {/* T impasto pianificata (asse destro) */}
+          <Line yAxisId="right" type="monotone" dataKey="tempC" stroke="var(--state-cold)" strokeWidth={1.5}
+            strokeDasharray="4 2" dot={false} activeDot={{ r: 3, fill: 'var(--state-cold)' }} />
         </LineChart>
       </div>
     </Card>
@@ -609,7 +639,16 @@ export function DashboardView() {
 
   const [confirmEnd, setConfirmEnd] = useState(false);
 
-  const matPct = ts?.maturationPct ?? 0;
+  // Calcola matPct live dal Gompertz: reagisce immediatamente a cambio sessione
+  // (e.g. muMax, lambda aggiornati) senza attendere il prossimo ciclo tick (~10s).
+  const matPct = (() => {
+    const rawAdu = ts?.cumulativeAdu ?? 0;
+    const adu = rawAdu + (session.initialMaturationOffset ?? 0) * 10;
+    try {
+      const pct = (gompertz as Function)(adu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      return isNaN(pct) ? (ts?.maturationPct ?? 0) : Math.min(100, Math.max(0, pct));
+    } catch { return ts?.maturationPct ?? 0; }
+  })();
   const phase = ts?.phase ?? 'bulk_room';
   const phaseInfo = PHASE_LABELS[phase] ?? { label: phase, color: 'var(--text-secondary)' };
 
