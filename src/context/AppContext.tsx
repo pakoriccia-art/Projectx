@@ -6,7 +6,7 @@ import { createContext, useContext, useReducer, type ReactNode } from 'react';
 import type { Session, FlourGroup, PrefermentoComponent } from '../db/db';
 
 // ─── Views ────────────────────────────────────────────────────────────────────
-export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner';
+export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner' | 'water_calc';
 
 // ─── Wizard draft (built incrementally across steps) ─────────────────────────
 export interface WizardDraft {
@@ -25,6 +25,7 @@ export interface WizardDraft {
   fat?: number;
   altitudeM?: number;
   waterHardnessPpm?: number;
+  kneadingMethod?: 'hand' | 'spiral' | 'planetary' | 'diving_arm';  // §2.7 DDT acqua
   // Step 5
   agentType?: 'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat';
   agentDosePct?: number;

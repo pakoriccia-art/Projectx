@@ -112,6 +112,7 @@ export interface Session {
   altitudeM?: number;                  // §2.16 compensazione altitudine; default 0
   waterHardnessPpm?: number;           // §2.17 durezza acqua; default 150
   malt?: MaltSpec;                     // §2.15 malto diastatico
+  kneadingMethod?: string;             // §2.7 metodo impastamento per calcolo DDT acqua
 
   // Stato iniziale combinato (pre-fermenti)
   initialMaturationOffset?: number;   // [0, 1]

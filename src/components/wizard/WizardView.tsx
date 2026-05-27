@@ -12,7 +12,9 @@ import {
   normalizeFlourGroup, computeCombinedInitialState,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
+  KNEADING_METHODS_FRICTION, type KneadingMethod,
 } from '../../engine';
+import { WaterTempWidget } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 
 const TOTAL_STEPS = 8;
@@ -341,6 +343,7 @@ function buildSession(draft: WizardDraft): Session {
       dpLintner:   draft.maltDP ?? 200,
       addedTo:     'final_dough',
     } : undefined,
+    kneadingMethod:          draft.kneadingMethod ?? 'spiral',  // §2.7 — default spirale
     // Offset iniziale: contributo sourdough (engine) + ADU head-start da biga/poolish
     // prefInitialAdu è in unità ADU; /10 per normalizzare alla scala di initialMaturationOffset
     initialMaturationOffset: (combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10,
@@ -756,6 +759,24 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         label="Grasso" value={draft.fat ?? 0}
         onChange={v => update({ fat: v })}
         min={0} max={15} step={0.5} unit="%" color="var(--text-muted)" />
+
+      {/* ── Metodo di impastamento (§2.7 DDT) ── */}
+      <FormSection title="Impastatrice">
+        <SnapButtons<KneadingMethod>
+          options={Object.entries(KNEADING_METHODS_FRICTION).map(([k, v]) => ({
+            value: k as KneadingMethod,
+            label: v.label,
+          }))}
+          value={draft.kneadingMethod ?? 'spiral'}
+          onChange={v => update({ kneadingMethod: v })}
+        />
+        {draft.kneadingMethod && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+            C_attrito: {KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionLo}–{KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionHi}°C
+            · {KNEADING_METHODS_FRICTION[draft.kneadingMethod].notes}
+          </div>
+        )}
+      </FormSection>
 
       <button
         onClick={() => setShowAdvanced(s => !s)}
@@ -1229,6 +1250,41 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
           ))}
         </Card>
       )}
+
+      {/* ── 💧 Controllo Temperatura Idrica ── */}
+      {(() => {
+        // Massa acqua = farina × idratazione%
+        const waterG = Math.round(flour * (hydration / 100));
+        // Temperatura pre-impasto: media dei prefermenti (se presente)
+        const hasPref = (draft.prefermenti?.length ?? 0) > 0;
+        const tPref   = hasPref
+          ? Math.round((draft.prefermenti!.reduce((s, p) => s + (p.tempC ?? 16), 0) / draft.prefermenti!.length) * 10) / 10
+          : undefined;
+        // DDT target: default per stile
+        const DDT_MAP: Record<string, number> = {
+          napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
+        };
+        const ddtDefault = DDT_MAP[draft.style ?? 'napoletana'] ?? 24;
+
+        return (
+          <Card>
+            <div style={{ marginBottom: 12, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+              💧 Controllo Temperatura Idrica
+            </div>
+            <WaterTempWidget
+              waterTotalGrams={waterG}
+              hasPreferment={hasPref}
+              initialDdtTarget={ddtDefault}
+              initialKneadingMethod={(draft.kneadingMethod ?? 'spiral') as any}
+            />
+            {hasPref && tPref != null && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 8 }}>
+                T pre-impasto suggerita dal wizard: {tPref}°C (media prefermenti)
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* Nota avvio */}
       <div style={{
