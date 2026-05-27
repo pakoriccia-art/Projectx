@@ -36,6 +36,7 @@ const mockTickState = {
   tempAmbient: 22,
   estimatedPH: 5.4,
   W_current: 265,
+  wDamage: 0.042,   // integrale danno proteolitico (aggiunto con fix Hill W)
   elapsedH: 12,
   doughLocation: 'balled_room' as const,
   phase: 'balled_room' as const,

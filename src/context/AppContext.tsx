@@ -54,6 +54,14 @@ export interface TickState {
   doughLocation:  Session['apprettoProtocol'] extends string ? string : string;
   phase:          'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking';
   lastTickAt:     number;
+  /**
+   * Integrale di danno proteolitico: D = Σ (ΔH / tCrit(T))
+   * Usato da computeWHill(W0, 1.0, wDamage, n) per garantire la monotonia
+   * di W (la proteolisi è irreversibile — W non può aumentare).
+   * Sostituisce il modello snapshot W = W0/(1+(totalH/tCrit_corrente)^n)
+   * che causa salti discontinui ad ogni cambio di fase termica.
+   */
+  wDamage: number;
 }
 
 // ─── App State ────────────────────────────────────────────────────────────────

@@ -654,7 +654,7 @@ export function DashboardView() {
 
   const startedAt = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
   const elapsedMs = now.getTime() - startedAt.getTime();
-  const elapsedH = elapsedMs / 3_600_000;
+  const elapsedH = Math.max(0, elapsedMs / 3_600_000);  // guard clock skew
   const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date(session.targetBakeAt ?? Date.now() + 86400_000);
   const remainingH = Math.max(0, (targetBake.getTime() - now.getTime()) / 3_600_000);
 

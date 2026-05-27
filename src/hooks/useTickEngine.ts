@@ -98,12 +98,21 @@ export function useTickEngine() {
       session.initialPH ?? 5.8, matPct * 0.3, elapsedH + deltaH,
     ) as number;
 
-    // ── W corrente Hill ────────────────────────────────────────────────────────
-    const W0    = session.effectiveW_initial ?? 280;
-    const tCrit = (computeTCrit as Function)(W0, tDough, newPH, session.hydration)
-                  / (saltProtease * hardProt);
-    const W_curr = (computeWHill as Function)(
-      W0, tCrit, elapsedH + deltaH, (HILL_W_DECAY as any).hillExponent,
+    // ── W corrente Hill — damage integral ─────────────────────────────────────
+    // FIX fisico: invece del modello snapshot W = W0/(1+(totalH/tCrit_corrente)^n)
+    // — che causa salti discontinui di W ad ogni cambio di fase termica violando
+    // l'irreversibilità della proteolisi — si usa l'integrale di danno cumulativo:
+    //   D(t) = Σ [ΔH / tCrit(T_dough)]     (monotono crescente, Δ > 0)
+    //   W(t) = W0 / (1 + D(t)^n)            (monotono non-crescente garantito)
+    //
+    // computeWHill(W0, tCrit=1.0, hours=D, n) ≡ W0/(1+(D/1)^n) = W0/(1+D^n) ✓
+    const W0       = session.effectiveW_initial ?? 280;
+    const tCrit    = (computeTCrit as Function)(W0, tDough, newPH, session.hydration)
+                     / (saltProtease * hardProt);
+    const prevWDmg = ts?.wDamage ?? 0;
+    const wDamage  = prevWDmg + (tCrit > 1e-3 ? deltaH / tCrit : 0);
+    const W_curr   = (computeWHill as Function)(
+      W0, 1.0, wDamage, (HILL_W_DECAY as any).hillExponent,
     ) as number;
 
     // ── Alert (deduplication via ref) ─────────────────────────────────────────
@@ -132,6 +141,7 @@ export function useTickEngine() {
         tempAmbient:   tAmbient,
         estimatedPH:   newPH,
         W_current:     W_curr,
+        wDamage,        // ← integrale danno proteolitico (monotono crescente)
         elapsedH:      elapsedH + deltaH,
         phase,          // ← conserva la fase corrente (letta dal ref)
         lastTickAt:    now,
