@@ -174,8 +174,27 @@ export function useTickEngine() {
     dispatch({ type: 'TICK', patch: { tempAmbient: t } as any });
   }, [dispatch]);
 
+  /**
+   * Cambia fase e, se si entra in una fase fredda (TC), aggiorna automaticamente
+   * tempAmbient → session.fridgeTempC così Newton cooling si attiva subito.
+   *
+   * Fisica: senza questo auto-switch, l'utente dovrebbe manualmente aggiornare
+   * T_amb via TempCard dopo aver cliccato PhaseStepper — se lo dimentica,
+   * tAmbient rimane a 22°C e kRatio ≈ 0.711 invece di 0.006 → ADU in TC sbaglia
+   * di ~12% del budget totale (1.18 ADU extra nelle prime 4h per closed_box).
+   *
+   * Per le fasi calde (TA): NON forziamo tAmbient — varia per contesto (20–28°C)
+   * e l'utente lo conosce meglio del modello. Il Newton cooling poi lo porta verso
+   * la nuova temperatura con la giusta inerzia termica.
+   */
   const setPhase = useCallback((p: string) => {
-    dispatch({ type: 'TICK', patch: { phase: p } as any });
+    const isCold = p === 'bulk_fridge' || p === 'balled_fridge';
+    const patch: Record<string, unknown> = { phase: p };
+    if (isCold) {
+      // Entra in TC: imposta tAmbient = fridgeTempC → Newton law del raffreddamento parte
+      patch.tempAmbient = sessionRef.current?.fridgeTempC ?? 4;
+    }
+    dispatch({ type: 'TICK', patch: patch as any });
   }, [dispatch]);
 
   return { setTempAmbient, setPhase };

@@ -48,9 +48,11 @@ const PROTOCOL_PHASES: Record<string, string[]> = {
   tc_appreto: ['bulk_room',   'balled_fridge', 'proofing', 'baking'],
 };
 
-// ─── Gompertz multi-segmento (temperature-aware per fase) ─────────────────────
+// ─── Gompertz multi-segmento (temperature-aware + inerzia termica TA↔TC) ───────
 // Ogni fase ha la propria temperatura (TA o frigo) → ADU accumula a ritmi diversi.
-// La curva si aggiorna quando cambia T_amb, fridgeTempC, o il protocollo.
+// v2.4.0: rampe esponenziali Newton (N=3 sub-seg) per OGNI transizione TA↔TC,
+// coerenti con l'engine (setPhase auto-aggiorna tAmbient → Newton cooling attivo).
+// La curva si aggiorna quando cambia T_amb, fridgeTempC, containerPreset o protocollo.
 function buildMultiSegmentData(
   session: {
     apprettoProtocol: string;
@@ -59,20 +61,52 @@ function buildMultiSegmentData(
     agentEaKj: number; agentType: string;
     agentMuMax: number; agentLambda: number; agentAsymptote: number;
     initialMaturationOffset?: number;
-    // Extra fields per warmup progressivo (tc_appreto)
     numPanetti?: number; hydration?: number; containerPreset?: string;
     totalFlourGrams?: number; salt?: number;
   },
   tAmbient: number,
   currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
   elapsedH?: number,       // ts.elapsedH — ore totali trascorse dall'avvio sessione
-): { points: { h: number; pct: number }[]; transitions: { h: number; label: string; color: string }[] } {
+): { points: { h: number; pct: number; tempC: number }[]; transitions: { h: number; label: string; color: string }[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
   const tcH     = session.tcHours ?? 12;
 
+  // ── Proprietà termiche condivise ─────────────────────────────────────────────
+  const h2      = Math.max(0.01, (session.hydration ?? 65) / 100);
+  const cp2     = 4186 * h2 + 1840 * (1 - h2);                          // J/(kg·K)
+  const totalDG = (session.totalFlourGrams ?? 1000) * (1 + h2 + (session.salt ?? 2) / 100);
+  const tauMult = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[session.containerPreset ?? 'bare']?.tauMultiplier ?? 1.0;
+  const numPan  = Math.max(1, session.numPanetti ?? 6);
+
+  /**
+   * τ in secondi per Newton's law di raffreddamento/riscaldamento.
+   * isBulk=true → geometria cilindrica (puntata, tutta la massa in un contenitore piatto).
+   * isBulk=false → geometria sferica (panetti post-staglio).
+   * Formula: τ = m·cp / (H·A)  con H=8 W/(m²·K) (convezione naturale aria ferma).
+   */
+  const computeTauSec = (isBulk: boolean): number => {
+    if (isBulk) {
+      // Cilindro flat: h/r ≈ 0.3  →  A_lat = 2π·r·(0.3r) = 0.6π·r²
+      const massKg = totalDG / 1000;
+      const V      = massKg / 1050;
+      const r      = Math.cbrt(V / (Math.PI * 0.3));
+      const A_lat  = 2 * Math.PI * r * 0.3 * r;
+      return (massKg * cp2) / (8 * A_lat) * tauMult;
+    } else {
+      // Sfera (panetti post-staglio): A = 4π·r²
+      const panKg = totalDG / 1000 / numPan;
+      const V     = panKg / 1050;
+      const r     = Math.cbrt((3 * V) / (4 * Math.PI));
+      const A     = 4 * Math.PI * r * r;
+      return (panKg * cp2) / (8 * A) * tauMult;
+    }
+  };
+
   type Seg = { durationH: number; tempC: number; label: string; color: string; phase: string };
-  const segments: Seg[] =
+
+  // ── Segmenti base ─────────────────────────────────────────────────────────────
+  const baseSegs: Seg[] =
     proto === 'ta' ? [
       { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
       { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
@@ -88,62 +122,102 @@ function buildMultiSegmentData(
       { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : /* tc_appreto */ [
-      { durationH: session.puntataH,   tempC: tAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)',       phase: 'bulk_room'    },
-      { durationH: session.staglioH,   tempC: tAmbient, label: 'Staglio',     color: 'var(--text-muted)',         phase: 'balled_room'  },
-      { durationH: tcH,                tempC: fridgeT,  label: 'Appretto TC', color: 'var(--state-cold)',         phase: 'balled_fridge' },
-      // Riscaldo TA: N=5 sub-segmenti con T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ)
-      // per rispecchiare computeRampAdu e coerente con l'engine useTickEngine.
+      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)', phase: 'bulk_room'     },
+      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',     color: 'var(--text-muted)',   phase: 'balled_room'   },
+      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC', color: 'var(--state-cold)',   phase: 'balled_fridge' },
+      // Riscaldo TA: N=5 sub-seg con T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ)
+      // Etichettati 'Riscaldo TA' → ramp-expansion pass li salta (già ramped).
       ...(session.apprettoH > 0 ? (() => {
-        const h2  = Math.max(0.01, (session.hydration ?? 65) / 100);
-        const cp2 = 4186 * h2 + 1840 * (1 - h2);
-        const totalDG2  = (session.totalFlourGrams ?? 1000) * (1 + h2 + (session.salt ?? 2) / 100);
-        const panKg2    = totalDG2 / 1000 / Math.max(1, session.numPanetti ?? 6);
-        const V2 = panKg2 / 1050;
-        const r2 = Math.cbrt((3 * V2) / (4 * Math.PI));
-        const A2 = 4 * Math.PI * r2 * r2;
-        const tauMult2  = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[session.containerPreset ?? 'bare']?.tauMultiplier ?? 1.0;
-        const tau2      = (panKg2 * cp2) / (8 * A2) * tauMult2;  // secondi
+        const tauSec2 = computeTauSec(false);  // sfera per panetti
         return Array.from({ length: 5 }, (_, i) => {
-          const tMid = (i + 0.5) * (session.apprettoH / 5) * 3600;  // s dall'inizio riscaldo
-          const T    = tAmbient + (fridgeT - tAmbient) * Math.exp(-tMid / tau2);
+          const tMid = (i + 0.5) * (session.apprettoH / 5) * 3600;
+          const T    = tAmbient + (fridgeT - tAmbient) * Math.exp(-tMid / tauSec2);
           return { durationH: session.apprettoH / 5, tempC: T,
             label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' as const };
         });
       })() : []),
     ];
 
-  // Riscala i segmenti PRECEDENTI alla fase corrente in base al tempo effettivo trascorso.
-  // Se l'utente ha avanzato PRIMA del previsto (elapsedH < plannedBefore): comprime i segmenti passati.
-  // Se è in ritardo o in linea (elapsedH >= plannedBefore): i segmenti restano invariati.
+  // ── Scala i segmenti PRECEDENTI alla fase corrente (tempo effettivo) ──────────
   if (currentPhase && elapsedH != null && elapsedH > 0) {
-    const iCurr = segments.findIndex(s => s.phase === currentPhase);
+    const iCurr = baseSegs.findIndex(s => s.phase === currentPhase);
     if (iCurr > 0) {
-      const plannedBefore = segments.slice(0, iCurr).reduce((sum, s) => sum + s.durationH, 0);
+      const plannedBefore = baseSegs.slice(0, iCurr).reduce((sum, s) => sum + s.durationH, 0);
       if (plannedBefore > 0.01) {
-        const actualBefore = Math.min(elapsedH, plannedBefore);
-        const scale = actualBefore / plannedBefore;
+        const scale = Math.min(elapsedH, plannedBefore) / plannedBefore;
         for (let i = 0; i < iCurr; i++) {
-          segments[i] = { ...segments[i], durationH: Math.max(0.01, segments[i].durationH * scale) };
+          baseSegs[i] = { ...baseSegs[i], durationH: Math.max(0.01, baseSegs[i].durationH * scale) };
         }
       }
     }
   }
 
-  const kRef    = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
-  const totalH  = segments.reduce((s, seg) => s + seg.durationH, 0);
-  const maxH    = Math.max(totalH * 1.5, 24);
-  const stepH   = maxH / 80;  // ~80 punti totali
+  // ── Transizioni (calcolate dai base-seg PRIMA dell'espansione) ────────────────
+  // Le posizioni H restano invariate all'espansione: le rampe modificano la CURVA
+  // ma non i confini di fase, che rimangono agli stessi istanti pianificati.
+  const transitions: { h: number; label: string; color: string }[] = [];
+  {
+    let th = 0;
+    for (let si = 0; si < baseSegs.length - 1; si++) {
+      th += baseSegs[si].durationH;
+      if (baseSegs[si].label !== 'Riscaldo TA') {
+        transitions.push({ h: th, label: baseSegs[si].label, color: baseSegs[si].color });
+      }
+    }
+  }
+
+  // ── Ramp-expansion: rampe esponenziali Newton per ogni transizione TA↔TC ─────
+  // Per ogni seg dove T_entry ≠ T_target: suddivide in N=3 sub-seg esponenziali
+  // + steady-state. Salta i 'Riscaldo TA' (già ramped nel blocco tc_appreto).
+  // Fisicamente: modella il raffreddamento/riscaldamento reale dell'impasto
+  // anziché un gradino istantaneo — coerente con Fix 1 (setPhase auto-tAmbient).
+  const RAMP_N = 3;
+  const expandedSegs: Seg[] = [];
+  let T_entry = tAmbient;  // impasto sempre a T_amb all'avvio della sessione
+
+  for (const seg of baseSegs) {
+    const tempDiff    = Math.abs(seg.tempC - T_entry);
+    const isPreRamped = seg.label === 'Riscaldo TA';
+
+    if (tempDiff > 0.5 && !isPreRamped && seg.durationH >= 0.15) {
+      // Geometria: bulk (cilindro) o panetti (sfera) in base alla fase
+      const isBulk = seg.phase === 'bulk_room' || seg.phase === 'bulk_fridge';
+      const tauSec  = computeTauSec(isBulk);
+      // rampH = min(60% del segmento, ~3τ per 95% convergenza Newton)
+      const rampH   = Math.min(seg.durationH * 0.6, (tauSec * 3) / 3600);
+      const steadyH = seg.durationH - rampH;
+
+      // Sub-segmenti di rampa: T(tMid) = T_target + (T_entry − T_target)·exp(−tMid/τ)
+      for (let ri = 0; ri < RAMP_N; ri++) {
+        const tMidSec = (ri + 0.5) * (rampH / RAMP_N) * 3600;
+        const T = seg.tempC + (T_entry - seg.tempC) * Math.exp(-tMidSec / tauSec);
+        expandedSegs.push({ ...seg, durationH: rampH / RAMP_N, tempC: T });
+      }
+      // Resto del segmento a temperatura stazionaria
+      if (steadyH > 0.01) {
+        expandedSegs.push({ ...seg, durationH: steadyH });
+      }
+    } else {
+      expandedSegs.push(seg);
+    }
+
+    // T_entry per il prossimo segmento = target stazionario di quello corrente
+    T_entry = seg.tempC;
+  }
+
+  // ── Loop di disegno sui segmenti espansi ──────────────────────────────────────
+  const kRef   = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
+  const totalH = expandedSegs.reduce((s, seg) => s + seg.durationH, 0);
+  const maxH   = Math.max(totalH * 1.5, 24);
+  const stepH  = maxH / 80;  // ~80 punti totali
 
   let cumulativeAdu = (session.initialMaturationOffset ?? 0) * 10;
-  const points:      { h: number; pct: number; tempC: number }[] = [];
-  const transitions: { h: number; label: string; color: string }[] = [];
+  const points: { h: number; pct: number; tempC: number }[] = [];
   let segStartH = 0;
 
-  for (let si = 0; si < segments.length; si++) {
-    const seg  = segments[si];
-    const kT   = (kEffective as Function)(seg.tempC, session.agentEaKj, session.agentType) as number;
+  for (const seg of expandedSegs) {
+    const kT    = (kEffective as Function)(seg.tempC, session.agentEaKj, session.agentType) as number;
     const ratio = kRef > 1e-12 ? kT / kRef : 1;
-    const segEndH  = segStartH + seg.durationH;
     const nSteps   = Math.max(1, Math.round(seg.durationH / stepH));
     const segStepH = seg.durationH / nSteps;
 
@@ -154,14 +228,10 @@ function buildMultiSegmentData(
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
       points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
     }
-
-    if (si < segments.length - 1) {
-      transitions.push({ h: segEndH, label: seg.label, color: seg.color });
-    }
-    segStartH = segEndH;
+    segStartH += seg.durationH;
   }
 
-  // Estensione oltre totalH a tAmbient per mostrare il plateau
+  // ── Estensione oltre totalH a tAmbient (plateau) ──────────────────────────────
   const extraH = maxH - totalH;
   if (extraH > 0.1) {
     const kT    = (kEffective as Function)(tAmbient, session.agentEaKj, session.agentType) as number;
