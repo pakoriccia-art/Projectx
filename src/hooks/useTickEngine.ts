@@ -10,7 +10,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import {
-  kEffective, gompertz, estimatePH,
+  kEffective, gompertz, estimatePHForLBF,
   computeTCrit, computeWHill, doughCoreTemp,
   thermalTimeConstant, thermalTimeConstantSphere,
   applyContainerResistance, currentDoughMassKg,
@@ -53,7 +53,6 @@ export function useTickEngine() {
     const ts       = tsRef.current;
     const prevAdu  = ts?.cumulativeAdu  ?? 0;
     const prevTDough = ts?.tempDough    ?? 22;
-    const prevPH   = ts?.estimatedPH    ?? (session.initialPH ?? 5.8);
     const tAmbient = ts?.tempAmbient    ?? 22;
     const elapsedH = ts?.elapsedH       ?? 0;
     const phase    = ts?.phase          ?? 'bulk_room';   // ← legge dal ref, non dalla closure
@@ -74,10 +73,21 @@ export function useTickEngine() {
       ? (fHardnessProtease as Function)(session.waterHardnessPpm)
       : 1.0;
 
+    // ── pH corrente (da prevAdu, senza circolarità) — KB §12.2 step 5 ──────────
+    // Usa estimatePHForLBF (KB §2.6) con la maturazione del tick precedente.
+    // Questo evita la dipendenza circolare: prevAdu → prevMatPct → currentPH → corrRate → newAdu
+    const prevMatPct = (gompertz as Function)(
+      prevAdu + (session.initialMaturationOffset ?? 0) * 10,
+      session.agentMuMax, session.agentLambda, session.agentAsymptote ?? 100,
+    ) as number;
+    const currentPH = (estimatePHForLBF as Function)(
+      session.initialPH ?? 5.8, prevMatPct,
+    ) as number;
+
     // ── kEffective + amylase correction ───────────────────────────────────────
     const baseRate = (kEffective as Function)(tDough, session.agentEaKj, session.agentType);
     const corrRate = (amylaseCorrectedRate as Function)(
-      baseRate, session.effectiveAmylaseIndex, elapsedH, prevPH,
+      baseRate, session.effectiveAmylaseIndex, elapsedH, currentPH,
     );
     const kRef     = (kEffective as Function)(25, session.agentEaKj, session.agentType);
     const kRatioVal = kRef > 1e-12 ? corrRate / kRef : 0;
@@ -93,9 +103,9 @@ export function useTickEngine() {
       session.agentAsymptote ?? 100,
     ) as number;
 
-    // ── pH stimato ─────────────────────────────────────────────────────────────
-    const newPH = (estimatePH as Function)(
-      session.initialPH ?? 5.8, matPct * 0.3, elapsedH + deltaH,
+    // ── pH stimato end-of-tick (stored for next tick) — KB §12.2 step 7 ───────
+    const newPH = (estimatePHForLBF as Function)(
+      session.initialPH ?? 5.8, matPct,
     ) as number;
 
     // ── W corrente Hill — damage integral ─────────────────────────────────────

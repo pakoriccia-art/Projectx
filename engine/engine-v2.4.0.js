@@ -1281,6 +1281,87 @@ function computeReverseScaling({
 }
 
 // ═══════════════════════════════════════════════════════════════
+// § T — FUNZIONI MANCANTI KB v2.3.2
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * pH stimato per agenti LBF/LM — KB §2.6 spec corretta
+ * Sostituisce estimatePH nel tick loop (KB §12.2 step 5)
+ * Drop calibrato: 0.0015 pH/% maturazione; floor biologico 4.8 (non raggiungibile sotto con LBF)
+ */
+function estimatePHForLBF(initialPH, maturationPct) {
+  return Math.max(4.8, (initialPH ?? 5.8) - 0.0015 * maturationPct);
+}
+
+/**
+ * Indice di estensibilità combinato — KB §15.4
+ * Combina alveografia (W, P/L), stabilità farinografica e avanzamento maturazione.
+ * Pesi: W=30%, P/L=20%, stabilità=30%, maturazione=20%
+ * Ritorna [0, 1] — 1 = ottimo per pizza.
+ */
+function computeExtensibilityIndex({ W, pl, stability, maturationPct }) {
+  const wNorm    = safeClamp((W - 80) / 320, 0, 1);          // W: 80–400 → 0–1
+  const plNorm   = safeClamp(1 - Math.abs(pl - 0.65) / 0.70, 0, 1); // ottimale 0.65
+  const stabNorm = safeClamp(stability / 25, 0, 1);          // 0–25 min → 0–1
+  const matNorm  = safeClamp(maturationPct / 100, 0, 1);
+  return 0.30 * wNorm + 0.20 * plNorm + 0.30 * stabNorm + 0.20 * matNorm;
+}
+
+/**
+ * Calcolo inverso: dose lievito da target tempo + maturazione — KB §8
+ * Scaling LINEARE: muMaxScaled = muMax × (dose/refDose)
+ * NOT sqrt. [KB §1.5 anti-pattern §13.3]
+ *
+ * Algoritmo: inverte Gompertz rispetto a muMax per trovare il tasso
+ * necessario a raggiungere targetMatPct nell'ADU disponibile a tempC,
+ * poi scala linearmente la dose.
+ */
+function computeInverseProgram({
+  targetDurationH,
+  targetMatPct = 85,
+  tempC,
+  agentType,
+  eaKj,
+  muMaxRef,
+  lambdaRef,
+  refDosePct,
+  asymptote = 100,
+}) {
+  const aduAvailable = kRatio(tempC, eaKj, agentType) * targetDurationH;
+  const r = safeClamp(targetMatPct / asymptote, 0.001, 0.999);
+
+  // Inverso Gompertz per muMax:
+  //   r = exp(-exp((muMax×e/A)×(λ-adu)+1))
+  //   ln(-ln(r)) = (muMax×e/A)×(λ-adu) + 1
+  //   muMax = (A/e) × (ln(-ln(r)) - 1) / (λ - adu)
+  const lnArg      = Math.log(-Math.log(r));
+  const denominator = lambdaRef - aduAvailable;
+
+  let muMaxNeeded;
+  if (Math.abs(denominator) < 1e-6) {
+    muMaxNeeded = muMaxRef; // vicino al punto di flesso — usa dose di riferimento
+  } else {
+    muMaxNeeded = (asymptote / Math.E) * (lnArg - 1) / denominator;
+  }
+
+  if (muMaxNeeded <= 0) {
+    // Target irraggiungibile a questa temperatura/durata — restituisce dose minima
+    return { dosePct: refDosePct * 0.05, muMaxScaled: muMaxRef * 0.05, aduAvailable, feasible: false };
+  }
+
+  // Scaling lineare dose (KB §8 — NOT sqrt)
+  const rawDose = refDosePct * (muMaxNeeded / muMaxRef);
+  const dosePct = safeClamp(rawDose, refDosePct * 0.05, refDosePct * 20);
+
+  return {
+    dosePct,
+    muMaxScaled: muMaxNeeded,
+    aduAvailable,
+    feasible: rawDose >= refDosePct * 0.05 && rawDose <= refDosePct * 20,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // § S — EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
@@ -1403,6 +1484,11 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // § R Reverse scaling (v2.4.0)
     computeReverseScaling,
+
+    // § T KB v2.3.2 additions
+    estimatePHForLBF,
+    computeExtensibilityIndex,
+    computeInverseProgram,
   };
 }
 
@@ -1436,4 +1522,5 @@ export {
   computeAltitudeFactor, volumeMilestoneCorrection,
   fHardnessGluten, fHardnessProtease,
   computeReverseScaling,
+  estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
 };

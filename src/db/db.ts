@@ -114,6 +114,7 @@ export interface Session {
   malt?: MaltSpec;                     // §2.15 malto diastatico
   kneadingMethod?: string;             // §2.7 metodo impastamento per calcolo DDT acqua
   tLaboratorio?: number;               // §2.7 T ambiente al momento dell'impasto [°C]
+  fatPct?: number;                     // §5.4 grasso baker's % [0–10]; default 0
 
   // Stato iniziale combinato (pre-fermenti)
   initialMaturationOffset?: number;   // [0, 1]
