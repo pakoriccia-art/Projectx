@@ -12,12 +12,17 @@ import {
   normalizeFlourGroup, computeCombinedInitialState,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
-  KNEADING_METHODS_FRICTION, type KneadingMethod,
+  KNEADING_METHODS_FRICTION, computeWaterTempDDT, type KneadingMethod,
 } from '../../engine';
-import { WaterTempWidget } from '../tools/WaterTempView';
+import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 
 const TOTAL_STEPS = 8;
+
+/** DDT target per stile — usato nel calcolo automatico T_acqua (§2.7) */
+const DDT_BY_STYLE: Record<string, number> = {
+  napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
+};
 
 // ─── Prefermento defaults ─────────────────────────────────────────────────────
 function createDefaultPref(
@@ -344,6 +349,7 @@ function buildSession(draft: WizardDraft): Session {
       addedTo:     'final_dough',
     } : undefined,
     kneadingMethod:          draft.kneadingMethod ?? 'spiral',  // §2.7 — default spirale
+    tLaboratorio:            draft.tLaboratorio ?? 20,           // §2.7 — T ambiente impasto
     // Offset iniziale: contributo sourdough (engine) + ADU head-start da biga/poolish
     // prefInitialAdu è in unità ADU; /10 per normalizzare alla scala di initialMaturationOffset
     initialMaturationOffset: (combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10,
@@ -760,7 +766,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         onChange={v => update({ fat: v })}
         min={0} max={15} step={0.5} unit="%" color="var(--text-muted)" />
 
-      {/* ── Metodo di impastamento (§2.7 DDT) ── */}
+      {/* ── Metodo di impastamento + T_laboratorio → live T_acqua (§2.7 DDT) ── */}
       <FormSection title="Impastatrice">
         <SnapButtons<KneadingMethod>
           options={Object.entries(KNEADING_METHODS_FRICTION).map(([k, v]) => ({
@@ -770,8 +776,32 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           value={draft.kneadingMethod ?? 'spiral'}
           onChange={v => update({ kneadingMethod: v })}
         />
+        {/* Unico input mancante per il calcolo DDT: T ambiente al momento dell'impasto */}
+        <NumInput
+          label="T laboratorio (al momento impasto)"
+          unit="°C"
+          value={draft.tLaboratorio ?? 20}
+          onChange={v => update({ tLaboratorio: v })}
+          min={5} max={40} step={0.5}
+        />
+        {/* Risultato live: aggiornato ad ogni cambio di impastatrice o T_lab */}
+        {(() => {
+          const waterG  = Math.round((draft.totalFlourGrams ?? 1000) * (draft.hydration ?? 65) / 100);
+          const tPref   = (draft.prefermenti?.length ?? 0) > 0
+            ? draft.prefermenti!.reduce((s, p) => s + (p.tempC ?? 16), 0) / draft.prefermenti!.length
+            : undefined;
+          const ddtDef  = DDT_BY_STYLE[draft.style ?? 'napoletana'] ?? 24;
+          const wResult = computeWaterTempDDT({
+            ddtTarget:      ddtDef,
+            tempAmbient:    draft.tLaboratorio ?? 20,
+            kneadingMethod: (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
+            waterTotalGrams: waterG,
+            tempPreferment: tPref,
+          });
+          return <WaterTempResultCard result={wResult} compact={true} />;
+        })()}
         {draft.kneadingMethod && (
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
             C_attrito: {KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionLo}–{KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionHi}°C
             · {KNEADING_METHODS_FRICTION[draft.kneadingMethod].notes}
           </div>
@@ -1251,37 +1281,32 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
         </Card>
       )}
 
-      {/* ── 💧 Controllo Temperatura Idrica ── */}
+      {/* ── 💧 Acqua di impastamento (DDT automatico) ── */}
       {(() => {
-        // Massa acqua = farina × idratazione%
-        const waterG = Math.round(flour * (hydration / 100));
-        // Temperatura pre-impasto: media dei prefermenti (se presente)
-        const hasPref = (draft.prefermenti?.length ?? 0) > 0;
-        const tPref   = hasPref
-          ? Math.round((draft.prefermenti!.reduce((s, p) => s + (p.tempC ?? 16), 0) / draft.prefermenti!.length) * 10) / 10
+        const waterG    = Math.round(flour * (hydration / 100));
+        const hasPref   = (draft.prefermenti?.length ?? 0) > 0;
+        const tPrefAvg  = hasPref
+          ? draft.prefermenti!.reduce((s, p) => s + (p.tempC ?? 16), 0) / draft.prefermenti!.length
           : undefined;
-        // DDT target: default per stile
-        const DDT_MAP: Record<string, number> = {
-          napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
-        };
-        const ddtDefault = DDT_MAP[draft.style ?? 'napoletana'] ?? 24;
-
+        const ddtDef    = DDT_BY_STYLE[draft.style ?? 'napoletana'] ?? 24;
+        const wResult   = computeWaterTempDDT({
+          ddtTarget:       ddtDef,
+          tempAmbient:     draft.tLaboratorio ?? 20,
+          kneadingMethod:  (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
+          waterTotalGrams: waterG,
+          tempPreferment:  tPrefAvg,
+        });
         return (
           <Card>
-            <div style={{ marginBottom: 12, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
-              💧 Controllo Temperatura Idrica
+            <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+              💧 Acqua di impastamento
             </div>
-            <WaterTempWidget
-              waterTotalGrams={waterG}
-              hasPreferment={hasPref}
-              initialDdtTarget={ddtDefault}
-              initialKneadingMethod={(draft.kneadingMethod ?? 'spiral') as any}
+            <WaterTempResultCard
+              result={wResult}
+              showFormula={true}
+              ddtTarget={ddtDef}
+              tAmbient={draft.tLaboratorio ?? 20}
             />
-            {hasPref && tPref != null && (
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 8 }}>
-                T pre-impasto suggerita dal wizard: {tPref}°C (media prefermenti)
-              </div>
-            )}
           </Card>
         );
       })()}

@@ -16,7 +16,9 @@ import {
   gompertz, sweetSpot, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
   maltAlertLevel, kEffective, CONTAINER_THERMAL_PRESETS,
+  computeWaterTempDDT, type KneadingMethod,
 } from '../../engine';
+import { WaterTempResultCard } from '../tools/WaterTempView';
 
 // ─── Clock ───────────────────────────────────────────────────────────────────
 function useClock() {
@@ -510,6 +512,34 @@ function TempCard({ ts, setTempAmbient }: { ts: any; setTempAmbient: (t: number)
   );
 }
 
+// ─── Acqua impastamento (DDT live) ───────────────────────────────────────────
+const DDT_BY_STYLE_DASH: Record<string, number> = {
+  napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
+};
+
+function ImpastoPreparazioneCard({ session, ts }: { session: any; ts: any }) {
+  // Usa ts?.tempAmbient live se disponibile, altrimenti tLaboratorio dalla sessione
+  const tAmb   = ts?.tempAmbient ?? session.tLaboratorio ?? 20;
+  const waterG = Math.round(session.totalFlourGrams * (session.hydration / 100));
+  const tPref  = (session.prefermenti?.length ?? 0) > 0
+    ? session.prefermenti.reduce((s: number, p: any) => s + (p.tempC ?? 16), 0) / session.prefermenti.length
+    : undefined;
+  const ddtDef = DDT_BY_STYLE_DASH[session.style] ?? 24;
+  const result = (computeWaterTempDDT as Function)({
+    ddtTarget:       ddtDef,
+    tempAmbient:     tAmb,
+    kneadingMethod:  (session.kneadingMethod ?? 'spiral') as KneadingMethod,
+    waterTotalGrams: waterG,
+    tempPreferment:  tPref,
+  });
+  return (
+    <Card>
+      <span style={S.label}>💧 Riferimento impasto</span>
+      <WaterTempResultCard result={result} showFormula={false} />
+    </Card>
+  );
+}
+
 // ─── Altitude correction card ─────────────────────────────────────────────────
 function AltitudeCard({ altitudeM }: { altitudeM: number }) {
   if (!altitudeM || altitudeM < 100) return null;
@@ -794,6 +824,9 @@ export function DashboardView() {
 
       {/* ── Temperature ── */}
       <TempCard ts={ts} setTempAmbient={setTempAmbient} />
+
+      {/* ── Acqua impastamento (DDT live) ── */}
+      <ImpastoPreparazioneCard session={session} ts={ts} />
 
       {/* ── Altitude ── */}
       <AltitudeCard altitudeM={session.altitudeM ?? 0} />

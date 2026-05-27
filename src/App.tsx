@@ -11,7 +11,6 @@ import { HistoryView }         from './components/history/HistoryView';
 import { RottaView }           from './components/rotta/RottaView';
 import { ReverseScalingView }      from './components/tools/ReverseScalingView';
 import { FermentationPlannerView } from './components/tools/FermentationPlannerView';
-import { WaterTempView }           from './components/tools/WaterTempView';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
 
@@ -196,22 +195,6 @@ function HomeView() {
           🔢 Reverse Scaling
         </button>
 
-        <button
-          onClick={() => dispatch({ type: 'NAV', view: 'water_calc' })}
-          style={{
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 'var(--radius-md)',
-            padding: '13px 20px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.9rem',
-            cursor: 'pointer',
-            width: '100%',
-          }}
-        >
-          💧 Temperatura Acqua
-        </button>
       </div>
 
       {/* Version badge */}
@@ -237,10 +220,9 @@ function AppRouter() {
     case 'dashboard': return <ErrorBoundary><DashboardView /></ErrorBoundary>;
     case 'rotta':     return <ErrorBoundary><RottaView /></ErrorBoundary>;
     case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
-    case 'tools':      return <ErrorBoundary><ReverseScalingView /></ErrorBoundary>;
-    case 'planner':    return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
-    case 'water_calc': return <ErrorBoundary><WaterTempView /></ErrorBoundary>;
-    default:          return <HomeView />;
+    case 'tools':   return <ErrorBoundary><ReverseScalingView /></ErrorBoundary>;
+    case 'planner': return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
+    default:        return <HomeView />;
   }
 }
 

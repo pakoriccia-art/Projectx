@@ -6,7 +6,7 @@ import { createContext, useContext, useReducer, type ReactNode } from 'react';
 import type { Session, FlourGroup, PrefermentoComponent } from '../db/db';
 
 // ─── Views ────────────────────────────────────────────────────────────────────
-export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner' | 'water_calc';
+export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner';
 
 // ─── Wizard draft (built incrementally across steps) ─────────────────────────
 export interface WizardDraft {
@@ -26,6 +26,7 @@ export interface WizardDraft {
   altitudeM?: number;
   waterHardnessPpm?: number;
   kneadingMethod?: 'hand' | 'spiral' | 'planetary' | 'diving_arm';  // §2.7 DDT acqua
+  tLaboratorio?: number;   // §2.7 T ambiente al momento dell'impasto [°C]; default 20
   // Step 5
   agentType?: 'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat';
   agentDosePct?: number;
@@ -126,6 +127,8 @@ function reducer(state: AppState, action: Action): AppState {
         maltDP:           200,
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
+        kneadingMethod:   'spiral',
+        tLaboratorio:     20,
       }, wizardStep: 1 };
     case 'WIZARD_RESET_WITH_PATCH':
       return { ...state, wizardDraft: {
@@ -144,6 +147,8 @@ function reducer(state: AppState, action: Action): AppState {
         maltDP:           200,
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
+        kneadingMethod:   'spiral',
+        tLaboratorio:     20,
         ...action.patch,                // sovrascrive i default con i valori del planner
       }, wizardStep: action.step ?? 1 };
     case 'SESSION_START':
