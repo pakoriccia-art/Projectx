@@ -12,6 +12,8 @@ import { useTickEngine } from '../../hooks/useTickEngine';
 import {
   Card, Metric, Btn, ProgressBar, AlertBadge, S,
 } from '../ui';
+import { downsampleLTTB } from '../../lib/lttb';
+import { ddtForStyle } from '../../data/styleConstraints';
 import {
   gompertz, sweetSpot, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
@@ -449,6 +451,34 @@ function WStructureCard({ ts, session }: { ts: any; session: any }) {
     state === 'WARNING'   ? 'var(--accent-warning)' :
     'var(--state-optimal-hi)';
 
+  // KB §2.11, §6.5 — Sessione di sola autolisi: W non decade (atteso)
+  const prefs = session.prefermenti ?? [];
+  const onlyAutolysis = prefs.length > 0 && prefs.every((p: any) => p.type === 'autolysis');
+  if (onlyAutolysis) {
+    const plImprovement = prefs.reduce((acc: number, p: any) => {
+      const before = p.flourGroup?.effectivePl ?? 0.55;
+      const after  = p.state?.pl_modified ?? before;
+      return acc + (before - after);
+    }, 0);
+    return (
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={S.label}>Struttura W (autolisi)</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-info)' }}>
+            INVARIATO
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Metric label="W" value={W0.toFixed(0)} color="var(--text-secondary)" />
+          <Metric label="ΔP/L" value={`-${plImprovement.toFixed(2)}`} color="var(--accent-info)" />
+        </div>
+        <div style={{ marginTop: 10, fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          Autolisi pura: W invariato (atteso), estensibilità migliora via P/L
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -513,9 +543,6 @@ function TempCard({ ts, setTempAmbient }: { ts: any; setTempAmbient: (t: number)
 }
 
 // ─── Acqua impastamento (DDT live) ───────────────────────────────────────────
-const DDT_BY_STYLE_DASH: Record<string, number> = {
-  napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
-};
 
 function ImpastoPreparazioneCard({ session, ts: _ts }: { session: any; ts: any }) {
   // Usa tLaboratorio della sessione (fisso al momento dell'impasto, non live)
@@ -526,7 +553,7 @@ function ImpastoPreparazioneCard({ session, ts: _ts }: { session: any; ts: any }
   const tPref  = (session.prefermenti?.length ?? 0) > 0
     ? session.prefermenti.reduce((s: number, p: any) => s + (p.tempC ?? 16), 0) / session.prefermenti.length
     : undefined;
-  const ddtDef = DDT_BY_STYLE_DASH[session.style] ?? 24;
+  const ddtDef = ddtForStyle(session.style);
   const result = (computeWaterTempDDT as Function)({
     ddtTarget:       ddtDef,
     tempAmbient:     tAmb,
@@ -587,8 +614,18 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
 
   const { points, transitions } = useMemo(() => {
-    try { return buildMultiSegmentData(session, tAmb, ts?.phase, ts?.elapsedH); }
-    catch { return { points: [], transitions: [] }; }
+    try {
+      const raw = buildMultiSegmentData(session, tAmb, ts?.phase, ts?.elapsedH);
+      // KB §11.4 — LTTB downsampling sopra 200 punti (preserva primo/ultimo + forma curva)
+      if (raw.points.length > 200) {
+        const compressed = downsampleLTTB(
+          raw.points.map(p => ({ x: p.h, y: p.pct, ...p })),
+          200,
+        ) as typeof raw.points;
+        return { points: compressed, transitions: raw.transitions };
+      }
+      return raw;
+    } catch { return { points: [], transitions: [] }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, tAmb, ts?.phase, ts?.elapsedH]);
 

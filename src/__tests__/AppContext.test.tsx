@@ -55,14 +55,17 @@ describe('AppContext — WIZARD', () => {
     expect(result.current.state.wizardDraft.hydration).toBe(70);
   });
 
-  it('WIZARD_RESET azzera draft e step', () => {
+  it('WIZARD_RESET ripristina i default e azzera step', () => {
     const { result } = renderHook(() => useApp(), { wrapper });
     act(() => {
       result.current.dispatch({ type: 'WIZARD_UPDATE', patch: { style: 'teglia' } });
       result.current.dispatch({ type: 'WIZARD_STEP',   step: 4 });
       result.current.dispatch({ type: 'WIZARD_RESET' });
     });
-    expect(result.current.state.wizardDraft).toEqual({});
+    // WIZARD_RESET inietta i default UI (totalFlourGrams=1000, ecc.) per far funzionare canProceed
+    expect(result.current.state.wizardDraft.style).toBeUndefined();
+    expect(result.current.state.wizardDraft.totalFlourGrams).toBe(1000);
+    expect(result.current.state.wizardDraft.hydration).toBe(65);
     expect(result.current.state.wizardStep).toBe(1);
   });
 });

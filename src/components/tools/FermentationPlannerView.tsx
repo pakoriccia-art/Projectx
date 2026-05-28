@@ -15,7 +15,7 @@
  *          dove remainingH = targetTotalH − staglioH
  *   4. Valuta la viabilità in base al W della farina
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, SnapButtons, S } from '../ui';
 import {
@@ -24,6 +24,7 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from './WaterTempView';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
+import { ddtForStyle } from '../../data/styleConstraints';
 
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
@@ -569,13 +570,20 @@ export function FermentationPlannerView() {
   const [targetDate,  setTargetDate]  = useState('');
   const [targetTime,  setTargetTime]  = useState('12:00');
 
+  // Clock reattivo per countdown live (KB §11.3 — evita Date.now() in useMemo)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
   // Ore fino alla cottura (per passare targetTotalH a computeAllProtocols)
   const hoursUntilBake = useMemo(() => {
     if (!targetDate) return undefined;
     const bakeMs = new Date(`${targetDate}T${targetTime}`).getTime();
-    const diffMs = bakeMs - Date.now();
+    const diffMs = bakeMs - nowMs;
     return diffMs > 0 ? diffMs / 3_600_000 : undefined;
-  }, [targetDate, targetTime]);
+  }, [targetDate, targetTime, nowMs]);
 
   // Prefermento opzionale
   const [hasPref,     setHasPref]     = useState(false);
@@ -950,12 +958,9 @@ export function FermentationPlannerView() {
 
       {/* ── Acqua di impastamento (DDT live) ── */}
       {results.length > 0 && (() => {
-        const DDT_MAP: Record<string, number> = {
-          napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
-        };
         const waterG   = Math.round(totalFlourG * (hydration / 100));
         const tPref    = hasPref ? prefTemp : undefined;
-        const ddtDef   = DDT_MAP[style] ?? 24;
+        const ddtDef   = ddtForStyle(style);
         const wResult  = (computeWaterTempDDT as Function)({
           ddtTarget:       ddtDef,
           tempAmbient:     tAmb,

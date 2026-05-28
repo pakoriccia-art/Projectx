@@ -16,14 +16,18 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
+import { startSession } from '../../services/sessionService';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand, type FlourEntry } from '../../data/flourDatabase';
+import { STYLE_CONSTRAINTS, hydrationRangeForStyle } from '../../data/styleConstraints';
 
 const TOTAL_STEPS = 8;
 
-/** DDT target per stile — usato nel calcolo automatico T_acqua (§2.7) */
-const DDT_BY_STYLE: Record<string, number> = {
-  napoletana: 24, contemporanea: 25, teglia: 27, pala: 26, nystyle: 23,
-};
+/** DDT target per stile — delegato a styleConstraints (§7.x) */
+const DDT_BY_STYLE: Record<string, number> = Object.fromEntries(
+  Object.entries(STYLE_CONSTRAINTS).map(([k, v]) => [k, v.ddtTarget]),
+);
+// Mantiene compat con codice legacy; nuovi call-site usano direttamente ddtForStyle()
+void DDT_BY_STYLE;
 
 // ─── Prefermento defaults ─────────────────────────────────────────────────────
 function createDefaultPref(
@@ -207,13 +211,10 @@ function computeWarmupH(
 }
 
 function buildSession(draft: WizardDraft): Session {
-  // ── Validazione Zod (guardia data-layer, limiti speculari ai max UI) ────────
-  const parsed = WizardInputSchema.safeParse({
-    totalFlourGrams: draft.totalFlourGrams,
-    numPanetti:      draft.numPanetti,
-  });
+  // ── Validazione Zod .strict() (guardia data-layer per tutti i campi wizard) ──
+  const parsed = WizardInputSchema.safeParse(draft);
   if (!parsed.success) {
-    const msg = parsed.error.issues.map(i => i.message).join(' · ');
+    const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(' · ');
     throw new Error(msg);
   }
   const agent  = AGENT_GOMPERTZ as any;
@@ -802,16 +803,15 @@ function BlendMetric({ label, value }: { label: string; value: string }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const maxHyd = draft.mainFlourGroup
-    ? Math.round(75 + (draft.mainFlourGroup.effectiveW - 280) * 0.05)
-    : 75;
+  // Range idratazione: intersezione vincoli stile (§7.x) × capacità farina (W)
+  const hydRange = hydrationRangeForStyle(draft.style, draft.mainFlourGroup?.effectiveW);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <SliderInput
-        label="Idratazione" value={draft.hydration ?? 65}
+        label="Idratazione" value={draft.hydration ?? hydRange.default}
         onChange={v => update({ hydration: v })}
-        min={50} max={Math.min(85, maxHyd)} step={0.5} unit="%" />
+        min={hydRange.min} max={hydRange.max} step={0.5} unit="%" />
       <SliderInput
         label="Sale" value={draft.salt ?? 2.0}
         onChange={v => update({ salt: v })}
@@ -1414,6 +1414,8 @@ export function WizardView() {
       try {
         const session = buildSession(draft);
         dispatch({ type: 'SESSION_START', session });
+        // Persist session + initial ProcessLogEntry (KB §12.1) — fire-and-forget
+        startSession(session).catch(err => console.error('[startSession]', err));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setBuildError(msg);

@@ -646,6 +646,35 @@ function validatePrefermentiMix(prefermenti, mainFlourFraction) {
     warnings.push(`LOW_RINFRESCO: rinfresco = ${rinfrescoFrac.toFixed(1)}% (consigliato ≥ 20%)`);
   }
 
+  // ── Vincoli biochimici per tipo (KB §5.7) ───────────────────────────────────
+  for (const p of prefermenti) {
+    if (p.type === 'biga') {
+      if (p.hydration != null && (p.hydration < 40 || p.hydration > 55)) {
+        errors.push(`BIGA_HYDRATION_OUT_OF_RANGE: id=${p.id} hyd=${p.hydration}% (atteso [40, 55])`);
+      }
+      if (p.yeastPct != null && (p.yeastPct < 0.05 || p.yeastPct > 2.0)) {
+        errors.push(`BIGA_YEAST_OUT_OF_RANGE: id=${p.id} yeast=${p.yeastPct}% (atteso [0.05, 2.0])`);
+      }
+    } else if (p.type === 'poolish') {
+      if (p.hydration != null && Math.abs(p.hydration - 100) > 5) {
+        warnings.push(`POOLISH_HYDRATION_NONSTANDARD: id=${p.id} hyd=${p.hydration}% (atteso ≈100)`);
+      }
+      if (p.yeastPct != null && (p.yeastPct < 0.05 || p.yeastPct > 1.0)) {
+        errors.push(`POOLISH_YEAST_OUT_OF_RANGE: id=${p.id} yeast=${p.yeastPct}% (atteso [0.05, 1.0])`);
+      }
+    } else if (p.type === 'autolysis') {
+      if (p.durationH != null && (p.durationH < 0.33 || p.durationH > 24)) {
+        errors.push(`AUTOLYSIS_DURATION_OUT_OF_RANGE: id=${p.id} dur=${p.durationH}h (atteso [0.33, 24])`);
+      }
+      if (p.tempC != null && (p.tempC < 4 || p.tempC > 35)) {
+        errors.push(`AUTOLYSIS_TEMP_OUT_OF_RANGE: id=${p.id} T=${p.tempC}°C (atteso [4, 35])`);
+      }
+      if (p.hydration != null && (p.hydration < 50 || p.hydration > 80)) {
+        errors.push(`AUTOLYSIS_HYDRATION_OUT_OF_RANGE: id=${p.id} hyd=${p.hydration}% (atteso [50, 80])`);
+      }
+    }
+  }
+
   return { ok: errors.length === 0, errors, warnings };
 }
 
