@@ -16,7 +16,9 @@ import type { TickState } from '../context/AppContext';
  */
 export async function startSession(session: Session): Promise<number> {
   const id = Number(await db.sessions.add({ ...session, status: 'active' }));
-  const initialAdu = (session.initialMaturationOffset ?? 0) * 100;
+  // Two-clock seeding: l'offset prefermento semina la MATURAZIONE (la biga ha già
+  // maturato), non la lievitazione. L'ADU lievito parte da 0 (impasto degassato).
+  const initialMatPct = (session.initialMaturationOffset ?? 0) * 100;
   const entry: ProcessLogEntry = {
     sessionId:        id,
     recordedAt:       session.startedAt ?? new Date(),
@@ -26,12 +28,12 @@ export async function startSession(session: Session): Promise<number> {
     tempDough:        session.tLaboratorio ?? 22,
     doughLocation:    'bulk_room',
     tempSource:       'estimated',
-    cumulativeAdu:    initialAdu,
-    deltaAdu:         initialAdu,
+    cumulativeAdu:    0,
+    deltaAdu:         0,
     deltaTSeconds:    0,
-    maturationPct:    0,
+    maturationPct:    initialMatPct,
     leaveningPct:     0,
-    enzymaticMatPct:  0,
+    enzymaticMatPct:  initialMatPct,
     estimatedPH:      session.initialPH ?? 5.8,
     wEffective:       session.effectiveW_initial,
     syncedAt:         null,

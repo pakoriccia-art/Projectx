@@ -18,7 +18,7 @@ import {
   fHardnessProtease,
   amylaseCorrectedRate,
   HILL_W_DECAY,
-  fArrhenius, ENZYMATIC_CLOCK_PARAMS,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
 } from '../engine';
 
 const TICK_INTERVAL_MS    = 10_000;  // 10 secondi reali
@@ -58,6 +58,21 @@ export function useTickEngine() {
     const elapsedH = ts?.elapsedH       ?? 0;
     const phase    = ts?.phase          ?? 'bulk_room';   // ← legge dal ref, non dalla closure
 
+    // ── Seeding prefermenti (two-clock) — FIX inversione maturazione/lievitazione ─
+    // initialMaturationOffset semina l'orologio MATURAZIONE (la biga ha già maturato),
+    // NON la lievitazione (l'impasto finale è degassato all'impastamento).
+    // La biga influenza la lievitazione via CINETICA (popolazione di lievito attiva
+    // → lag ridotto), non gonfiando il livello iniziale di gas.
+    const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;   // [0,100]
+    const prefFrac     = Math.min(1, (session.prefermenti ?? [])
+      .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
+    // Seed enzimatico: ADU che produce enzymaticMatPct = matOffsetPct a t=0
+    const enzSeed      = matOffsetPct > 0
+      ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
+      : 0;
+    // Lag lievitazione ridotto dalla biga (cinetica più rapida, non livello iniziale)
+    const leavLambda   = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
+
     // ── Temperatura impasto ────────────────────────────────────────────────────
     const massKg  = (currentDoughMassKg as Function)(session, phase);
     const tauBase = (phase === 'bulk_room' || phase === 'bulk_fridge')
@@ -78,8 +93,8 @@ export function useTickEngine() {
     // Usa estimatePHForLBF (KB §2.6) con la maturazione del tick precedente.
     // Questo evita la dipendenza circolare: prevAdu → prevMatPct → currentPH → corrRate → newAdu
     const prevMatPct = (gompertz as Function)(
-      prevAdu + (session.initialMaturationOffset ?? 0) * 10,
-      session.agentMuMax, session.agentLambda, session.agentAsymptote ?? 100,
+      prevAdu,
+      session.agentMuMax, leavLambda, session.agentAsymptote ?? 100,
     ) as number;
     const currentPH = (estimatePHForLBF as Function)(
       session.initialPH ?? 5.8, prevMatPct,
@@ -96,11 +111,13 @@ export function useTickEngine() {
     const deltaAdu = kRatioVal * saltYeast * deltaH;
     const newAdu   = prevAdu + deltaAdu;
 
-    // ── Gompertz lievitazione (orologio lievito, ex maturationPct) ──────────────
+    // ── Gompertz lievitazione (orologio lievito) ────────────────────────────────
+    // Parte BASSA (impasto degassato): nessun offset di maturazione iniettato.
+    // La biga accelera solo la cinetica (leavLambda ridotto), non il livello.
     const matPct = (gompertz as Function)(
-      newAdu + (session.initialMaturationOffset ?? 0) * 10,
+      newAdu,
       session.agentMuMax,
-      session.agentLambda,
+      leavLambda,
       session.agentAsymptote ?? 100,
     ) as number;
     const leaveningPct = matPct;  // alias esplicito — orologio lievito
@@ -108,7 +125,8 @@ export function useTickEngine() {
     // ── Enzymatic clock (two-clock model, v2.4.1) ────────────────────────────
     // fArrhenius(tDough) usa Ea=47kJ/mol senza CTM: proteolisi rimane attiva
     // vicino a T_min (a 4°C = 29% del ritmo a 22°C, vs lievito a 0.55%).
-    const prevEnzAdu      = ts?.enzymaticAdu ?? 0;
+    // Seed = enzSeed: la biga porta maturazione già acquisita (offset alto).
+    const prevEnzAdu      = ts?.enzymaticAdu ?? enzSeed;
     const enzRate         = (fArrhenius as Function)(tDough) as number;
     const newEnzAdu       = prevEnzAdu + enzRate * deltaH;
     const enzymaticMatPct = (gompertz as Function)(

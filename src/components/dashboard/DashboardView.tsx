@@ -19,7 +19,7 @@ import {
   computeAltitudeFactor, volumeMilestoneCorrection,
   maltAlertLevel, kEffective, CONTAINER_THERMAL_PRESETS,
   computeWaterTempDDT, type KneadingMethod,
-  fArrhenius, ENZYMATIC_CLOCK_PARAMS,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 
@@ -68,6 +68,7 @@ function buildMultiSegmentData(
     initialMaturationOffset?: number;
     numPanetti?: number; hydration?: number; containerPreset?: string;
     totalFlourGrams?: number; salt?: number;
+    prefermenti?: any[];
   },
   tAmbient: number,
   currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
@@ -216,8 +217,16 @@ function buildMultiSegmentData(
   const maxH   = Math.max(totalH * 1.5, 24);
   const stepH  = maxH / 80;  // ~80 punti totali
 
-  let cumulativeAdu = (session.initialMaturationOffset ?? 0) * 10;
-  let enzAdu = 0;
+  // Two-clock seeding: lievitazione parte da 0 (degassato), maturazione dall'offset biga.
+  const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;
+  const prefFrac     = Math.min(1, (session.prefermenti ?? [])
+    .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
+  const leavLambda   = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
+  const enzSeed      = matOffsetPct > 0
+    ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
+    : 0;
+  let cumulativeAdu = 0;
+  let enzAdu = enzSeed;
   const points: { h: number; pct: number; matPct: number; tempC: number }[] = [];
   let segStartH = 0;
 
@@ -232,7 +241,7 @@ function buildMultiSegmentData(
       cumulativeAdu += segStepH * ratio;
       enzAdu += segStepH * enzRateForSeg;
       const h      = segStartH + i * segStepH;
-      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, leavLambda, session.agentAsymptote) as number;
       const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
       points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
@@ -252,7 +261,7 @@ function buildMultiSegmentData(
       cumulativeAdu += extraStepH * ratio;
       enzAdu += extraStepH * enzRateExtra;
       const h      = totalH + i * extraStepH;
-      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, leavLambda, session.agentAsymptote) as number;
       const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN (tail): ADU=', cumulativeAdu);
       points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(tAmbient.toFixed(1)) });
@@ -271,8 +280,9 @@ function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; rem
   const tAmb = ts?.tempAmbient ?? 22;   // reagisce subito al cambio utente
   const spot = useMemo(() => {
     try {
-      // Aggiunge offset ADU iniziale da biga/poolish per "ore al picco" corretto
-      const effectiveAdu = (ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10;
+      // Two-clock: la lievitazione parte da 0 (no offset). L'ADU lievito corrente
+      // guida la stima "ore al picco" della lievitazione.
+      const effectiveAdu = ts?.cumulativeAdu ?? 0;
       const result = (sweetSpot as Function)(
         session,
         effectiveAdu,
@@ -823,16 +833,21 @@ export function DashboardView() {
   const [confirmEnd, setConfirmEnd] = useState(false);
 
   // Lievitazione live (orologio lievito, Gompertz yeast ADU — reagisce subito ai cambio sessione)
+  // Lievitazione: parte BASSA (impasto degassato). Nessun offset iniettato — la
+  // biga accelera la cinetica (leavLambda ridotto), non il livello iniziale di gas.
+  const heroPrefFrac = Math.min(1, (session.prefermenti ?? [])
+    .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
+  const heroLeavLambda = Math.max(0.3, session.agentLambda * (1 - 0.5 * heroPrefFrac));
   const leaveningPct = (() => {
     const rawAdu = ts?.cumulativeAdu ?? 0;
-    const adu = rawAdu + (session.initialMaturationOffset ?? 0) * 10;
     try {
-      const pct = (gompertz as Function)(adu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      const pct = (gompertz as Function)(rawAdu, session.agentMuMax, heroLeavLambda, session.agentAsymptote) as number;
       return isNaN(pct) ? ((ts as any)?.leaveningPct ?? 0) : Math.min(100, Math.max(0, pct));
     } catch { return (ts as any)?.leaveningPct ?? 0; }
   })();
-  // Maturazione enzimatica (two-clock, aggiornata ogni tick ~10s)
-  const matPct = ts?.maturationPct ?? leaveningPct;
+  // Maturazione enzimatica (two-clock, aggiornata ogni tick ~10s).
+  // Fallback pre-tick: offset prefermento (la biga ha già maturato).
+  const matPct = ts?.maturationPct ?? ((session.initialMaturationOffset ?? 0) * 100);
   const phase = ts?.phase ?? 'bulk_room';
   const phaseInfo = PHASE_LABELS[phase] ?? { label: phase, color: 'var(--text-secondary)' };
 
