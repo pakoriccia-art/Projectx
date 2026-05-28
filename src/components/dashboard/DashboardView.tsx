@@ -356,36 +356,55 @@ function QualityDot({ n, color }: { n: number; color: string }) {
   );
 }
 
-function QualityProfileCard({ session }: { session: any }) {
-  const pl  = session.effectivePl_initial ?? 0.65;
-  const hyd = session.hydration ?? 65;
-  const W   = session.effectiveW_initial ?? 280;
+function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
+  const pl   = session.effectivePl_initial ?? 0.65;
+  const hyd  = session.hydration ?? 65;
+  const W    = session.effectiveW_initial ?? 280;
   const prefs: any[] = session.prefermenti ?? [];
   const proto = session.apprettoProtocol ?? 'ta';
   const style = session.style ?? 'napoletana';
 
-  // ── Estensibilità: bassa P/L + alta idratazione → più estensibile ──────────
-  const plScore    = Math.max(0, Math.min(4, (1.2 - pl) / 0.15));
-  const hydBonus   = (hyd - 55) / 30;
-  const ext = Math.max(1, Math.min(5, Math.round(plScore + hydBonus)));
+  // Maturazione realizzata (orologio enzimatico two-clock) [0, 1]
+  const m = Math.max(0, Math.min(1, (ts?.maturationPct ?? 0) / 100));
 
-  // ── Profilo aromatico: dipende da prefermento, protocollo, lievito ──────────
-  let aroma = 2.0;
+  // ── Estensibilità: matPct gate forte + P/L + idratazione ─────────────────────
+  // A matPct=55%: max 3/5 — a matPct=95%: 4/5 — a matPct=100%+flour soft: 5/5
+  const matExtrib  = 3.0 * m;
+  const plScore    = Math.max(0.5, Math.min(2.0, (1.2 - pl) / 0.35));
+  const hydScore   = 0.5 + Math.max(0, Math.min(1.0, (hyd - 55) / 30));
+  const flourContr = (plScore + hydScore) / 2;
+  const ext = Math.max(1, Math.min(5, Math.round(matExtrib + flourContr)));
+
+  // ── Aromi: matPct×tempo + prefermenti + freddo (continuo) + sourdough ─────────
+  // coldContrib scala con tcHours (min(1.0, tcH/24)): 12h→0.5, 48h→1.0 clampato
+  let prefContrib = 0;
   prefs.forEach((p: any) => {
-    if (p.type === 'biga')     aroma += 1.5;
-    else if (p.type === 'poolish')  aroma += 1.0;
-    else if (p.type === 'riporto')  aroma += 1.2;
+    if (p.type === 'biga')          prefContrib += 1.2;
+    else if (p.type === 'poolish')  prefContrib += 0.8;
+    else if (p.type === 'riporto')  prefContrib += 0.9;
+    else if (p.type === 'autolysis') prefContrib += 0.1;
   });
-  if (proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto') aroma += 0.5;
-  if (session.agentType === 'sourdough_wheat') aroma += 0.8;
-  const aromaScore = Math.max(1, Math.min(5, Math.round(aroma)));
+  const tcH         = session.tcHours ?? 0;
+  const coldContrib = (proto === 'tc' || proto === 'tc_puntata' || proto === 'tc_appreto') && tcH > 8
+    ? Math.min(1.0, tcH / 24) : 0;
+  const sdContrib   = session.agentType === 'sourdough_wheat' ? 0.8 : 0;
+  const aromaScore  = Math.max(1, Math.min(5,
+    Math.round(1.0 + 2.0 * m + prefContrib + coldContrib + sdContrib),
+  ));
 
-  // ── Scioglievolezza: idratazione alta + W basso + stile fine ────────────────
-  const styleBonus: Record<string, number> = {
-    napoletana: 1.2, contemporanea: 0.8, teglia: 0.4, pala: 0.4, nystyle: -0.2,
+  // ── Scioglievolezza: non-monotona (picco a 87%) + idratazione + amilasi ───────
+  // Bell: 1 − (m − 0.87)² / 0.25  →  picco=1.0 a 87%, cala sia sotto che sopra
+  const sciMat    = Math.max(0, Math.min(1, 1 - Math.pow(m - 0.87, 2) / 0.25));
+  const hydBon    = Math.max(0, Math.min(0.8, (hyd - 55) / 50));
+  const amylBon   = Math.min(0.4, Math.max(0, ((session.effectiveAmylaseIndex ?? 1.0) - 1.0) * 0.4));
+  const styleSci: Record<string, number> = {
+    napoletana: 0.3, contemporanea: 0.2, teglia: 0.0, pala: 0.1, nystyle: -0.2,
   };
-  const sci = 1 + (hyd - 55) / 30 * 1.5 + (350 - W) / 300 * 1.5 + (styleBonus[style] ?? 0);
-  const sciScore = Math.max(1, Math.min(5, Math.round(sci)));
+  const W_sci     = session.effectiveW_current ?? W;
+  const wBon      = Math.max(0, Math.min(0.3, (350 - W_sci) / 500));  // piccolo bonus W basso
+  const sciScore  = Math.max(1, Math.min(5,
+    Math.round(1 + 3.0 * sciMat + hydBon + amylBon + wBon + (styleSci[style] ?? 0)),
+  ));
 
   return (
     <Card>
@@ -879,7 +898,7 @@ export function DashboardView() {
       <SweetSpotCard session={session} ts={ts} remainingH={remainingH} />
 
       {/* ── Quality Profile ── */}
-      <QualityProfileCard session={session} />
+      <QualityProfileCard session={session} ts={ts} />
 
       {/* ── W Structure ── */}
       <WStructureCard ts={ts} session={session} />
