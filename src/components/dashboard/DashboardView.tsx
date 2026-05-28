@@ -19,6 +19,7 @@ import {
   computeAltitudeFactor, volumeMilestoneCorrection,
   maltAlertLevel, kEffective, CONTAINER_THERMAL_PRESETS,
   computeWaterTempDDT, type KneadingMethod,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS,
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 
@@ -216,21 +217,25 @@ function buildMultiSegmentData(
   const stepH  = maxH / 80;  // ~80 punti totali
 
   let cumulativeAdu = (session.initialMaturationOffset ?? 0) * 10;
-  const points: { h: number; pct: number; tempC: number }[] = [];
+  let enzAdu = 0;
+  const points: { h: number; pct: number; matPct: number; tempC: number }[] = [];
   let segStartH = 0;
 
   for (const seg of expandedSegs) {
     const kT    = (kEffective as Function)(seg.tempC, session.agentEaKj, session.agentType) as number;
     const ratio = kRef > 1e-12 ? kT / kRef : 1;
+    const enzRateForSeg = (fArrhenius as Function)(seg.tempC) as number;
     const nSteps   = Math.max(1, Math.round(seg.durationH / stepH));
     const segStepH = seg.durationH / nSteps;
 
     for (let i = 1; i <= nSteps; i++) {
       cumulativeAdu += segStepH * ratio;
-      const h   = segStartH + i * segStepH;
-      const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      enzAdu += segStepH * enzRateForSeg;
+      const h      = segStartH + i * segStepH;
+      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
     }
     segStartH += seg.durationH;
   }
@@ -240,14 +245,17 @@ function buildMultiSegmentData(
   if (extraH > 0.1) {
     const kT    = (kEffective as Function)(tAmbient, session.agentEaKj, session.agentType) as number;
     const ratio = kRef > 1e-12 ? kT / kRef : 1;
+    const enzRateExtra = (fArrhenius as Function)(tAmbient) as number;
     const nSteps   = Math.max(1, Math.round(extraH / stepH));
     const extraStepH = extraH / nSteps;
     for (let i = 1; i <= nSteps; i++) {
       cumulativeAdu += extraStepH * ratio;
-      const h   = totalH + i * extraStepH;
-      const raw = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      enzAdu += extraStepH * enzRateExtra;
+      const h      = totalH + i * extraStepH;
+      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
+      const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
       if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN (tail): ADU=', cumulativeAdu);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), tempC: parseFloat(tAmbient.toFixed(1)) });
+      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(tAmbient.toFixed(1)) });
     }
   }
 
@@ -276,7 +284,8 @@ function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; rem
 
   if (!spot) return null;
 
-  const isPast    = spot.status === 'past_peak';
+  // Usa maturazione enzimatica (two-clock) come segnale primario past_peak
+  const isPast = (ts?.maturationPct ?? 0) >= (session.alertThreshold ?? 85) || spot.status === 'past_peak';
   const hoursLeft = Math.max(0, spot.hoursUntilPeak ?? 0);
   // Quando l'impasto è in TC, la proiezione a temperatura costante è fuorviante (può dare
   // centinaia di ore). Se remainingH è disponibile e plausibile, è la fonte primaria.
@@ -665,10 +674,21 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
 
   return (
     <Card>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={S.label}>Curva Gompertz</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={S.label}>Lievitazione · Maturazione</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
           {tAmb.toFixed(1)}°C TA · {fridgeT}°C TC · {protoLabel[proto] ?? proto}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 8 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--accent-brand)' }}>
+          ╌╌ Lievitazione (lievito)
+        </span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: '#e6c84a' }}>
+          —— Maturazione (enzimatica)
+        </span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--state-cold)' }}>
+          ╌╌ T impasto
         </span>
       </div>
       {/* Scroll orizzontale quando il grafico è più largo dello schermo */}
@@ -701,7 +721,9 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
             formatter={(v: number, name: string) =>
               name === 'tempC'
                 ? [`${(v as number).toFixed(1)}°C`, 'T impasto']
-                : [`${(v as number).toFixed(1)}%`, 'Maturazione']
+                : name === 'matPct'
+                ? [`${(v as number).toFixed(1)}%`, 'Maturazione']
+                : [`${(v as number).toFixed(1)}%`, 'Lievitazione']
             }
             labelFormatter={(l: number) => `t = ${l}h`}
           />
@@ -721,11 +743,14 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
             <ReferenceLine yAxisId="left" key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
               label={{ value: t.label, position: 'top', fill: t.color, fontSize: 8, fontFamily: 'var(--font-mono)' }} />
           ))}
-          {/* Curva maturazione Gompertz (asse sinistro) */}
-          <Line yAxisId="left" type="monotone" dataKey="pct" stroke="var(--accent-brand)" strokeWidth={2}
-            dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
+          {/* Lievitazione (orologio lievito, Gompertz yeast ADU) */}
+          <Line yAxisId="left" type="monotone" dataKey="pct" name="pct" stroke="var(--accent-brand)" strokeWidth={2}
+            strokeDasharray="5 3" dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
+          {/* Maturazione enzimatica (two-clock, fArrhenius Ea=47) */}
+          <Line yAxisId="left" type="monotone" dataKey="matPct" name="matPct" stroke="#e6c84a" strokeWidth={2}
+            dot={false} activeDot={{ r: 4, fill: '#e6c84a' }} />
           {/* T impasto pianificata (asse destro) */}
-          <Line yAxisId="right" type="monotone" dataKey="tempC" stroke="var(--state-cold)" strokeWidth={1.5}
+          <Line yAxisId="right" type="monotone" dataKey="tempC" name="tempC" stroke="var(--state-cold)" strokeWidth={1.5}
             strokeDasharray="4 2" dot={false} activeDot={{ r: 3, fill: 'var(--state-cold)' }} />
         </LineChart>
       </div>
@@ -778,16 +803,17 @@ export function DashboardView() {
 
   const [confirmEnd, setConfirmEnd] = useState(false);
 
-  // Calcola matPct live dal Gompertz: reagisce immediatamente a cambio sessione
-  // (e.g. muMax, lambda aggiornati) senza attendere il prossimo ciclo tick (~10s).
-  const matPct = (() => {
+  // Lievitazione live (orologio lievito, Gompertz yeast ADU — reagisce subito ai cambio sessione)
+  const leaveningPct = (() => {
     const rawAdu = ts?.cumulativeAdu ?? 0;
     const adu = rawAdu + (session.initialMaturationOffset ?? 0) * 10;
     try {
       const pct = (gompertz as Function)(adu, session.agentMuMax, session.agentLambda, session.agentAsymptote) as number;
-      return isNaN(pct) ? (ts?.maturationPct ?? 0) : Math.min(100, Math.max(0, pct));
-    } catch { return ts?.maturationPct ?? 0; }
+      return isNaN(pct) ? ((ts as any)?.leaveningPct ?? 0) : Math.min(100, Math.max(0, pct));
+    } catch { return (ts as any)?.leaveningPct ?? 0; }
   })();
+  // Maturazione enzimatica (two-clock, aggiornata ogni tick ~10s)
+  const matPct = ts?.maturationPct ?? leaveningPct;
   const phase = ts?.phase ?? 'bulk_room';
   const phaseInfo = PHASE_LABELS[phase] ?? { label: phase, color: 'var(--text-secondary)' };
 
@@ -820,9 +846,9 @@ export function DashboardView() {
 
       {/* ── Hero Maturation ── */}
       <Card elevated>
-        {/* Metrica principale full-width */}
+        {/* Metrica principale full-width — orologio enzimatico (two-clock) */}
         <Metric
-          label="Maturazione"
+          label="Maturazione enzimatica"
           value={matPct.toFixed(1)}
           unit="%"
           color={
@@ -840,7 +866,7 @@ export function DashboardView() {
         )}
         {/* Metriche secondarie in griglia compatta 3-col */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
-          <Metric label="ADU" value={((ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10).toFixed(3)} color="var(--text-secondary)" />
+          <Metric label="Lievitaz." value={leaveningPct.toFixed(1)} unit="%" color="var(--accent-brand)" />
           <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} color="var(--accent-info)" />
           <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} color="var(--text-secondary)" />
         </div>

@@ -388,6 +388,35 @@ assert(approx(doseRatio, muRatio, 0.001), `inverseProgram: scaling LINEARE ratio
 assert(Math.abs(doseRatio - Math.sqrt(2)) > 0.5, 'inverseProgram: NON sqrt scaling (raddoppio durata ≠ √2)');
 
 // ─────────────────────────────────────────────────────────────
+console.log('\n§ S — Two-Clock Enzymatic (v2.4.1)');
+// ─────────────────────────────────────────────────────────────
+
+// ENZYMATIC_CLOCK_PARAMS è esportato con i campi corretti
+assert(e.ENZYMATIC_CLOCK_PARAMS != null, 'ENZYMATIC_CLOCK_PARAMS esportato');
+assert(e.ENZYMATIC_CLOCK_PARAMS.EaKj === 47, 'ENZYMATIC_CLOCK_PARAMS.EaKj = 47');
+assert(approx(e.ENZYMATIC_CLOCK_PARAMS.muMax,  9.50, 0.001), 'ENZYMATIC_CLOCK_PARAMS.muMax = 9.50');
+assert(approx(e.ENZYMATIC_CLOCK_PARAMS.lambda, 0.50, 0.001), 'ENZYMATIC_CLOCK_PARAMS.lambda = 0.50');
+
+// Calibrazione: 48h@4°C → enzAdu ≈ 11.41 → matPct ≈ 85%
+const enz_adu_48h_4c = e.fArrhenius(4) * 48;
+assert(approx(enz_adu_48h_4c, 11.41, 0.05),
+  `enzAdu(48h@4°C) = fArr(4)×48 ≈ 11.41 — val=${enz_adu_48h_4c.toFixed(3)}`);
+
+const enz_mat_48h = e.gompertz(enz_adu_48h_4c, e.ENZYMATIC_CLOCK_PARAMS.muMax, e.ENZYMATIC_CLOCK_PARAMS.lambda, 100);
+assert(approx(enz_mat_48h, 85, 1.5),
+  `gompertz(enzAdu@48h@4°C) ≈ 85% — val=${enz_mat_48h.toFixed(2)}`);
+
+// A 22°C: stesso enzAdu si raggiunge in ~13.8h (invarianza della calibrazione)
+const h_to_85_at_22c = enz_adu_48h_4c / e.fArrhenius(22);
+assert(h_to_85_at_22c > 13.0 && h_to_85_at_22c < 14.5,
+  `ore a 85% enzimatico @ 22°C ≈ 13.8h — val=${h_to_85_at_22c.toFixed(2)}`);
+
+// Verifica ratio 4°C/22°C: ~29% (proteolisi non si azzera a freddo)
+const ratio_4c_22c = e.fArrhenius(4) / e.fArrhenius(22);
+assert(ratio_4c_22c > 0.27 && ratio_4c_22c < 0.32,
+  `fArrhenius(4°C)/fArrhenius(22°C) ≈ 0.29 (proteolisi attiva a freddo) — val=${ratio_4c_22c.toFixed(3)}`);
+
+// ─────────────────────────────────────────────────────────────
 console.log('\n── Riepilogo ────────────────────────────────────');
 console.log(`  Totale:  ${passed + failed}`);
 console.log(`  ✅ Passed: ${passed}`);

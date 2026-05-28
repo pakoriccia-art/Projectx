@@ -92,6 +92,18 @@ const LM_PARAMS = {
   matrixFactor:  0.6,   // riduzione muMax in matrice solida
 };
 
+/** Orologio maturazione enzimatica — two-clock v2.4.1 (KB §2.4)
+ * Accumulo: enzAdu += fArrhenius(T) × deltaH — senza CTM → attivo a 4°C (~29% ritmo a 22°C).
+ * Calibrazione: gompertz(11.41, 9.50, 0.5, 100) = 85.0% → 48h@4°C target.
+ * A 22°C: 85% in ~13.8h (coincide con l'orologio lievitazione a TA).
+ * EaKj = 47 ≡ HILL_W_DECAY.EaProteasiKj — riusa fArrhenius() già calibrata.
+ */
+const ENZYMATIC_CLOCK_PARAMS = {
+  EaKj:   47,   // Ea proteolisi [kJ/mol] — stessa di fArrhenius
+  muMax:  9.50,
+  lambda: 0.50,
+};
+
 /** Hill W decay — §2.4 */
 const HILL_W_DECAY = {
   hillExponent: 5,
@@ -1422,6 +1434,7 @@ const _constants = {
   MALT_PARAMS,
   ALTITUDE_PARAMS,
   WATER_HARDNESS_PARAMS,
+  ENZYMATIC_CLOCK_PARAMS,
 };
 
 // Per CommonJS (Node.js test)
@@ -1530,7 +1543,7 @@ export {
   AMYLASE_PH_PARAMS, AMYLASE_DENATURATION_PARAMS, AMYLASE_CORRECTION_PARAMS,
   FRICTION_BASE_FACTORS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
-  ALTITUDE_PARAMS, WATER_HARDNESS_PARAMS,
+  ALTITUDE_PARAMS, WATER_HARDNESS_PARAMS, ENZYMATIC_CLOCK_PARAMS,
 
   // Functions
   safeExp, safeDiv, safeClamp,

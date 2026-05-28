@@ -18,6 +18,7 @@ import {
   fHardnessProtease,
   amylaseCorrectedRate,
   HILL_W_DECAY,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS,
 } from '../engine';
 
 const TICK_INTERVAL_MS    = 10_000;  // 10 secondi reali
@@ -95,12 +96,23 @@ export function useTickEngine() {
     const deltaAdu = kRatioVal * saltYeast * deltaH;
     const newAdu   = prevAdu + deltaAdu;
 
-    // ── Gompertz maturazione ──────────────────────────────────────────────────
+    // ── Gompertz lievitazione (orologio lievito, ex maturationPct) ──────────────
     const matPct = (gompertz as Function)(
       newAdu + (session.initialMaturationOffset ?? 0) * 10,
       session.agentMuMax,
       session.agentLambda,
       session.agentAsymptote ?? 100,
+    ) as number;
+    const leaveningPct = matPct;  // alias esplicito — orologio lievito
+
+    // ── Enzymatic clock (two-clock model, v2.4.1) ────────────────────────────
+    // fArrhenius(tDough) usa Ea=47kJ/mol senza CTM: proteolisi rimane attiva
+    // vicino a T_min (a 4°C = 29% del ritmo a 22°C, vs lievito a 0.55%).
+    const prevEnzAdu      = ts?.enzymaticAdu ?? 0;
+    const enzRate         = (fArrhenius as Function)(tDough) as number;
+    const newEnzAdu       = prevEnzAdu + enzRate * deltaH;
+    const enzymaticMatPct = (gompertz as Function)(
+      newEnzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100,
     ) as number;
 
     // ── pH stimato end-of-tick (stored for next tick) — KB §12.2 step 7 ───────
@@ -134,10 +146,10 @@ export function useTickEngine() {
         message: `W decay ${wDecayPct.toFixed(1)}% — struttura critica`,
         timestamp: now,
       }});
-    } else if (matPct > (session.alertThreshold ?? 85) && !prevFlags?.peakAlertSent) {
+    } else if (enzymaticMatPct > (session.alertThreshold ?? 85) && !prevFlags?.peakAlertSent) {
       dispatch({ type: 'ALERT_ADD', alert: {
         id: `peak_${now}`, level: 'advisory',
-        message: `Maturazione ${matPct.toFixed(0)}% — zona ottimale raggiunta`,
+        message: `Maturazione ${enzymaticMatPct.toFixed(0)}% — zona ottimale raggiunta`,
         timestamp: now,
       }});
     }
@@ -145,16 +157,19 @@ export function useTickEngine() {
     dispatch({
       type: 'TICK',
       patch: {
-        cumulativeAdu: newAdu,
-        maturationPct: matPct,
-        tempDough:     tDough,
-        tempAmbient:   tAmbient,
-        estimatedPH:   newPH,
-        W_current:     W_curr,
-        wDamage,        // ← integrale danno proteolitico (monotono crescente)
-        elapsedH:      elapsedH + deltaH,
-        phase,          // ← conserva la fase corrente (letta dal ref)
-        lastTickAt:    now,
+        cumulativeAdu:    newAdu,
+        maturationPct:    enzymaticMatPct,  // ← ora = orologio enzimatico (two-clock)
+        leaveningPct,                        // ← Gompertz lievito (ex maturationPct)
+        enzymaticAdu:     newEnzAdu,
+        enzymaticMatPct,
+        tempDough:        tDough,
+        tempAmbient:      tAmbient,
+        estimatedPH:      newPH,
+        W_current:        W_curr,
+        wDamage,
+        elapsedH:         elapsedH + deltaH,
+        phase,
+        lastTickAt:       now,
       } as any,
     });
   }, [dispatch]); // dispatch è stabile → tick non cambia mai → setInterval ok

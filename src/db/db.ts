@@ -155,7 +155,9 @@ export interface ProcessLogEntry {
   cumulativeAdu: number;
   deltaAdu: number;
   deltaTSeconds: number;
-  maturationPct: number;
+  maturationPct: number;       // lievitazione % (ADU lievito Gompertz) — storico
+  leaveningPct?: number;       // alias esplicito lievitazione (v2.4.1)
+  enzymaticMatPct?: number;    // maturazione enzimatica % (orologio two-clock, v2.4.1)
   estimatedPH?: number;
   wEffective: number;
 
@@ -193,6 +195,15 @@ class PizzaMatrixDB extends Dexie {
 
   constructor() {
     super('PizzaMatrixDB');
+
+    // Version 4 — two-clock: aggiunge enzymaticMatPct / leaveningPct a process_log
+    // Nessuna migrazione dati necessaria (campi opzionali con default graceful).
+    this.version(4).stores({
+      sessions:          '++id, status, createdAt, [status+createdAt], style',
+      process_log:       '++id, [sessionId+recordedAt], sessionId, recordedAt',
+      alerts:            '++id, sessionId, [sessionId+level], createdAt',
+      projection_cache:  '++id, &sessionId, computedAt',
+    });
 
     // Version 3 — §5.1 KB
     // .upgrade() migra sessioni legacy con apprettoProtocol='misto' → 'tc_puntata'

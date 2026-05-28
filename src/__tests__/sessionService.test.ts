@@ -30,17 +30,20 @@ const mockSession: Session = {
 };
 
 const mockTickState = {
-  cumulativeAdu: 1.234,
-  maturationPct: 78.5,
-  tempDough: 22.1,
-  tempAmbient: 22,
-  estimatedPH: 5.4,
-  W_current: 265,
-  wDamage: 0.042,   // integrale danno proteolitico (aggiunto con fix Hill W)
-  elapsedH: 12,
-  doughLocation: 'balled_room' as const,
-  phase: 'balled_room' as const,
-  lastTickAt: Date.now(),
+  cumulativeAdu:    1.234,
+  maturationPct:    78.5,   // enzymatic (two-clock)
+  leaveningPct:     76.0,
+  enzymaticAdu:     5.2,
+  enzymaticMatPct:  78.5,
+  tempDough:        22.1,
+  tempAmbient:      22,
+  estimatedPH:      5.4,
+  W_current:        265,
+  wDamage:          0.042,
+  elapsedH:         12,
+  doughLocation:    'balled_room' as const,
+  phase:            'balled_room' as const,
+  lastTickAt:       Date.now(),
 };
 
 beforeEach(() => {

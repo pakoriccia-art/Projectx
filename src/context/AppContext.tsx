@@ -46,22 +46,26 @@ export interface WizardDraft {
 
 // ─── Real-time tick state ─────────────────────────────────────────────────────
 export interface TickState {
-  cumulativeAdu:  number;
-  maturationPct:  number;
-  tempDough:      number;
-  tempAmbient:    number;
-  estimatedPH:    number;
-  W_current:      number;
-  elapsedH:       number;
-  doughLocation:  Session['apprettoProtocol'] extends string ? string : string;
-  phase:          'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking';
-  lastTickAt:     number;
+  cumulativeAdu:    number;
+  /** maturazione % — orologio enzimatico two-clock (fArrhenius Ea=47, senza CTM) */
+  maturationPct:    number;
+  /** lievitazione % — orologio lievito (Gompertz + cardinale, ex maturationPct) */
+  leaveningPct:     number;
+  /** ADU enzimatico cumulativo (integrale fArrhenius×deltaH) */
+  enzymaticAdu:     number;
+  enzymaticMatPct:  number;   // alias di maturationPct per leggibilità call-site
+  tempDough:        number;
+  tempAmbient:      number;
+  estimatedPH:      number;
+  W_current:        number;
+  elapsedH:         number;
+  doughLocation:    Session['apprettoProtocol'] extends string ? string : string;
+  phase:            'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking';
+  lastTickAt:       number;
   /**
    * Integrale di danno proteolitico: D = Σ (ΔH / tCrit(T))
    * Usato da computeWHill(W0, 1.0, wDamage, n) per garantire la monotonia
    * di W (la proteolisi è irreversibile — W non può aumentare).
-   * Sostituisce il modello snapshot W = W0/(1+(totalH/tCrit_corrente)^n)
-   * che causa salti discontinui ad ogni cambio di fase termica.
    */
   wDamage: number;
 }

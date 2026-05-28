@@ -30,6 +30,8 @@ export async function startSession(session: Session): Promise<number> {
     deltaAdu:         initialAdu,
     deltaTSeconds:    0,
     maturationPct:    0,
+    leaveningPct:     0,
+    enzymaticMatPct:  0,
     estimatedPH:      session.initialPH ?? 5.8,
     wEffective:       session.effectiveW_initial,
     syncedAt:         null,
