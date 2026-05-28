@@ -16,6 +16,7 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
+import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand, type FlourEntry } from '../../data/flourDatabase';
 
 const TOTAL_STEPS = 8;
 
@@ -427,11 +428,59 @@ function Step2({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 // STEP 3 — Farine + prefermenti
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── Selettore farina da libreria ─────────────────────────────────────────────
+function FlourSelector({ value, onSelect }: {
+  value: string;
+  onSelect: (entry: FlourEntry) => void;
+}) {
+  const brands = getFlourBrands();
+  return (
+    <select
+      value={value}
+      onChange={e => {
+        const entry = FLOUR_DATABASE.find(f => f.id === e.target.value);
+        if (entry) onSelect(entry);
+      }}
+      style={{
+        width: '100%',
+        background: 'var(--bg-elevated)',
+        color: value ? 'var(--text-primary)' : 'var(--text-muted)',
+        border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '7px 10px',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '0.78rem',
+        cursor: 'pointer',
+        outline: 'none',
+        appearance: 'none',
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 10px center',
+        paddingRight: 28,
+      }}
+    >
+      <option value="">📚 Libreria farine…</option>
+      {brands.map(brand => (
+        <optgroup key={brand} label={brand}>
+          {getFloursByBrand(brand).map(f => (
+            <option key={f.id} value={f.id}>
+              {f.name} — W{f.W} · P/L {f.pl} · {f.protein}% prot.
+            </option>
+          ))}
+        </optgroup>
+      ))}
+      <option value="custom">✏️ Personalizzata (valori manuali)</option>
+    </select>
+  );
+}
+
 // ─── Riga farina rinfresco ────────────────────────────────────────────────────
 function FlourRow({ flour, idx, total, onChange, onRemove }: {
   flour: FlourComponent; idx: number; total: number;
   onChange: (f: FlourComponent) => void; onRemove: () => void;
 }) {
+  const [selectedId, setSelectedId] = useState('');
+
   return (
     <Card elevated style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -443,6 +492,19 @@ function FlourRow({ flour, idx, total, onChange, onRemove }: {
           }}>×</button>
         )}
       </div>
+      {/* Selettore libreria */}
+      <FlourSelector value={selectedId} onSelect={entry => {
+        setSelectedId(entry.id);
+        if (entry.id !== 'custom') {
+          onChange({
+            ...flour,
+            name: entry.name, brand: entry.brand,
+            W: entry.W, pl: entry.pl, protein: entry.protein,
+            ...(entry.ash !== undefined ? { ash: entry.ash } : {}),
+            ...(entry.FN  !== undefined ? { FN:  entry.FN  } : {}),
+          });
+        }
+      }} />
       {/* Forza reologica: W + P/L sempre affiancati */}
       <Row2>
         <NumInput label="W" value={flour.W} onChange={v => onChange({ ...flour, W: v })} min={80} max={500} />

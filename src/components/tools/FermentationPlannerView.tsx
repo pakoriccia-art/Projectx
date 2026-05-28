@@ -23,6 +23,7 @@ import {
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
 } from '../../engine';
 import { WaterTempResultCard } from './WaterTempView';
+import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
 
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
@@ -548,6 +549,9 @@ export function FermentationPlannerView() {
 
   // Parametri farina + agente
   const [W,           setW]           = useState(280);
+  const [flourPl,     setFlourPl]     = useState(0.55);
+  const [flourProtein,setFlourProtein]= useState(12.5);
+  const [selectedFlourId, setSelectedFlourId] = useState('');
   const [agentType,   setAgentType]   = useState<'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat'>('fresh_yeast');
   const [dosePct,     setDosePct]     = useState(0.3);
   const [tAmb,          setTAmb]          = useState(22);
@@ -620,9 +624,13 @@ export function FermentationPlannerView() {
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
     // FlourGroup sintetico dal W selezionato nel planner
+    const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
     const flourArr = [{
-      name: 'Farina', brand: '', W, pl: 0.55, protein: 12.5,
-      ash: 0.55, amylaseActivity: 0.5, percentage: 100,
+      name: selectedEntry?.name ?? 'Farina',
+      brand: selectedEntry?.brand ?? '',
+      W, pl: flourPl, protein: flourProtein,
+      ash: selectedEntry?.ash ?? 0.55,
+      percentage: 100,
     }];
     const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
 
@@ -740,6 +748,52 @@ export function FermentationPlannerView() {
       {/* ── Farina + Agente ── */}
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Selettore libreria farine */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ ...S.label }}>Farina</span>
+            <select
+              value={selectedFlourId}
+              onChange={e => {
+                const id = e.target.value;
+                setSelectedFlourId(id);
+                const entry = FLOUR_DATABASE.find(f => f.id === id);
+                if (entry && entry.id !== 'custom') {
+                  setW(entry.W);
+                  setFlourPl(entry.pl);
+                  setFlourProtein(entry.protein);
+                }
+              }}
+              style={{
+                width: '100%',
+                background: 'var(--bg-elevated)',
+                color: selectedFlourId ? 'var(--text-primary)' : 'var(--text-muted)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '7px 10px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                outline: 'none',
+                appearance: 'none' as const,
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 10px center',
+                paddingRight: 28,
+              }}
+            >
+              <option value="">📚 Libreria farine…</option>
+              {getFlourBrands().map(brand => (
+                <optgroup key={brand} label={brand}>
+                  {getFloursByBrand(brand).map(f => (
+                    <option key={f.id} value={f.id}>
+                      {f.name} — W{f.W} · P/L {f.pl}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              <option value="custom">✏️ Personalizzata</option>
+            </select>
+          </div>
           <PlannerSlider label="Forza farina (W)" value={W} onChange={setW}
             min={100} max={500} step={5} unit="W" color="var(--text-primary)" />
 
