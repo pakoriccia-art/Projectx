@@ -417,6 +417,41 @@ assert(ratio_4c_22c > 0.27 && ratio_4c_22c < 0.32,
   `fArrhenius(4°C)/fArrhenius(22°C) ≈ 0.29 (proteolisi attiva a freddo) — val=${ratio_4c_22c.toFixed(3)}`);
 
 // ─────────────────────────────────────────────────────────────
+console.log('\n§ S2 — sweetSpotMaturation (ETA su orologio MATURAZIONE)');
+// ─────────────────────────────────────────────────────────────
+
+assert(typeof e.sweetSpotMaturation === 'function', 'sweetSpotMaturation esportato');
+
+const ssSession = { alertThreshold: 85, agentEaKj: 56, agentType: 'fresh_yeast' };
+
+// Sanity di validazione KB: da enzAdu=0 a 4°C costante → 85% in ~48h (NON ~1330h)
+const ssCold = e.sweetSpotMaturation(ssSession, 0, 4);
+assert(ssCold.status === 'upcoming', 'sweetSpotMaturation(0,4°C) → upcoming');
+assert(ssCold.hoursUntilPeak > 46 && ssCold.hoursUntilPeak < 50,
+  `ETA 85% @4°C costante ≈ 48h (NON 1330h) — val=${ssCold.hoursUntilPeak.toFixed(1)}h`);
+
+// A 22°C da 0 → ~13.8h (coerente con la calibrazione del clock)
+const ssWarm = e.sweetSpotMaturation(ssSession, 0, 22);
+assert(ssWarm.hoursUntilPeak > 13.0 && ssWarm.hoursUntilPeak < 14.5,
+  `ETA 85% @22°C costante ≈ 13.8h — val=${ssWarm.hoursUntilPeak.toFixed(1)}h`);
+
+// Oltre il picco: enzAdu già sopra la soglia → past_peak, 0h
+const aduPeak = e.findAduAt(e.ENZYMATIC_CLOCK_PARAMS.muMax, e.ENZYMATIC_CLOCK_PARAMS.lambda, 100, 85);
+const ssPast  = e.sweetSpotMaturation(ssSession, aduPeak + 1, 4);
+assert(ssPast.status === 'past_peak' && ssPast.hoursUntilPeak === 0,
+  'sweetSpotMaturation oltre soglia → past_peak (0h)');
+
+// Maturazione già avviata a caldo: ETA residua a 4°C < 48h (tiene conto del progresso)
+const ssPartial = e.sweetSpotMaturation(ssSession, e.fArrhenius(22) * 6, 4);
+assert(ssPartial.hoursUntilPeak < 48 && ssPartial.hoursUntilPeak > 0,
+  `ETA residua dopo 6h@22°C, poi 4°C < 48h — val=${ssPartial.hoursUntilPeak.toFixed(1)}h`);
+
+// Confronto con l'orologio LIEVITO: sweetSpot a 4°C dà ETA enormemente maggiore
+const ssYeastCold = e.sweetSpot({ ...ssSession, agentMuMax: 12, agentLambda: 1.2, agentAsymptote: 100 }, 0, 4);
+assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak * 5,
+  `orologio lievito @4°C ≫ maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
+
+// ─────────────────────────────────────────────────────────────
 console.log('\n── Riepilogo ────────────────────────────────────');
 console.log(`  Totale:  ${passed + failed}`);
 console.log(`  ✅ Passed: ${passed}`);

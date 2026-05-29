@@ -972,6 +972,36 @@ function sweetSpot(session, currentAdu, currentTempC) {
   return { status: 'upcoming', hoursUntilPeak, peakPct };
 }
 
+/**
+ * Sweet spot MATURAZIONE — ETA al picco sull'orologio ENZIMATICO (two-clock v2.4.1)
+ *
+ * A differenza di sweetSpot() — che usa l'orologio LIEVITO (kRatio cardinale, ~0 a
+ * T<Tmin) e quindi a 4°C dà ETA assurde (~1330h) — questo usa la cinetica della
+ * proteolisi (fArrhenius, Ea=47, SENZA correzione cardinale): la maturazione resta
+ * attiva al freddo. Sanity di validazione KB: 85% ≈ 48h @ 4°C costante partendo da 0.
+ *
+ * L'ETA del target di cottura (la maturazione enzimatica al peak) DEVE usare questa
+ * funzione, non sweetSpot(), che resta per stime legate alla lievitazione del gas.
+ *
+ * @param {object} session       — usa alertThreshold come peakPct (default 85)
+ * @param {number} currentEnzAdu — ADU enzimatico cumulato corrente (ts.enzymaticAdu)
+ * @param {number} currentTempC  — temperatura corrente [°C] per la proiezione a T costante
+ * @returns {{ status: 'upcoming'|'past_peak', hoursUntilPeak: number, peakPct: number }}
+ */
+function sweetSpotMaturation(session, currentEnzAdu, currentTempC) {
+  const { muMax, lambda } = ENZYMATIC_CLOCK_PARAMS;
+  const peakPct   = session.alertThreshold ?? 85;
+  const aduAtPeak = findAduAt(muMax, lambda, 100, peakPct);
+  const enzNow    = currentEnzAdu ?? 0;
+  if (aduAtPeak <= enzNow) {
+    return { status: 'past_peak', hoursUntilPeak: 0, peakPct };
+  }
+  // fArrhenius(T) = ADU enzimatico accumulato per ora a temperatura costante T.
+  const rateAtT = fArrhenius(currentTempC);
+  const hoursUntilPeak = rateAtT > 1e-9 ? (aduAtPeak - enzNow) / rateAtT : 999;
+  return { status: 'upcoming', hoursUntilPeak, peakPct };
+}
+
 /** Helper: stima pH corrente per agenti non-LM */
 function _estimateCurrentPH(session, currentAdu) {
   if (session.latestProcessEntry?.estimatedPH != null) {
@@ -1494,6 +1524,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // § K Dashboard/Tick
     computeDeltaAdu,
     sweetSpot,
+    sweetSpotMaturation,
     computeDashboardEffectiveW,
 
     // Backward compat (deprecato v2.3)
@@ -1555,7 +1586,7 @@ export {
   blendAmylaseIndex, validateFlourGroup, normalizeFlourGroup,
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
   phInhibition, estimatePH, computeLMState, computeFrictionHeat, computeWaterTemp,
-  computeDeltaAdu, sweetSpot, computeDashboardEffectiveW,
+  computeDeltaAdu, sweetSpot, sweetSpotMaturation, computeDashboardEffectiveW,
   computeKprot, computeWEffectiveExp,
   fSaltYeast, fSaltProtease,
   computeWBlendNonLinear,

@@ -6,7 +6,7 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, S, SliderInput } from '../ui';
-import { kEffective, sweetSpot } from '../../engine';
+import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS } from '../../engine';
 
 const AGENT_SHORT: Record<string, string> = {
   fresh_yeast:       'LBF',
@@ -48,16 +48,24 @@ function RottaContent() {
   const kRatioNew  = kRef > 0 ? kNew / kRef : 0;
   const speedDelta = kRatioCurr > 0 ? ((kRatioNew / kRatioCurr) - 1) * 100 : 0;
 
-  // Sweet spot preview: ore al picco con T corrente vs T proposta
-  const currentAdu = (ts?.cumulativeAdu ?? 0) + (session.initialMaturationOffset ?? 0) * 10;
+  // Sweet spot preview: ore al PICCO DI MATURAZIONE (orologio enzimatico two-clock)
+  // con T corrente vs T proposta. Usa l'ADU enzimatico integrato reale (ts.enzymaticAdu),
+  // NON l'ADU lievito né l'offset prefermento — quello seminava la lievitazione (bug risolto).
+  const enzAdu = (() => {
+    if (ts?.enzymaticAdu != null) return ts.enzymaticAdu;
+    const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;  // pre-tick fallback
+    return matOffsetPct > 0
+      ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
+      : 0;
+  })();
   const spotCurr = useMemo(() => {
-    try { return (sweetSpot as Function)(session, currentAdu, ts?.tempAmbient ?? 22) as any; }
+    try { return (sweetSpotMaturation as Function)(session, enzAdu, ts?.tempAmbient ?? 22) as any; }
     catch { return null; }
-  }, [session, currentAdu, ts?.tempAmbient]);
+  }, [session, enzAdu, ts?.tempAmbient]);
   const spotNew = useMemo(() => {
-    try { return (sweetSpot as Function)(session, currentAdu, localT) as any; }
+    try { return (sweetSpotMaturation as Function)(session, enzAdu, localT) as any; }
     catch { return null; }
-  }, [session, currentAdu, localT]);
+  }, [session, enzAdu, localT]);
 
   const apply = () => {
     dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });

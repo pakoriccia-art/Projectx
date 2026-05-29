@@ -15,7 +15,7 @@ import {
 import { downsampleLTTB } from '../../lib/lttb';
 import { ddtForStyle } from '../../data/styleConstraints';
 import {
-  gompertz, sweetSpot, structuralState,
+  gompertz, sweetSpotMaturation, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
   maltAlertLevel, kEffective, CONTAINER_THERMAL_PRESETS,
   computeWaterTempDDT, type KneadingMethod,
@@ -53,11 +53,18 @@ const PROTOCOL_PHASES: Record<string, string[]> = {
   tc_appreto: ['bulk_room',   'balled_fridge', 'proofing', 'baking'],
 };
 
-// ─── Gompertz multi-segmento (temperature-aware + inerzia termica TA↔TC) ───────
+// ─── Gompertz multi-segmento PIECEWISE (passato reale + futuro pianificato) ─────
 // Ogni fase ha la propria temperatura (TA o frigo) → ADU accumula a ritmi diversi.
-// v2.4.0: rampe esponenziali Newton (N=3 sub-seg) per OGNI transizione TA↔TC,
-// coerenti con l'engine (setPhase auto-aggiorna tAmbient → Newton cooling attivo).
-// La curva si aggiorna quando cambia T_amb, fridgeTempC, containerPreset o protocollo.
+// v2.4.0: rampe esponenziali Newton (N=3 sub-seg) per OGNI transizione TA↔TC.
+// v2.4.1 (fix proiezione): la curva NON viene più ri-baselinata a T costante quando
+// si entra in una fase fredda. Due correzioni:
+//   1) Le fasi calde (TA) usano `warmAmbient` (T del laboratorio, stabile), NON il
+//      `tAmbient` live — che dopo setPhase(TC) diventa fridgeTempC=4°C e appiattiva
+//      la salita calda della puntata già avvenuta.
+//   2) La curva è ANCORATA allo stato integrato reale (ts.cumulativeAdu / enzymaticAdu)
+//      al tempo `elapsedH`: il passato vi converge, il futuro riparte esattamente da lì
+//      (giunzione continua, nessun reset a 0). Il process_log conserva solo il kickoff,
+//      quindi il tickState è la fonte di verità dell'integrazione reale.
 function buildMultiSegmentData(
   session: {
     apprettoProtocol: string;
@@ -69,14 +76,25 @@ function buildMultiSegmentData(
     numPanetti?: number; hydration?: number; containerPreset?: string;
     totalFlourGrams?: number; salt?: number;
     prefermenti?: any[];
+    tLaboratorio?: number;
   },
   tAmbient: number,
   currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
   elapsedH?: number,       // ts.elapsedH — ore totali trascorse dall'avvio sessione
-): { points: { h: number; pct: number; tempC: number }[]; transitions: { h: number; label: string; color: string }[] } {
+  liveAdu?: number,        // ts.cumulativeAdu — ADU lievito integrato reale (ancora)
+  liveEnzAdu?: number,     // ts.enzymaticAdu — ADU enzimatico integrato reale (ancora)
+): { points: { h: number; pct: number; matPct: number; tempC: number }[]; transitions: { h: number; label: string; color: string }[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
   const tcH     = session.tcHours ?? 12;
+
+  // ── Temperatura delle fasi CALDE (anti-rebaseline) ───────────────────────────
+  // Quando la fase corrente è fredda, `tAmbient` live = fridgeTempC: usarlo per le
+  // fasi TA (puntata/appretto a temperatura ambiente) cancellerebbe la salita calda
+  // già avvenuta. Si usa invece la T del laboratorio (stabile). Nelle fasi calde
+  // `warmAmbient === tAmbient` → nessun cambiamento di comportamento per i protocolli TA.
+  const isColdNow   = currentPhase === 'bulk_fridge' || currentPhase === 'balled_fridge';
+  const warmAmbient = isColdNow ? (session.tLaboratorio ?? 22) : tAmbient;
 
   // ── Proprietà termiche condivise ─────────────────────────────────────────────
   const h2      = Math.max(0.01, (session.hydration ?? 65) / 100);
@@ -114,30 +132,30 @@ function buildMultiSegmentData(
   // ── Segmenti base ─────────────────────────────────────────────────────────────
   const baseSegs: Seg[] =
     proto === 'ta' ? [
-      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
+      { durationH: session.puntataH,  tempC: warmAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
+      { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: session.apprettoH, tempC: warmAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : proto === 'tc' ? [
-      { durationH: tcH,               tempC: fridgeT,  label: 'Freddo totale', color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: tcH,               tempC: fridgeT,     label: 'Freddo totale', color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
+      { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
     ]
     : proto === 'tc_puntata' ? [
-      { durationH: tcH,               tempC: fridgeT,  label: 'Puntata TC',    color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
-      { durationH: session.apprettoH, tempC: tAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
+      { durationH: tcH,               tempC: fridgeT,     label: 'Puntata TC',    color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
+      { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      { durationH: session.apprettoH, tempC: warmAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
     ]
     : /* tc_appreto */ [
-      { durationH: session.puntataH,  tempC: tAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)', phase: 'bulk_room'     },
-      { durationH: session.staglioH,  tempC: tAmbient, label: 'Staglio',     color: 'var(--text-muted)',   phase: 'balled_room'   },
-      { durationH: tcH,               tempC: fridgeT,  label: 'Appretto TC', color: 'var(--state-cold)',   phase: 'balled_fridge' },
-      // Riscaldo TA: N=5 sub-seg con T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ)
+      { durationH: session.puntataH,  tempC: warmAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)', phase: 'bulk_room'     },
+      { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',     color: 'var(--text-muted)',   phase: 'balled_room'   },
+      { durationH: tcH,               tempC: fridgeT,     label: 'Appretto TC', color: 'var(--state-cold)',   phase: 'balled_fridge' },
+      // Riscaldo TA: N=5 sub-seg con T(t)=warmAmb+(fridgeT−warmAmb)·exp(−t/τ)
       // Etichettati 'Riscaldo TA' → ramp-expansion pass li salta (già ramped).
       ...(session.apprettoH > 0 ? (() => {
         const tauSec2 = computeTauSec(false);  // sfera per panetti
         return Array.from({ length: 5 }, (_, i) => {
           const tMid = (i + 0.5) * (session.apprettoH / 5) * 3600;
-          const T    = tAmbient + (fridgeT - tAmbient) * Math.exp(-tMid / tauSec2);
+          const T    = warmAmbient + (fridgeT - warmAmbient) * Math.exp(-tMid / tauSec2);
           return { durationH: session.apprettoH / 5, tempC: T,
             label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' as const };
         });
@@ -179,7 +197,7 @@ function buildMultiSegmentData(
   // anziché un gradino istantaneo — coerente con Fix 1 (setPhase auto-tAmbient).
   const RAMP_N = 3;
   const expandedSegs: Seg[] = [];
-  let T_entry = tAmbient;  // impasto sempre a T_amb all'avvio della sessione
+  let T_entry = warmAmbient;  // impasto sempre a T di laboratorio (caldo) all'avvio
 
   for (const seg of baseSegs) {
     const tempDiff    = Math.abs(seg.tempC - T_entry);
@@ -225,72 +243,123 @@ function buildMultiSegmentData(
   const enzSeed      = matOffsetPct > 0
     ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
     : 0;
+  // ── FASE 1: integrazione RAW dell'ADU pianificato (per-fase, temp corrette) ────
+  // Si accumulano i punti grezzi (rawAdu lievito, rawEnz maturazione) integrando
+  // ogni segmento alla sua T. Poi (fase 2) la curva viene ANCORATA allo stato reale.
+  type RawPt = { h: number; rawAdu: number; rawEnz: number; tempC: number };
+  const rawPts: RawPt[] = [];
   let cumulativeAdu = 0;
   let enzAdu = enzSeed;
-  const points: { h: number; pct: number; matPct: number; tempC: number }[] = [];
   let segStartH = 0;
 
-  for (const seg of expandedSegs) {
-    const kT    = (kEffective as Function)(seg.tempC, session.agentEaKj, session.agentType) as number;
+  const integrateSpan = (durationH: number, tempC: number, hOffset: number) => {
+    const kT    = (kEffective as Function)(tempC, session.agentEaKj, session.agentType) as number;
     const ratio = kRef > 1e-12 ? kT / kRef : 1;
-    const enzRateForSeg = (fArrhenius as Function)(seg.tempC) as number;
-    const nSteps   = Math.max(1, Math.round(seg.durationH / stepH));
-    const segStepH = seg.durationH / nSteps;
-
+    const enzRate = (fArrhenius as Function)(tempC) as number;
+    const nSteps   = Math.max(1, Math.round(durationH / stepH));
+    const spanStepH = durationH / nSteps;
     for (let i = 1; i <= nSteps; i++) {
-      cumulativeAdu += segStepH * ratio;
-      enzAdu += segStepH * enzRateForSeg;
-      const h      = segStartH + i * segStepH;
-      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, leavLambda, session.agentAsymptote) as number;
-      const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
-      if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', cumulativeAdu, 'muMax=', session.agentMuMax, 'λ=', session.agentLambda);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(seg.tempC.toFixed(1)) });
+      cumulativeAdu += spanStepH * ratio;
+      enzAdu        += spanStepH * enzRate;
+      rawPts.push({ h: hOffset + i * spanStepH, rawAdu: cumulativeAdu, rawEnz: enzAdu, tempC });
     }
+  };
+
+  for (const seg of expandedSegs) {
+    integrateSpan(seg.durationH, seg.tempC, segStartH);
     segStartH += seg.durationH;
   }
-
-  // ── Estensione oltre totalH a tAmbient (plateau) ──────────────────────────────
+  // Estensione oltre totalH (plateau a tAmbient corrente — futuro oltre il target)
   const extraH = maxH - totalH;
-  if (extraH > 0.1) {
-    const kT    = (kEffective as Function)(tAmbient, session.agentEaKj, session.agentType) as number;
-    const ratio = kRef > 1e-12 ? kT / kRef : 1;
-    const enzRateExtra = (fArrhenius as Function)(tAmbient) as number;
-    const nSteps   = Math.max(1, Math.round(extraH / stepH));
-    const extraStepH = extraH / nSteps;
-    for (let i = 1; i <= nSteps; i++) {
-      cumulativeAdu += extraStepH * ratio;
-      enzAdu += extraStepH * enzRateExtra;
-      const h      = totalH + i * extraStepH;
-      const raw    = (gompertz as Function)(cumulativeAdu, session.agentMuMax, leavLambda, session.agentAsymptote) as number;
-      const rawEnz = (gompertz as Function)(enzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
-      if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN (tail): ADU=', cumulativeAdu);
-      points.push({ h: parseFloat(h.toFixed(2)), pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)), matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)), tempC: parseFloat(tAmbient.toFixed(1)) });
+  if (extraH > 0.1) integrateSpan(extraH, tAmbient, totalH);
+
+  // ── FASE 2: ANCORAGGIO allo stato integrato reale (ts) al tempo elapsedH ───────
+  // Il process_log conserva solo il kickoff → il tickState è la fonte di verità.
+  // - PASSATO (h ≤ anchorH): scala la salita grezza così da centrare esattamente
+  //   lo stato reale al confine (mantiene la FORMA caldo→freddo, niente flat a 0).
+  // - FUTURO (h > anchorH): riparte dall'ancora reale e prosegue con gli incrementi
+  //   pianificati. Giunzione continua: a h=anchorH passato e futuro coincidono.
+  const anchorH = (elapsedH != null && elapsedH > 0) ? elapsedH : 0;
+  const interpAt = (h: number, key: 'rawAdu' | 'rawEnz'): number => {
+    if (rawPts.length === 0) return key === 'rawEnz' ? enzSeed : 0;
+    if (h <= 0) return key === 'rawEnz' ? enzSeed : 0;
+    if (h >= rawPts[rawPts.length - 1].h) return rawPts[rawPts.length - 1][key];
+    for (let i = 0; i < rawPts.length; i++) {
+      if (rawPts[i].h >= h) {
+        const p1 = rawPts[i];
+        const p0 = i > 0 ? rawPts[i - 1] : { h: 0, rawAdu: 0, rawEnz: enzSeed };
+        const f  = (h - p0.h) / Math.max(1e-9, p1.h - p0.h);
+        return p0[key] + f * (p1[key] - p0[key]);
+      }
     }
+    return rawPts[rawPts.length - 1][key];
+  };
+
+  const hasLive       = anchorH > 0 && liveAdu != null && liveEnzAdu != null;
+  const rawAduAtAnchor = hasLive ? interpAt(anchorH, 'rawAdu') : 0;
+  const rawEnzAtAnchor = hasLive ? interpAt(anchorH, 'rawEnz') : enzSeed;
+  // Fattori di scala del passato (forma preservata, endpoint = stato reale)
+  const aduScale = hasLive && rawAduAtAnchor > 1e-9 ? (liveAdu as number) / rawAduAtAnchor : 1;
+  const enzAccumAnchor = rawEnzAtAnchor - enzSeed;
+  const enzScale = hasLive && enzAccumAnchor > 1e-9
+    ? ((liveEnzAdu as number) - enzSeed) / enzAccumAnchor : 1;
+  // Ancore reali da cui prosegue il futuro
+  const futureAduBase = hasLive ? (liveAdu as number)    : rawAduAtAnchor;
+  const futureEnzBase = hasLive ? (liveEnzAdu as number) : rawEnzAtAnchor;
+
+  const points: { h: number; pct: number; matPct: number; tempC: number }[] = [];
+  for (const p of rawPts) {
+    let adu: number, enz: number;
+    if (p.h <= anchorH) {
+      // Passato: riconciliato sullo stato reale (scala la salita pianificata)
+      adu = p.rawAdu * aduScale;
+      enz = enzSeed + (p.rawEnz - enzSeed) * enzScale;
+    } else {
+      // Futuro: prosegue dall'ancora reale con gli incrementi pianificati
+      adu = futureAduBase + (p.rawAdu - rawAduAtAnchor);
+      enz = futureEnzBase + (p.rawEnz - rawEnzAtAnchor);
+    }
+    const raw    = (gompertz as Function)(adu, session.agentMuMax, leavLambda, session.agentAsymptote) as number;
+    const rawEnz = (gompertz as Function)(enz, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100) as number;
+    if (isNaN(raw) && import.meta.env.DEV) console.warn('[DashboardChart] gompertz→NaN: ADU=', adu, 'muMax=', session.agentMuMax, 'λ=', leavLambda);
+    points.push({
+      h: parseFloat(p.h.toFixed(2)),
+      pct: isNaN(raw) ? 0 : parseFloat(raw.toFixed(1)),
+      matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)),
+      tempC: parseFloat(p.tempC.toFixed(1)),
+    });
   }
 
   return { points, transitions };
 }
 
 // ─── Sweet Spot Card ──────────────────────────────────────────────────────────
-// Engine sweetSpot(session, currentAdu, currentTempC) → { status, hoursUntilPeak, peakPct }
-// Usa tempAmbient (aggiornato immediatamente dall'utente) non tempDough (inerzia termica).
-// remainingH = ore al target cottura pianificato (countdown del clock); usata per TC protocols
-// dove la proiezione a temperatura costante darebbe un valore scorretto (impasto freddo).
+// ETA al target = picco di MATURAZIONE (orologio enzimatico two-clock), NON lievito.
+// sweetSpotMaturation(session, currentEnzAdu, T) usa fArrhenius (Ea=47, no cardinale):
+// a 4°C costante l'85% arriva in ~48h (validazione KB), non ~1330h (cinetica lievito).
+// Usa tempAmbient (aggiornato subito dall'utente) non tempDough (inerzia termica).
+// remainingH = ore al target cottura pianificato (countdown del clock).
 function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; remainingH: number }) {
   const tAmb = ts?.tempAmbient ?? 22;   // reagisce subito al cambio utente
+  // Pre-tick fallback: la maturazione parte dall'offset prefermento (la biga ha già maturato)
+  const enzSeedFallback = useMemo(() => {
+    const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;
+    return matOffsetPct > 0
+      ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
+      : 0;
+  }, [session.initialMaturationOffset]);
   const spot = useMemo(() => {
     try {
-      // Two-clock: la lievitazione parte da 0 (no offset). L'ADU lievito corrente
-      // guida la stima "ore al picco" della lievitazione.
-      const effectiveAdu = ts?.cumulativeAdu ?? 0;
-      const result = (sweetSpot as Function)(
+      // Orologio MATURAZIONE: l'ADU enzimatico integrato reale guida l'ETA al picco.
+      const enzAdu = ts?.enzymaticAdu ?? enzSeedFallback;
+      const result = (sweetSpotMaturation as Function)(
         session,
-        effectiveAdu,
-        tAmb,                           // temperatura ambiente corrente
+        enzAdu,
+        tAmb,                           // temperatura ambiente corrente (proiezione a T costante)
       ) as { status: string; hoursUntilPeak: number; peakPct: number } | null;
       return result;
     } catch { return null; }
-  }, [session, ts?.cumulativeAdu, tAmb, session.initialMaturationOffset]);
+  }, [session, ts?.enzymaticAdu, enzSeedFallback, tAmb]);
 
   if (!spot) return null;
 
@@ -653,7 +722,11 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
 
   const { points, transitions } = useMemo(() => {
     try {
-      const raw = buildMultiSegmentData(session, tAmb, ts?.phase, ts?.elapsedH);
+      // Ancore: ADU integrato reale (tickState) → curva piecewise passato/futuro
+      const raw = buildMultiSegmentData(
+        session, tAmb, ts?.phase, ts?.elapsedH,
+        ts?.cumulativeAdu, ts?.enzymaticAdu,
+      );
       // KB §11.4 — LTTB downsampling sopra 200 punti (preserva primo/ultimo + forma curva)
       if (raw.points.length > 200) {
         const compressed = downsampleLTTB(
@@ -665,7 +738,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
       return raw;
     } catch { return { points: [], transitions: [] }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, tAmb, ts?.phase, ts?.elapsedH]);
+  }, [session, tAmb, ts?.phase, ts?.elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu]);
 
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;
