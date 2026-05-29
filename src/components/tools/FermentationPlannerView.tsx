@@ -851,9 +851,10 @@ export function FermentationPlannerView() {
         prefermenti: pref ? [{ flourFraction: pref.flourFraction }] : [],
         initialMaturationOffset: 0,
         bubbleThresholdPct,
+        staglioH,
       }) as SolveServiceWindowResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct]);
+  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
   const useServiceResult = (r: SolveServiceWindowResult) => {
