@@ -151,6 +151,9 @@ export interface Session {
   // ThermalTimeline v2.4.2: lista persistente di segmenti di fase con temperature bloccate
   thermalTimeline?: PhaseSegment[];
   bakeTargetElapsedH?: number;       // (targetBakeAt - startedAt) / 3600000
+
+  // Service-Window planner v2.4.2: soglia anti-bolle calibrabile (% lievitazione)
+  bubbleThresholdPct?: number;       // default 92 (SERVICE_WINDOW_DEFAULTS)
 }
 
 // ─── Process Log Entry ───────────────────────────────────────────────────────

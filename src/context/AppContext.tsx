@@ -3,7 +3,7 @@
  * React Context + useReducer (§4.2 KB: Strategy Pattern, no Redux overhead)
  */
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { Session, FlourGroup, PrefermentoComponent } from '../db/db';
+import type { Session, FlourGroup, PrefermentoComponent, PhaseSegment } from '../db/db';
 
 // ─── Views ────────────────────────────────────────────────────────────────────
 export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner';
@@ -42,6 +42,9 @@ export interface WizardDraft {
   tcHours?: number;
   fridgeTempC?: number;
   targetBakeAt?: Date;
+  // Service-Window planner: timeline precomputata + soglia bolle calibrabile
+  thermalTimeline?: PhaseSegment[];
+  bubbleThresholdPct?: number;
 }
 
 // ─── Real-time tick state ─────────────────────────────────────────────────────

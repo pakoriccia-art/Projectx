@@ -278,7 +278,11 @@ function buildSession(draft: WizardDraft): Session {
   // T ambiente 22°C assunta — il wizard non raccoglie tAmb.
   // Il tauMultiplier del contenitore viene applicato per riflettere l'inerzia del contenitore
   // scelto (es. closed_box → τ × 2.5): coerente con applyContainerResistance() nel tick loop.
-  const _warmup = _proto === 'tc_appreto' ? (() => {
+  // Se è presente una timeline precomputata (Service-Window planner), lo schedule
+  // del solver è autoritativo: salta il ricalcolo tc_appreto di warmup/puntata.
+  const hasPrecomputedTimeline = !!(draft.thermalTimeline && draft.thermalTimeline.length > 0);
+
+  const _warmup = (_proto === 'tc_appreto' && !hasPrecomputedTimeline) ? (() => {
     const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
@@ -290,7 +294,7 @@ function buildSession(draft: WizardDraft): Session {
   // Per tc_appreto: puntataH è back-calcolata (override del cursore) in modo che la curva
   // di Gompertz cumula ADU(puntata)+ADU(staglio)+ADU(TC)+ADU(ramp) = ADU_85% esattamente
   // alla fine del protocollo. Gli altri protocolli usano il valore del cursore.
-  const _p = _proto === 'tc_appreto' ? (() => {
+  const _p = (_proto === 'tc_appreto' && !hasPrecomputedTimeline) ? (() => {
     const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
@@ -360,6 +364,9 @@ function buildSession(draft: WizardDraft): Session {
     targetBakeAt:            bakeAt,
     startedAt:               new Date(),
     createdAt:               new Date(),
+    // Service-Window planner: timeline precomputata (onorata da startSession) + soglia bolle
+    thermalTimeline:         draft.thermalTimeline,
+    bubbleThresholdPct:      draft.bubbleThresholdPct ?? 92,
   } as unknown as Session;
 }
 

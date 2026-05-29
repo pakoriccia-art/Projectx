@@ -3,9 +3,9 @@
  * Verifica persistSession, loadSessionHistory, deleteSession con Dexie mockato
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { persistSession, loadSessionHistory, deleteSession } from '../services/sessionService';
+import { persistSession, loadSessionHistory, deleteSession, startSession } from '../services/sessionService';
 import { db } from '../db/db';
-import type { Session } from '../db/db';
+import type { Session, PhaseSegment } from '../db/db';
 
 const mockSession: Session = {
   id: 1,
@@ -86,6 +86,22 @@ describe('loadSessionHistory', () => {
   it('chiama orderBy + reverse + limit', async () => {
     await loadSessionHistory(5);
     expect(db.sessions.orderBy).toHaveBeenCalledWith('createdAt');
+  });
+});
+
+describe('startSession — ThermalTimeline precomputata (Service-Window)', () => {
+  it('onora la thermalTimeline del piano servizio senza ricostruirla', async () => {
+    const precomputed: PhaseSegment[] = [
+      { id: 'a', phaseType: 'bulk_room',     startElapsedH: 0,  endElapsedH: 2,  ambientTempC: 22, status: 'planned' },
+      { id: 'b', phaseType: 'balled_fridge', startElapsedH: 2,  endElapsedH: 12, ambientTempC: 4,  status: 'planned' },
+      { id: 'c', phaseType: 'proofing',      startElapsedH: 12, endElapsedH: 16, ambientTempC: 22, status: 'planned' },
+    ];
+    const sess = { ...mockSession, id: undefined, thermalTimeline: precomputed } as Session;
+    await startSession(sess);
+    // db.sessions.update deve ricevere ESATTAMENTE la timeline precomputata
+    const calls = (db.sessions.update as ReturnType<typeof vi.fn>).mock.calls;
+    const honored = calls.some(c => (c[1] as { thermalTimeline?: PhaseSegment[] })?.thermalTimeline === precomputed);
+    expect(honored).toBe(true);
   });
 });
 

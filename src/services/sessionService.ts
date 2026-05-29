@@ -17,9 +17,11 @@ import type { TickState } from '../context/AppContext';
 export async function startSession(session: Session): Promise<number> {
   const id = Number(await db.sessions.add({ ...session, status: 'active' }));
 
-  // ThermalTimeline: costruisce e persiste la timeline pianificata iniziale.
+  // ThermalTimeline: onora una timeline precomputata (es. dal Service-Window
+  // planner, che include il segmento di tempering non ricostruibile dal solo
+  // apprettoProtocol); altrimenti costruisce quella pianificata dal protocollo.
   const sessionWithId = { ...session, id };
-  const thermalTimeline = buildInitialTimeline(sessionWithId);
+  const thermalTimeline = session.thermalTimeline ?? buildInitialTimeline(sessionWithId);
   const bakeTargetElapsedH = session.startedAt && session.targetBakeAt
     ? Math.max(0, (new Date(session.targetBakeAt).getTime() - new Date(session.startedAt).getTime()) / 3600000)
     : undefined;

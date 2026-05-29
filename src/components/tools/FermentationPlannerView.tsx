@@ -22,6 +22,7 @@ import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
 } from '../../engine';
+import { solveServiceWindow, SERVICE_WINDOW_DEFAULTS, type SolveServiceWindowResult } from '../../engine/serviceWindowSolver';
 import { WaterTempResultCard } from './WaterTempView';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
 import { ddtForStyle } from '../../data/styleConstraints';
@@ -544,6 +545,132 @@ function PlannerSlider({ label, value, onChange, min, max, step, unit, color }: 
   );
 }
 
+// ─── Card risultato finestra di servizio ─────────────────────────────────────
+function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; value: string }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '6px 10px', borderRadius: 6,
+      background: ok ? 'rgba(0,184,148,0.1)' : 'rgba(214,48,49,0.1)',
+      border: `1px solid ${ok ? 'rgba(0,184,148,0.25)' : 'rgba(214,48,49,0.25)'}`,
+    }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+        {ok ? '✓' : '✗'} {label}
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', fontWeight: 700,
+        color: ok ? 'var(--state-optimal-hi)' : 'var(--state-critical)' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, onUse }: {
+  result: SolveServiceWindowResult; serviceStart: Date | null;
+  serviceDurationH: number; bubbleThresholdPct: number; onUse: () => void;
+}) {
+  const fmt = (d: Date) => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  if (!result.feasible) {
+    const inf = result.infeasibility;
+    return (
+      <Card style={{ border: '1px solid rgba(214,48,49,0.3)', background: 'rgba(214,48,49,0.05)' }}>
+        <div style={{ ...S.label, marginBottom: 10, color: 'var(--state-critical)' }}>
+          ✗ Finestra non realizzabile
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
+          {inf?.reason === 'cannot_temper' && 'A questa temperatura ambiente le palline non raggiungono 18°C.'}
+          {inf?.reason === 'maturation_overshoot' && `La maturazione supererebbe il 90% prima della fine del servizio.`}
+          {inf?.reason === 'w_collapse' && 'La struttura del glutine collasserebbe prima della fine del servizio.'}
+        </div>
+        {inf?.maxSafeServiceWindowH != null && inf.maxSafeServiceWindowH > 0 && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', marginBottom: 10 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Finestra sicura massima: </span>
+            <strong style={{ color: 'var(--accent-warning)' }}>{inf.maxSafeServiceWindowH.toFixed(1)}h</strong>
+            <span style={{ color: 'var(--text-muted)' }}> (richiesti {serviceDurationH}h)</span>
+          </div>
+        )}
+        {(inf?.mitigations ?? []).length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ ...S.label, fontSize: '0.65rem' }}>Mitigazioni</span>
+            {inf!.mitigations.map((m, i) => (
+              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>• {m}</div>
+            ))}
+          </div>
+        )}
+      </Card>
+    );
+  }
+
+  const s = result.schedule!;
+  const end = result.atServiceEnd!;
+  const start = result.atServiceStart!;
+  const c1ok = start.tempDough >= 18 - 0.3;
+  const c2ok = end.maturationPct <= 90.5 && end.structuralStatus !== 'CRITICAL' && end.structuralStatus !== 'COLLAPSED';
+  const c3ok = !result.bubbleCapped && end.leaveningPct <= bubbleThresholdPct + 0.5;
+  const mixStart = result.mixStart ? new Date(result.mixStart) : null;
+  const pullFromFridge = serviceStart ? new Date(serviceStart.getTime() - s.temperingH * 3_600_000) : null;
+
+  return (
+    <Card elevated>
+      <div style={{ ...S.label, marginBottom: 12 }}>Piano servizio · maturazione 90% a fine finestra</div>
+
+      {/* Schedule */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+        {mixStart && <PlanRow label="Impasta" value={fmt(mixStart)} />}
+        <PlanRow label="Dose lievito" value={`${result.dose?.toFixed(3)}%`} />
+        <PlanRow label="Puntata TA" value={`${s.puntataH.toFixed(1)}h`} />
+        <PlanRow label="Staglio" value={`${s.staglioH.toFixed(1)}h`} />
+        <PlanRow label="Appretto TC (frigo)" value={`${s.tcHours.toFixed(1)}h`} />
+        {pullFromFridge && <PlanRow label="Esci dal frigo" value={fmt(pullFromFridge)} />}
+        <PlanRow label="Tempering (frigo → 18°C)" value={`${s.temperingH.toFixed(1)}h`} />
+        {serviceStart && <PlanRow label="Servizio" value={`${fmt(serviceStart)} · ${serviceDurationH}h`} />}
+      </div>
+
+      {/* Vincoli */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        <ConstraintChip ok={c1ok} label="C1 · T impasto inizio servizio" value={`${start.tempDough.toFixed(1)}°C`} />
+        <ConstraintChip ok={c2ok} label="C2 · maturazione fine servizio" value={`${end.maturationPct.toFixed(0)}%`} />
+        <ConstraintChip ok={c3ok} label="C3 · lievitazione fine servizio" value={`${end.leaveningPct.toFixed(0)}% / ${bubbleThresholdPct}%`} />
+      </div>
+
+      {/* Inizio vs fine */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        <Metric label="Maturazione inizio" value={start.maturationPct.toFixed(0)} unit="%" color="var(--state-cold)" />
+        <Metric label="Maturazione fine" value={end.maturationPct.toFixed(0)} unit="%" color="var(--state-optimal-hi)" />
+        <Metric label="Lievitazione inizio" value={start.leaveningPct.toFixed(0)} unit="%" />
+        <Metric label="Lievitazione fine" value={end.leaveningPct.toFixed(0)} unit="%" color="var(--accent-brand)" />
+      </div>
+
+      {result.maxSafeServiceWindowH != null && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+          Margine: finestra sicura ~{result.maxSafeServiceWindowH.toFixed(1)}h (richiesti {serviceDurationH}h)
+          {result.bubbleCapped && <span style={{ color: 'var(--accent-warning)', display: 'block', marginTop: 4 }}>
+            ⚠ Dose già al minimo: la lievitazione supera la soglia bolle. Riduci durata o TA.
+          </span>}
+        </div>
+      )}
+
+      <button onClick={onUse} style={{
+        background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
+        borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
+        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+      }}>
+        Usa questo schema →
+      </button>
+    </Card>
+  );
+}
+
+function PlanRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+      <strong style={{ color: 'var(--text-primary)' }}>{value}</strong>
+    </div>
+  );
+}
+
 // ─── Vista principale ─────────────────────────────────────────────────────────
 export function FermentationPlannerView() {
   const { dispatch } = useApp();
@@ -569,6 +696,13 @@ export function FermentationPlannerView() {
   // Target cottura
   const [targetDate,  setTargetDate]  = useState('');
   const [targetTime,  setTargetTime]  = useState('12:00');
+
+  // ── Modalità pianificatore: 'bake' (ora di cottura) | 'service' (finestra servizio) ──
+  const [plannerMode, setPlannerMode] = useState<'bake' | 'service'>('bake');
+  const [serviceDate, setServiceDate] = useState('');
+  const [serviceTime, setServiceTime] = useState('19:00');
+  const [serviceDurationH, setServiceDurationH] = useState(2);
+  const [bubbleThresholdPct, setBubbleThresholdPct] = useState(SERVICE_WINDOW_DEFAULTS.bubbleThresholdPct);
 
   // Clock reattivo per countdown live (KB §11.3 — evita Date.now() in useMemo)
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -688,6 +822,80 @@ export function FermentationPlannerView() {
     dispatch({ type: 'NAV', view: 'wizard' });
   };
 
+  // ── Solver finestra di servizio ─────────────────────────────────────────────
+  const serviceStart = useMemo(() => {
+    if (!serviceDate) return null;
+    const d = new Date(`${serviceDate}T${serviceTime}`);
+    return isNaN(d.getTime()) ? null : d;
+  }, [serviceDate, serviceTime]);
+
+  const serviceResult = useMemo<SolveServiceWindowResult | null>(() => {
+    if (plannerMode !== 'service' || !serviceStart) return null;
+    try {
+      return (solveServiceWindow as Function)({
+        serviceStart,
+        serviceDurationH,
+        ambientTempC: tAmb,
+        fridgeTempC: fridgeT,
+        agentType,
+        agentEaKj: aParams.Ea,
+        agentMuMax: aParams.muMax,
+        agentLambda: aParams.lambda,
+        agentDosePct: dosePct,
+        W0: W,
+        hydration,
+        salt: 2.0,
+        totalFlourGrams: totalFlourG,
+        numPanetti,
+        containerPreset: 'closed_box',
+        prefermenti: pref ? [{ flourFraction: pref.flourFraction }] : [],
+        initialMaturationOffset: 0,
+        bubbleThresholdPct,
+      }) as SolveServiceWindowResult;
+    } catch { return null; }
+  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct]);
+
+  // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
+  const useServiceResult = (r: SolveServiceWindowResult) => {
+    if (!r.feasible || !r.timeline || !serviceStart) return;
+    const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
+    const flourArr = [{
+      name: selectedEntry?.name ?? 'Farina', brand: selectedEntry?.brand ?? '',
+      W, pl: flourPl, protein: flourProtein, ash: selectedEntry?.ash ?? 0.55, percentage: 100,
+    }];
+    const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
+    const protocol = hasPref ? ('single_pref' as const) : ('direct' as const);
+    const prefHydration = prefType === 'biga' ? 48 : prefType === 'riporto' ? 65 : 100;
+    const prefermenti = hasPref ? [{
+      id: `planner_${Date.now()}`, type: prefType, flourGroup: mainFlourGroup,
+      flourFraction: prefFrac, hydration: prefHydration, tempC: prefTemp, durationH: prefDur,
+      yeastPct: prefType === 'riporto' ? undefined : prefYeast,
+    }] : [];
+    // serviceEnd = targetBakeAt (i marker dashboard puntano a fine servizio)
+    const targetBakeAt = new Date(serviceStart.getTime() + serviceDurationH * 3_600_000);
+    const s = r.schedule!;
+
+    dispatch({ type: 'WIZARD_RESET_WITH_PATCH', step: 8, patch: {
+      style, protocol, mainFlourGroup, prefermenti,
+      agentType,
+      agentDosePct:     r.dose ?? dosePct,
+      apprettoProtocol: 'tc_appreto',
+      puntataH:         s.puntataH,
+      staglioH:         s.staglioH,
+      apprettoH:        s.serviceDurationH,   // finestra servizio come fase finale TA
+      tcHours:          s.tcHours,
+      fridgeTempC:      fridgeT,
+      targetBakeAt,
+      totalFlourGrams:  totalFlourG,
+      hydration, numPanetti,
+      tLaboratorio:     tAmb,
+      kneadingMethod,
+      thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
+      bubbleThresholdPct,
+    }});
+    dispatch({ type: 'NAV', view: 'wizard' });
+  };
+
   // Dose range dipende dal tipo di agente
   const doseRange = agentType === 'sourdough_wheat'
     ? { min: 5, max: 40, step: 0.5, unit: '%' }
@@ -718,6 +926,17 @@ export function FermentationPlannerView() {
           </div>
         </div>
       </div>
+
+      {/* ── Toggle modalità ── */}
+      <SnapButtons
+        label="Modalità"
+        options={[
+          { value: 'bake',    label: 'Ora di cottura',     desc: 'Centra l\'85% all\'orario scelto' },
+          { value: 'service', label: 'Finestra di servizio', desc: 'Maturazione 90% per tutta la finestra' },
+        ]}
+        value={plannerMode}
+        onChange={v => setPlannerMode(v as 'bake' | 'service')}
+      />
 
       {/* ── Impasto ── */}
       <Card>
@@ -851,7 +1070,40 @@ export function FermentationPlannerView() {
         </div>
       </Card>
 
+      {/* ── Finestra di servizio (solo modalità service) ── */}
+      {plannerMode === 'service' && (
+        <Card>
+          <div style={{ ...S.label, marginBottom: 12 }}>Finestra di servizio</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+            <input type="date" value={serviceDate} onChange={e => setServiceDate(e.target.value)}
+              style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: '100%' }} />
+            <input type="time" value={serviceTime} onChange={e => setServiceTime(e.target.value)}
+              style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: 95 }} />
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <PlannerSlider label="Durata servizio" value={serviceDurationH} onChange={setServiceDurationH}
+              min={0.5} max={8} step={0.5} unit="h" color="var(--accent-brand)" />
+            <PlannerSlider label="Soglia anti-bolle (lievitazione)" value={bubbleThresholdPct} onChange={setBubbleThresholdPct}
+              min={60} max={95} step={1} unit="%" color="var(--state-approaching)" />
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 10 }}>
+            La finestra è a {tAmb}°C (palline fuori dal frigo). Target maturazione 90% a fine servizio.
+          </div>
+        </Card>
+      )}
+
+      {plannerMode === 'service' && serviceResult && (
+        <ServiceWindowResultCard result={serviceResult} serviceStart={serviceStart}
+          serviceDurationH={serviceDurationH} bubbleThresholdPct={bubbleThresholdPct}
+          onUse={() => useServiceResult(serviceResult)} />
+      )}
+
       {/* ── Target cottura ── */}
+      {plannerMode === 'bake' && (
       <Card>
         <div style={{ ...S.label, marginBottom: 12 }}>Target cottura (opzionale)</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
@@ -899,6 +1151,7 @@ export function FermentationPlannerView() {
           </div>
         )}
       </Card>
+      )}
 
       {/* ── Prefermento ── */}
       <Card>
@@ -984,6 +1237,7 @@ export function FermentationPlannerView() {
       })()}
 
       {/* ── Risultati ── */}
+      {plannerMode === 'bake' && (
       <div>
         <div style={{ ...S.label, marginBottom: 12 }}>
           Protocolli ottimali a {tAmb}°C TA / {fridgeT}°C TC
@@ -1010,6 +1264,7 @@ export function FermentationPlannerView() {
           </div>
         )}
       </div>
+      )}
 
       {/* ── Footer ── */}
       <Metric label="kRatio (TA / TC)" value={`${((kEffective as Function)(tAmb, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(3)} / ${((kEffective as Function)(fridgeT, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(4)}`} />

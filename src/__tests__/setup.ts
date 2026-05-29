@@ -22,6 +22,7 @@ vi.mock('../db/db', () => {
       sessions: {
         put:      vi.fn().mockResolvedValue(1),
         add:      vi.fn().mockResolvedValue(1),
+        update:   vi.fn().mockResolvedValue(1),
         delete:   vi.fn().mockResolvedValue(undefined),
         orderBy:  vi.fn().mockReturnValue({
           reverse: vi.fn().mockReturnValue({

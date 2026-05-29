@@ -138,6 +138,10 @@ export const WizardInputSchema = z.object({
   tcHours:          z.number().min(0).max(120).optional(),
   fridgeTempC:      z.number().min(0).max(10).optional(),
   targetBakeAt:     z.date().optional(),
+
+  // Service-Window planner: timeline precomputata (PhaseSegment[] opaco) + soglia bolle
+  thermalTimeline:  z.array(z.object({}).passthrough()).optional(),
+  bubbleThresholdPct: z.number().min(50).max(99).optional(),
 }).strict();
 
 export type WizardInput = z.infer<typeof WizardInputSchema>;
