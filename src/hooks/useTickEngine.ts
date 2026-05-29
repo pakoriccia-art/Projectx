@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
+import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
 import {
   kEffective, gompertz, estimatePHForLBF,
   computeTCrit, computeWHill, doughCoreTemp,
@@ -213,30 +214,58 @@ export function useTickEngine() {
   }, [state.activeSession?.id]); // tick è stabile, non serve come dep
 
   // ── Helpers esposti alla Dashboard ────────────────────────────────────────
+
+  /**
+   * Aggiorna T_amb in tickState E aggiorna la ThermalTimeline:
+   * - il segmento current e i planned della stessa categoria termica (warm/cold)
+   *   ricevono la nuova temperatura così la proiezione futura è coerente.
+   * - i segmenti completed non vengono mai toccati.
+   */
   const setTempAmbient = useCallback((t: number) => {
     dispatch({ type: 'TICK', patch: { tempAmbient: t } as any });
+    const session = sessionRef.current;
+    if (!session?.id || !session.thermalTimeline) return;
+    const isColdPhase = tsRef.current?.phase === 'bulk_fridge' || tsRef.current?.phase === 'balled_fridge';
+    const newTimeline = session.thermalTimeline.map(seg => {
+      if (seg.status === 'completed') return seg;
+      const segIsCold = seg.phaseType === 'bulk_fridge' || seg.phaseType === 'balled_fridge';
+      return segIsCold === isColdPhase ? { ...seg, ambientTempC: t } : seg;
+    });
+    dispatch({ type: 'SESSION_UPDATE', patch: { thermalTimeline: newTimeline } } as any);
+    db.sessions.update(session.id, { thermalTimeline: newTimeline }).catch(console.error);
   }, [dispatch]);
 
   /**
-   * Cambia fase e, se si entra in una fase fredda (TC), aggiorna automaticamente
-   * tempAmbient → session.fridgeTempC così Newton cooling si attiva subito.
+   * Cambia fase: logga la transizione nella ThermalTimeline (chiude il segmento
+   * current, apre il nuovo) e, se si entra in una fase fredda (TC), aggiorna
+   * automaticamente tempAmbient → session.fridgeTempC così Newton cooling parte subito.
    *
-   * Fisica: senza questo auto-switch, l'utente dovrebbe manualmente aggiornare
-   * T_amb via TempCard dopo aver cliccato PhaseStepper — se lo dimentica,
-   * tAmbient rimane a 22°C e kRatio ≈ 0.711 invece di 0.006 → ADU in TC sbaglia
-   * di ~12% del budget totale (1.18 ADU extra nelle prime 4h per closed_box).
+   * Principio: i bottoni di fase loggano transizioni, NON resettano la proiezione.
+   * I segmenti completed sono immutabili → il passato non può appiattirsi.
    *
-   * Per le fasi calde (TA): NON forziamo tAmbient — varia per contesto (20–28°C)
-   * e l'utente lo conosce meglio del modello. Il Newton cooling poi lo porta verso
-   * la nuova temperatura con la giusta inerzia termica.
+   * Fisica: senza auto-switch tAmbient, kRatio rimane a 0.711 invece di 0.006
+   * → ADU in TC sbaglia di ~12% nelle prime 4h (per closed_box).
    */
   const setPhase = useCallback((p: string) => {
+    const session = sessionRef.current;
+    if (!session) return;
     const isCold = p === 'bulk_fridge' || p === 'balled_fridge';
-    const patch: Record<string, unknown> = { phase: p };
-    if (isCold) {
-      // Entra in TC: imposta tAmbient = fridgeTempC → Newton law del raffreddamento parte
-      patch.tempAmbient = sessionRef.current?.fridgeTempC ?? 4;
+    const ambientTempC = isCold ? (session.fridgeTempC ?? 4) : (session.tLaboratorio ?? 22);
+    const nowElapsedH  = session.startedAt
+      ? (Date.now() - new Date(session.startedAt).getTime()) / 3600000
+      : 0;
+
+    // Aggiorna ThermalTimeline (chiudi current, apri nuovo, ripianta planned)
+    const existingTimeline = session.thermalTimeline ?? buildInitialTimeline(session);
+    const newTimeline = applyPhaseTransition(existingTimeline, p, ambientTempC, nowElapsedH);
+    dispatch({ type: 'SESSION_UPDATE', patch: { thermalTimeline: newTimeline } } as any);
+    if (session.id) {
+      db.sessions.update(session.id, { thermalTimeline: newTimeline }).catch(console.error);
     }
+
+    // Aggiorna ts.phase e ts.tempAmbient (Newton cooling parte subito in TC)
+    const patch: Record<string, unknown> = { phase: p };
+    if (isCold) patch.tempAmbient = ambientTempC;
     dispatch({ type: 'TICK', patch: patch as any });
   }, [dispatch]);
 

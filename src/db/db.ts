@@ -62,6 +62,17 @@ export interface PrefermentoComponent {
   state?: PrefermentoState;
 }
 
+// ─── Thermal Timeline ─────────────────────────────────────────────────────────
+
+export interface PhaseSegment {
+  id: string;
+  phaseType: string;                 // 'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking'
+  startElapsedH: number;             // ore da session.startedAt
+  endElapsedH: number | null;        // null = segmento corrente aperto
+  ambientTempC: number;              // temperatura di QUESTO segmento (bloccata al completed)
+  status: 'completed' | 'current' | 'planned';
+}
+
 // ─── Session Entity ──────────────────────────────────────────────────────────
 
 export interface Session {
@@ -136,6 +147,10 @@ export interface Session {
 
   // Cache ultima entry process_log (per dashboard senza query)
   latestProcessEntry?: ProcessLogEntry;
+
+  // ThermalTimeline v2.4.2: lista persistente di segmenti di fase con temperature bloccate
+  thermalTimeline?: PhaseSegment[];
+  bakeTargetElapsedH?: number;       // (targetBakeAt - startedAt) / 3600000
 }
 
 // ─── Process Log Entry ───────────────────────────────────────────────────────
@@ -185,6 +200,126 @@ export interface ProjectionCache {
   data: object;
 }
 
+// ─── Timeline helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Costruisce la timeline pianificata iniziale dal protocollo della sessione.
+ * I segmenti completed/current vengono determinati in base a startedAt + nowMs.
+ */
+export function buildInitialTimeline(session: {
+  apprettoProtocol?: string;
+  puntataH?: number;
+  staglioH?: number;
+  apprettoH?: number;
+  tcHours?: number;
+  fridgeTempC?: number;
+  tLaboratorio?: number;
+  startedAt?: Date | string;
+}): PhaseSegment[] {
+  const tA    = session.tLaboratorio ?? 22;
+  const tC    = session.fridgeTempC  ?? 4;
+  const proto = session.apprettoProtocol ?? 'ta';
+  const punH  = session.puntataH  ?? 8;
+  const stagH = session.staglioH  ?? 0.5;
+  const appH  = session.apprettoH ?? 4;
+  const tcH   = session.tcHours   ?? 12;
+
+  const startMs     = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+  const nowElapsedH = Math.max(0, (Date.now() - startMs) / 3600000);
+
+  const raw: Array<{ phaseType: string; durationH: number; ambientTempC: number }> =
+    proto === 'ta' ? [
+      { phaseType: 'bulk_room',     durationH: punH,  ambientTempC: tA },
+      { phaseType: 'balled_room',   durationH: stagH, ambientTempC: tA },
+      { phaseType: 'proofing',      durationH: appH,  ambientTempC: tA },
+    ]
+    : proto === 'tc' ? [
+      { phaseType: 'bulk_fridge',   durationH: tcH,   ambientTempC: tC },
+      { phaseType: 'balled_room',   durationH: stagH, ambientTempC: tA },
+    ]
+    : proto === 'tc_puntata' ? [
+      { phaseType: 'bulk_fridge',   durationH: tcH,   ambientTempC: tC },
+      { phaseType: 'balled_room',   durationH: stagH, ambientTempC: tA },
+      { phaseType: 'proofing',      durationH: appH,  ambientTempC: tA },
+    ]
+    : /* tc_appreto */ [
+      { phaseType: 'bulk_room',     durationH: punH,  ambientTempC: tA },
+      { phaseType: 'balled_room',   durationH: stagH, ambientTempC: tA },
+      { phaseType: 'balled_fridge', durationH: tcH,   ambientTempC: tC },
+      { phaseType: 'proofing',      durationH: appH,  ambientTempC: tA },
+    ];
+
+  let h = 0;
+  return raw.map(s => {
+    const startH = h;
+    h += s.durationH;
+    const endH   = h;
+    const status: PhaseSegment['status'] =
+      endH   <= nowElapsedH ? 'completed' :
+      startH <= nowElapsedH ? 'current'   : 'planned';
+    return {
+      id:            `${startMs}-${s.phaseType}-${Math.random().toString(36).slice(2, 7)}`,
+      phaseType:     s.phaseType,
+      startElapsedH: startH,
+      endElapsedH:   endH,
+      ambientTempC:  s.ambientTempC,
+      status,
+    };
+  });
+}
+
+/**
+ * Applica una transizione di fase alla timeline:
+ * - chiude il segmento current a nowElapsedH (→ completed)
+ * - apre un nuovo segmento current con la nuova fase e temperatura
+ * - ripianta i segmenti planned restanti (stesse durate, tempi scalati)
+ * I segmenti completed non vengono mai toccati.
+ */
+export function applyPhaseTransition(
+  timeline: PhaseSegment[],
+  newPhaseType: string,
+  newAmbientTempC: number,
+  nowElapsedH: number,
+): PhaseSegment[] {
+  // Chiude il segmento current
+  const closed = timeline.map(seg =>
+    seg.status === 'current'
+      ? { ...seg, endElapsedH: nowElapsedH, status: 'completed' as const }
+      : seg,
+  );
+  const completedSegs = closed.filter(s => s.status === 'completed');
+  const plannedSegs   = closed.filter(s => s.status === 'planned');
+
+  // Durata del nuovo segmento: dal planned corrispondente, o default 4h
+  const matchingPlan = plannedSegs.find(s => s.phaseType === newPhaseType);
+  const newDurH = matchingPlan && matchingPlan.endElapsedH != null
+    ? Math.max(0.01, matchingPlan.endElapsedH - matchingPlan.startElapsedH)
+    : 4;
+  const newEndH = nowElapsedH + newDurH;
+
+  const newCurrent: PhaseSegment = {
+    id:            `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    phaseType:     newPhaseType,
+    startElapsedH: nowElapsedH,
+    endElapsedH:   newEndH,
+    ambientTempC:  newAmbientTempC,
+    status:        'current',
+  };
+
+  // Ripianta i planned restanti: stesse durate, tempi scalati da newEndH
+  let lastEndH = newEndH;
+  const remaining = plannedSegs
+    .filter(s => s.phaseType !== newPhaseType)
+    .map(s => {
+      const dur    = s.endElapsedH != null ? Math.max(0.01, s.endElapsedH - s.startElapsedH) : 4;
+      const startH = lastEndH;
+      lastEndH     = startH + dur;
+      return { ...s, startElapsedH: startH, endElapsedH: lastEndH, status: 'planned' as const };
+    });
+
+  return [...completedSegs, newCurrent, ...remaining];
+}
+
 // ─── Database ────────────────────────────────────────────────────────────────
 
 class PizzaMatrixDB extends Dexie {
@@ -195,6 +330,26 @@ class PizzaMatrixDB extends Dexie {
 
   constructor() {
     super('PizzaMatrixDB');
+
+    // Version 5 — ThermalTimeline: aggiunge thermalTimeline e bakeTargetElapsedH a sessions.
+    // Migrazione: popola thermalTimeline per le sessioni esistenti usando buildInitialTimeline.
+    this.version(5).stores({
+      sessions:          '++id, status, createdAt, [status+createdAt], style',
+      process_log:       '++id, [sessionId+recordedAt], sessionId, recordedAt',
+      alerts:            '++id, sessionId, [sessionId+level], createdAt',
+      projection_cache:  '++id, &sessionId, computedAt',
+    }).upgrade(tx =>
+      tx.table('sessions').toCollection().modify((session: any) => {
+        if (!session.thermalTimeline) {
+          session.thermalTimeline = buildInitialTimeline(session);
+        }
+        if (!session.bakeTargetElapsedH && session.startedAt && session.targetBakeAt) {
+          const startMs = new Date(session.startedAt).getTime();
+          const bakeMs  = new Date(session.targetBakeAt).getTime();
+          session.bakeTargetElapsedH = Math.max(0, (bakeMs - startMs) / 3600000);
+        }
+      })
+    );
 
     // Version 4 — two-clock: aggiunge enzymaticMatPct / leaveningPct a process_log
     // Nessuna migrazione dati necessaria (campi opzionali con default graceful).

@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from 'recharts';
+import type { PhaseSegment } from '../../db/db';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine } from '../../hooks/useTickEngine';
 import {
@@ -79,10 +80,11 @@ function buildMultiSegmentData(
     tLaboratorio?: number;
   },
   tAmbient: number,
-  currentPhase?: string,   // ts.phase — fase attuale (per riscalare segmenti passati)
-  elapsedH?: number,       // ts.elapsedH — ore totali trascorse dall'avvio sessione
-  liveAdu?: number,        // ts.cumulativeAdu — ADU lievito integrato reale (ancora)
-  liveEnzAdu?: number,     // ts.enzymaticAdu — ADU enzimatico integrato reale (ancora)
+  currentPhase?: string,    // ts.phase — usato solo in assenza di timeline
+  elapsedH?: number,        // ts.elapsedH — ore totali trascorse dall'avvio sessione
+  liveAdu?: number,         // ts.cumulativeAdu — ADU lievito integrato reale (ancora)
+  liveEnzAdu?: number,      // ts.enzymaticAdu — ADU enzimatico integrato reale (ancora)
+  timeline?: PhaseSegment[], // ThermalTimeline persistente — fonte di verità temperature/durate
 ): { points: { h: number; pct: number; matPct: number; tempC: number }[]; transitions: { h: number; label: string; color: string }[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
@@ -130,8 +132,21 @@ function buildMultiSegmentData(
   type Seg = { durationH: number; tempC: number; label: string; color: string; phase: string };
 
   // ── Segmenti base ─────────────────────────────────────────────────────────────
-  const baseSegs: Seg[] =
-    proto === 'ta' ? [
+  // Se la ThermalTimeline è disponibile, le temperature e durate vengono da essa
+  // (locked per i completed, pianificate per i planned). Questo impedisce il flatten
+  // al cambio fase: le temperature dei segmenti completed non cambiano mai.
+  // Fallback: logica classica dal protocollo (usata se la timeline non è ancora pronta).
+  const baseSegs: Seg[] = timeline && timeline.length > 0
+    ? timeline.map(seg => ({
+        durationH: seg.endElapsedH != null
+          ? Math.max(0.01, seg.endElapsedH - seg.startElapsedH)
+          : Math.max(0.01, session.apprettoH ?? 4),
+        tempC:  seg.ambientTempC,
+        label:  PHASE_LABELS[seg.phaseType]?.label ?? seg.phaseType,
+        color:  PHASE_LABELS[seg.phaseType]?.color ?? 'var(--text-muted)',
+        phase:  seg.phaseType,
+      }))
+    : proto === 'ta' ? [
       { durationH: session.puntataH,  tempC: warmAmbient, label: 'Puntata TA',    color: 'var(--accent-brand)', phase: 'bulk_room'    },
       { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
       { durationH: session.apprettoH, tempC: warmAmbient, label: 'Appretto TA',   color: 'var(--accent-brand)', phase: 'proofing'     },
@@ -162,8 +177,9 @@ function buildMultiSegmentData(
       })() : []),
     ];
 
-  // ── Scala i segmenti PRECEDENTI alla fase corrente (tempo effettivo) ──────────
-  if (currentPhase && elapsedH != null && elapsedH > 0) {
+  // ── Scala i segmenti PRECEDENTI alla fase corrente (solo senza timeline) ──────
+  // Con la timeline le durate sono già quelle reali (completed) o pianificate (planned).
+  if (!timeline && currentPhase && elapsedH != null && elapsedH > 0) {
     const iCurr = baseSegs.findIndex(s => s.phase === currentPhase);
     if (iCurr > 0) {
       const plannedBefore = baseSegs.slice(0, iCurr).reduce((sum, s) => sum + s.durationH, 0);
@@ -722,10 +738,15 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
 
   const { points, transitions } = useMemo(() => {
     try {
-      // Ancore: ADU integrato reale (tickState) → curva piecewise passato/futuro
+      // Ancore: ADU integrato reale (tickState) → curva piecewise passato/futuro.
+      // La ThermalTimeline è la fonte delle temperature per ogni segmento:
+      // i segmenti completed hanno temperature bloccate → cambio fase NON appiattisce il passato.
+      // ts?.phase è rimosso dalle deps: le transizioni di fase aggiornano session.thermalTimeline
+      // (che è in deps tramite session), non solo ts.phase.
       const raw = buildMultiSegmentData(
         session, tAmb, ts?.phase, ts?.elapsedH,
         ts?.cumulativeAdu, ts?.enzymaticAdu,
+        session.thermalTimeline,
       );
       // KB §11.4 — LTTB downsampling sopra 200 punti (preserva primo/ultimo + forma curva)
       if (raw.points.length > 200) {
@@ -738,7 +759,8 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
       return raw;
     } catch { return { points: [], transitions: [] }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, tAmb, ts?.phase, ts?.elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu]);
+  // ts?.phase rimosso: phase changes aggiornano session.thermalTimeline (già in deps via session)
+  }, [session, tAmb, ts?.elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu]);
 
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;

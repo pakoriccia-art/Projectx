@@ -2,7 +2,7 @@
  * PizzaMatrix — SessionService
  * Operazioni Dexie per sessioni, process_log, alerts
  */
-import { db } from '../db/db';
+import { db, buildInitialTimeline } from '../db/db';
 import type { Session, ProcessLogEntry } from '../db/db';
 import type { TickState } from '../context/AppContext';
 
@@ -16,6 +16,15 @@ import type { TickState } from '../context/AppContext';
  */
 export async function startSession(session: Session): Promise<number> {
   const id = Number(await db.sessions.add({ ...session, status: 'active' }));
+
+  // ThermalTimeline: costruisce e persiste la timeline pianificata iniziale.
+  const sessionWithId = { ...session, id };
+  const thermalTimeline = buildInitialTimeline(sessionWithId);
+  const bakeTargetElapsedH = session.startedAt && session.targetBakeAt
+    ? Math.max(0, (new Date(session.targetBakeAt).getTime() - new Date(session.startedAt).getTime()) / 3600000)
+    : undefined;
+  await db.sessions.update(id, { thermalTimeline, bakeTargetElapsedH });
+
   // Two-clock seeding: l'offset prefermento semina la MATURAZIONE (la biga ha già
   // maturato), non la lievitazione. L'ADU lievito parte da 0 (impasto degassato).
   const initialMatPct = (session.initialMaturationOffset ?? 0) * 100;
