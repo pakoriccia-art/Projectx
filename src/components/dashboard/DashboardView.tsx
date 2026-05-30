@@ -741,6 +741,19 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const proto = session.apprettoProtocol ?? 'ta';
   const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
 
+  // Linea verticale "target cottura" sul grafico: x = ore dalla sessione al targetBakeAt.
+  // Dichiarata PRIMA del useMemo dei punti: è passata a buildMultiSegmentData per estendere
+  // il dominio fino al bake target (evita TDZ — il callback del useMemo gira in render).
+  const targetBakeH = useMemo(() => {
+    try {
+      const t0   = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
+      const tBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : (session.targetBakeAt ? new Date(session.targetBakeAt) : null);
+      if (!tBake) return null;
+      const h = (tBake.getTime() - t0.getTime()) / 3_600_000;
+      return h > 0 ? parseFloat(h.toFixed(2)) : null;
+    } catch { return null; }
+  }, [session.startedAt, session.targetBakeAt]);
+
   const { points, transitions } = useMemo(() => {
     try {
       // Ancore: ADU integrato reale (tickState) → curva piecewise passato/futuro.
@@ -766,21 +779,10 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
     } catch { return { points: [], transitions: [] }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // ts?.phase rimosso: phase changes aggiornano session.thermalTimeline (già in deps via session)
-  }, [session, tAmb, ts?.elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu]);
+  }, [session, tAmb, ts?.elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu, targetBakeH]);
 
   const elapsed = ts?.elapsedH ?? 0;
   const fridgeT = session.fridgeTempC ?? 4;
-
-  // Linea verticale "target cottura" sul grafico: x = ore dalla sessione al targetBakeAt
-  const targetBakeH = useMemo(() => {
-    try {
-      const t0   = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
-      const tBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : (session.targetBakeAt ? new Date(session.targetBakeAt) : null);
-      if (!tBake) return null;
-      const h = (tBake.getTime() - t0.getTime()) / 3_600_000;
-      return h > 0 ? parseFloat(h.toFixed(2)) : null;
-    } catch { return null; }
-  }, [session.startedAt, session.targetBakeAt]);
 
   // Calcola maxH per impostare la larghezza del grafico
   const totalH = proto === 'ta'
