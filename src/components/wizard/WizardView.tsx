@@ -826,7 +826,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {draft.salt !== undefined && (
         <Card style={{ padding: '10px 14px' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            Sale v2.4: −{((1 - Math.max(0.6, 1 - 0.1 * draft.salt)) * 100).toFixed(0)}% velocità lievitazione · protezione W +{((Math.max(0.7, 1 - 0.08 * draft.salt)) * 100 - 100 + (1 - Math.max(0.7, 1 - 0.08 * draft.salt)) * 100).toFixed(0)}%
+            Sale v2.4: −{((1 - Math.max(0.6, 1 - 0.1 * draft.salt)) * 100).toFixed(0)}% velocità lievitazione · −{((1 - Math.max(0.7, 1 - 0.08 * draft.salt)) * 100).toFixed(0)}% velocità proteolisi
           </span>
         </Card>
       )}

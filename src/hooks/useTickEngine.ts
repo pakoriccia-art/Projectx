@@ -54,8 +54,10 @@ export function useTickEngine() {
     // Legge tickState dal ref → sempre il valore più recente
     const ts       = tsRef.current;
     const prevAdu  = ts?.cumulativeAdu  ?? 0;
-    const prevTDough = ts?.tempDough    ?? 22;
-    const tAmbient = ts?.tempAmbient    ?? 22;
+    // Al primo tick ts è null: usa tLaboratorio della sessione come T iniziale impasto/ambiente.
+    // I tick successivi leggono da ts (aggiornato ad ogni TICK dispatch).
+    const prevTDough = ts?.tempDough    ?? session.tLaboratorio ?? 22;
+    const tAmbient   = ts?.tempAmbient  ?? session.tLaboratorio ?? 22;
     const elapsedH = ts?.elapsedH       ?? 0;
     const phase    = ts?.phase          ?? 'bulk_room';   // ← legge dal ref, non dalla closure
 
@@ -263,10 +265,9 @@ export function useTickEngine() {
       db.sessions.update(session.id, { thermalTimeline: newTimeline }).catch(console.error);
     }
 
-    // Aggiorna ts.phase e ts.tempAmbient (Newton cooling parte subito in TC)
-    const patch: Record<string, unknown> = { phase: p };
-    if (isCold) patch.tempAmbient = ambientTempC;
-    dispatch({ type: 'TICK', patch: patch as any });
+    // Aggiorna ts.phase e ts.tempAmbient sempre: frigo→TA ripristina tLaboratorio,
+    // TA→frigo imposta fridgeTempC (Newton cooling parte subito in TC).
+    dispatch({ type: 'TICK', patch: { phase: p, tempAmbient: ambientTempC } as any });
   }, [dispatch]);
 
   return { setTempAmbient, setPhase };

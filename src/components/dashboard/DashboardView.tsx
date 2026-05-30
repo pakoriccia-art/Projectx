@@ -632,7 +632,10 @@ function TempCard({ ts, setTempAmbient }: { ts: any; setTempAmbient: (t: number)
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
         <span style={S.label}>Temperature</span>
-        <button onClick={() => setEditMode(e => !e)} style={{
+        <button onClick={() => {
+          if (!editMode) setTmpT(ts?.tempAmbient ?? 22);  // sync slider con valore live prima di aprire
+          setEditMode(e => !e);
+        }} style={{
           background: 'none', border: 'none', color: 'var(--accent-info)',
           fontFamily: 'var(--font-mono)', fontSize: '0.72rem', cursor: 'pointer',
         }}>
