@@ -45,6 +45,8 @@ export interface WizardDraft {
   // Service-Window planner: timeline precomputata + soglia bolle calibrabile
   thermalTimeline?: PhaseSegment[];
   bubbleThresholdPct?: number;
+  // Target maturazione: 85% default (ora di cottura), 90% per finestra servizio
+  alertThreshold?: number;
 }
 
 // ─── Real-time tick state ─────────────────────────────────────────────────────
@@ -136,6 +138,7 @@ function reducer(state: AppState, action: Action): AppState {
         apprettoProtocol: 'ta',
         kneadingMethod:   'spiral',
         tLaboratorio:     20,
+        alertThreshold:   85,
       }, wizardStep: 1 };
     case 'WIZARD_RESET_WITH_PATCH':
       return { ...state, wizardDraft: {
@@ -156,6 +159,7 @@ function reducer(state: AppState, action: Action): AppState {
         apprettoProtocol: 'ta',
         kneadingMethod:   'spiral',
         tLaboratorio:     20,
+        alertThreshold:   85,
         ...action.patch,                // sovrascrive i default con i valori del planner
       }, wizardStep: action.step ?? 1 };
     case 'SESSION_START':

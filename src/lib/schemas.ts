@@ -142,6 +142,7 @@ export const WizardInputSchema = z.object({
   // Service-Window planner: timeline precomputata (PhaseSegment[] opaco) + soglia bolle
   thermalTimeline:  z.array(z.object({}).passthrough()).optional(),
   bubbleThresholdPct: z.number().min(50).max(99).optional(),
+  alertThreshold:   z.number().min(50).max(100).optional(),
 }).strict();
 
 export type WizardInput = z.infer<typeof WizardInputSchema>;

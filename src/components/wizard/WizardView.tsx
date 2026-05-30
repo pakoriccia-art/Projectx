@@ -338,7 +338,7 @@ function buildSession(draft: WizardDraft): Session {
     hydration:              draft.hydration ?? 65,
     salt:                   draft.salt ?? 2.0,
     totalFlourGrams:        draft.totalFlourGrams ?? 1000,
-    alertThreshold:         85,
+    alertThreshold:         draft.alertThreshold ?? 85,
     containerPreset:        draft.containerPreset ?? 'closed_box',
     apprettoProtocol:       draft.apprettoProtocol ?? 'ta',
     puntataH:               _p,   // tc_appreto → back-calcolato; altri → slider utente

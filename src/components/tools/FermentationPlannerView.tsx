@@ -642,14 +642,33 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         <Metric label="Lievitazione fine" value={end.leaveningPct.toFixed(0)} unit="%" color="var(--accent-brand)" />
       </div>
 
-      {result.maxSafeServiceWindowH != null && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-          Margine: finestra sicura ~{result.maxSafeServiceWindowH.toFixed(1)}h (richiesti {serviceDurationH}h)
-          {result.bubbleCapped && <span style={{ color: 'var(--accent-warning)', display: 'block', marginTop: 4 }}>
-            ⚠ Dose già al minimo: la lievitazione supera la soglia bolle. Riduci durata o TA.
-          </span>}
-        </div>
-      )}
+      {result.maxSafeServiceWindowH != null && (() => {
+        const tightMargin = result.maxSafeServiceWindowH < serviceDurationH;
+        const sforo = serviceDurationH - result.maxSafeServiceWindowH;
+        return (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
+            color: tightMargin ? 'var(--accent-warning)' : 'var(--text-muted)',
+            padding: tightMargin ? '6px 10px' : 0,
+            background: tightMargin ? 'rgba(255,140,50,0.08)' : 'transparent',
+            borderRadius: tightMargin ? 6 : 0,
+            border: tightMargin ? '1px solid rgba(255,140,50,0.25)' : 'none',
+            marginBottom: 12,
+          }}>
+            {tightMargin && '⚠ '}Margine: finestra sicura ~{result.maxSafeServiceWindowH.toFixed(1)}h (richiesti {serviceDurationH}h)
+            {tightMargin && (
+              <span style={{ display: 'block', marginTop: 3 }}>
+                Sforo di {sforo.toFixed(1)}h · riduci durata a {result.maxSafeServiceWindowH.toFixed(1)}h o abbassa TA.
+              </span>
+            )}
+            {result.bubbleCapped && (
+              <span style={{ color: 'var(--accent-warning)', display: 'block', marginTop: 4 }}>
+                ⚠ Dose già al minimo: la lievitazione supera la soglia bolle. Riduci durata o TA.
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <button onClick={onUse} style={{
         background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
@@ -685,6 +704,7 @@ export function FermentationPlannerView() {
   const [tAmb,          setTAmb]          = useState(22);
   const [fridgeT,       setFridgeT]       = useState(4);
   const [staglioH,      setStaglioH]      = useState(0.5);
+  const [salt,          setSalt]          = useState(2.0);
   const [kneadingMethod, setKneadingMethod] = useState<KneadingMethod>('spiral');
 
   // Parametri impasto (per il wizard)
@@ -744,7 +764,7 @@ export function FermentationPlannerView() {
   const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseRef != null ? effectiveDose / doseRef : 1.0));
 
   // Massa panetto — usata per riscaldo e integrazione ramp tc_appreto
-  const panMassKg = (totalFlourG * (1 + hydration / 100 + 0.028)) / 1000 / Math.max(1, numPanetti);
+  const panMassKg = (totalFlourG * (1 + hydration / 100 + salt / 100)) / 1000 / Math.max(1, numPanetti);
   const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb);
 
   // ADU accumulato durante lo stemperamento (integrazione Riemann N=20)
@@ -815,6 +835,7 @@ export function FermentationPlannerView() {
       targetBakeAt,
       totalFlourGrams:  totalFlourG,
       hydration,
+      salt,
       numPanetti,
       tLaboratorio:     tAmb,       // §2.7: T_lab al momento dell'impasto = T_amb planner
       kneadingMethod:   kneadingMethod,
@@ -844,7 +865,6 @@ export function FermentationPlannerView() {
         agentDosePct: dosePct,
         W0: W,
         hydration,
-        salt: 2.0,
         totalFlourGrams: totalFlourG,
         numPanetti,
         containerPreset: 'closed_box',
@@ -852,9 +872,10 @@ export function FermentationPlannerView() {
         initialMaturationOffset: 0,
         bubbleThresholdPct,
         staglioH,
+        salt,
       }) as SolveServiceWindowResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH]);
+  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH, salt]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
   const useServiceResult = (r: SolveServiceWindowResult) => {
@@ -888,11 +909,14 @@ export function FermentationPlannerView() {
       fridgeTempC:      fridgeT,
       targetBakeAt,
       totalFlourGrams:  totalFlourG,
-      hydration, numPanetti,
+      hydration,
+      salt,
+      numPanetti,
       tLaboratorio:     tAmb,
       kneadingMethod,
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
       bubbleThresholdPct,
+      alertThreshold:   90,                   // target modalità finestra servizio = 90%
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -962,13 +986,15 @@ export function FermentationPlannerView() {
           </div>
           <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
             min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
+          <PlannerSlider label="Sale" value={salt} onChange={setSalt}
+            min={0} max={4} step={0.1} unit="%" color="var(--accent-info)" />
           {/* Preview peso panetto */}
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             Peso panetto stimato:{' '}
             <strong style={{ color: 'var(--text-secondary)' }}>
-              {Math.round(totalFlourG * (1 + hydration / 100 + 0.028) / numPanetti)}g
+              {Math.round(totalFlourG * (1 + hydration / 100 + salt / 100) / numPanetti)}g
             </strong>
-            {' '}(farina + acqua + 2.8% sale)
+            {' '}(farina + acqua + {salt.toFixed(1)}% sale)
           </div>
         </div>
       </Card>

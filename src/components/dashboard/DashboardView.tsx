@@ -85,6 +85,7 @@ function buildMultiSegmentData(
   liveAdu?: number,         // ts.cumulativeAdu — ADU lievito integrato reale (ancora)
   liveEnzAdu?: number,      // ts.enzymaticAdu — ADU enzimatico integrato reale (ancora)
   timeline?: PhaseSegment[], // ThermalTimeline persistente — fonte di verità temperature/durate
+  targetBakeH?: number,      // ore da startedAt a targetBakeAt — estende il dominio del grafico se oltre maxH
 ): { points: { h: number; pct: number; matPct: number; tempC: number }[]; transitions: { h: number; label: string; color: string }[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
@@ -248,7 +249,8 @@ function buildMultiSegmentData(
   // ── Loop di disegno sui segmenti espansi ──────────────────────────────────────
   const kRef   = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
   const totalH = expandedSegs.reduce((s, seg) => s + seg.durationH, 0);
-  const maxH   = Math.max(totalH * 1.5, 24);
+  // Estende il dominio fino al bake target (es. finestra servizio lontana nel futuro)
+  const maxH   = Math.max(totalH * 1.5, 24, targetBakeH != null ? Math.ceil(targetBakeH * 1.1) : 0);
   const stepH  = maxH / 80;  // ~80 punti totali
 
   // Two-clock seeding: lievitazione parte da 0 (degassato), maturazione dall'offset biga.
@@ -750,6 +752,7 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
         session, tAmb, ts?.phase, ts?.elapsedH,
         ts?.cumulativeAdu, ts?.enzymaticAdu,
         session.thermalTimeline,
+        targetBakeH ?? undefined,
       );
       // KB §11.4 — LTTB downsampling sopra 200 punti (preserva primo/ultimo + forma curva)
       if (raw.points.length > 200) {
@@ -787,7 +790,9 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
     : proto === 'tc_puntata'
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12) + (session.apprettoH ?? 0);
-  const maxH     = Math.max(totalH * 1.5, 24);
+  // Estende l'asse fino al bake target: per sessioni finestra-servizio il target
+  // può essere > totalH (es. 40h vs 18h calcolati dai soli campi sessione)
+  const maxH     = Math.max(totalH * 1.5, 24, targetBakeH != null ? Math.ceil(targetBakeH * 1.1) : 0);
   const chartW   = Math.max(300, Math.round(maxH * PX_PER_HOUR));
 
   // Tick asse X: ogni 2h se maxH ≤ 12, ogni 4h se ≤ 24, ogni 6h oltre
