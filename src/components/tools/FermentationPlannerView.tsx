@@ -21,6 +21,7 @@ import { Card, Metric, SnapButtons, S } from '../ui';
 import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
 } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
@@ -718,6 +719,238 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   );
 }
 
+// ─── Inverse Quality Profile Solver ─────────────────────────────────────────
+
+interface QualityTargets {
+  extTarget:   number;   // 1–5
+  aromaTarget: number;   // 1–5
+  sciTarget:   number;   // 1–5
+}
+
+interface QualityResult {
+  // Required maturation
+  mTarget:          number;   // [0,1] — reconciled
+  mFromExt:         number;
+  mFromSci_lo:      number;   // below bell peak
+  mFromSci_hi:      number;   // above bell peak
+  // Conflict flags
+  conflictExtSci:   boolean;  // max ext + max sci incompatible
+  // Suggested protocol parameters
+  hydration:        number;   // %
+  prefType:         'none' | 'biga' | 'poolish' | 'riporto';
+  prefFrac:         number;   // % farina
+  prefDurH:         number;   // ore
+  prefTempC:        number;   // °C
+  prefYeastPct:     number;
+  agentType:        'fresh_yeast' | 'sourdough_wheat';
+  tcHours:          number;
+  puntataH:         number;
+  staglioH:         number;
+  apprettoProtocol: 'ta' | 'tc_appreto';
+  // Predicted profile at mTarget
+  predictedExt:     number;
+  predictedAroma:   number;
+  predictedSci:     number;
+  // Schedule
+  totalH:           number;
+}
+
+/** Inverte il profilo qualità: dai target (1–5) ricava parametri di protocollo. */
+function solveQualityProfile(
+  targets: QualityTargets,
+  flour: { W: number; pl: number },
+  style: string,
+  tAmb: number,
+  fridgeT: number,
+): QualityResult {
+  const { extTarget, aromaTarget, sciTarget } = targets;
+  const { W, pl } = flour;
+
+  // ── Invert Estensibilità → m_ext ──────────────────────────────────────────
+  // ext = round(3m + flourContr);  flourContr depends on pl and hydration.
+  // Use hydration of 65% as reference for inversion; hydration will be set below.
+  const hydRef = 60 + (extTarget - 1) * 4;  // 60–76% range mapped to ext 1–5
+  const plScore   = Math.max(0.5, Math.min(2.0, (1.2 - pl) / 0.35));
+  const hydScore  = 0.5 + Math.max(0, Math.min(1.0, (hydRef - 55) / 30));
+  const flourContr = (plScore + hydScore) / 2;
+  const mFromExt = Math.max(0.5, Math.min(0.99, (extTarget - 0.5 - flourContr) / 3.0));
+
+  // ── Invert Scioglievolezza → m_sci ────────────────────────────────────────
+  // sci = round(1 + 3*sciMat + hydBon + amylBon + wBon + styleSci)
+  const styleSci: Record<string, number> = { napoletana: 0.3, contemporanea: 0.2, teglia: 0.0, pala: 0.1, nystyle: -0.2 };
+  const hydBon   = Math.max(0, Math.min(0.8, (hydRef - 55) / 50));
+  const wBon     = Math.max(0, Math.min(0.3, (350 - W) / 500));
+  const sciBonus = hydBon + wBon + (styleSci[style] ?? 0);
+  const sciMat_needed = Math.max(0, Math.min(1, (sciTarget - 0.5 - 1 - sciBonus) / 3.0));
+  const delta    = 0.5 * Math.sqrt(Math.max(0, 1 - sciMat_needed));
+  const mFromSci_lo = Math.max(0, 0.87 - delta);   // below peak
+  const mFromSci_hi = Math.min(1, 0.87 + delta);   // above peak
+
+  // ── Prefermento e aromi ───────────────────────────────────────────────────
+  let prefType: 'none' | 'biga' | 'poolish' | 'riporto' = 'none';
+  let prefFrac = 0, prefDurH = 0, prefTempC = 18, prefYeastPct = 0;
+  let agentType: 'fresh_yeast' | 'sourdough_wheat' = 'fresh_yeast';
+  let prefContrib = 0;
+  const sdContrib = 0;
+
+  if (aromaTarget >= 5) {
+    prefType = 'biga'; prefFrac = 50; prefDurH = 18; prefTempC = 16; prefYeastPct = 0.10;
+    prefContrib = 1.2;
+  } else if (aromaTarget >= 4) {
+    prefType = 'biga'; prefFrac = 30; prefDurH = 16; prefTempC = 18; prefYeastPct = 0.10;
+    prefContrib = 1.2;
+  } else if (aromaTarget >= 3) {
+    prefType = 'poolish'; prefFrac = 20; prefDurH = 12; prefTempC = 20; prefYeastPct = 0.05;
+    prefContrib = 0.8;
+  }
+
+  // Calcola coldContrib necessaria per aromi residui
+  const mTarget0 = Math.max(mFromExt, mFromSci_lo);
+  const aromaFromM = 1.0 + 2.0 * mTarget0 + prefContrib + sdContrib;
+  const coldNeeded = Math.max(0, aromaTarget - 0.5 - aromaFromM);
+  const tcHours = coldNeeded > 0 ? Math.max(8, Math.min(48, coldNeeded * 24)) : 0;
+  const coldContrib = tcHours > 8 ? Math.min(1.0, tcHours / 24) : 0;
+
+  // ── Reconcile mTarget ─────────────────────────────────────────────────────
+  let mTarget = mFromExt;
+  if (mFromExt > mFromSci_hi) {
+    mTarget = mFromExt;  // conflitto: ext vince, sci calerà
+  } else if (mFromExt > 0.87) {
+    mTarget = Math.max(mFromExt, mFromSci_hi);
+  } else {
+    mTarget = Math.max(mFromExt, mFromSci_lo);
+  }
+  mTarget = Math.max(0.5, Math.min(0.99, mTarget));
+
+  const conflictExtSci = extTarget >= 5 && sciTarget >= 5 && mFromExt > mFromSci_hi + 0.05;
+
+  // ── Schedule da mTarget ──────────────────────────────────────────────────
+  // ADU target → puntataH (dato tcHours fisso)
+  const enzMu  = ENZYMATIC_CLOCK_PARAMS.muMax;
+  const enzLam = ENZYMATIC_CLOCK_PARAMS.lambda;
+  const aduTarget = (findAduAt as Function)(enzMu, enzLam, 100, mTarget * 100) as number;
+  const aduFridge = (fArrhenius as Function)(fridgeT) as number * tcHours;
+  const aduNeeded = Math.max(0.1, aduTarget - aduFridge);
+  const kAmbRate  = (fArrhenius as Function)(tAmb) as number;
+  const puntataH  = Math.max(1.0, aduNeeded / Math.max(0.01, kAmbRate));
+  const staglioH  = 0.5;
+
+  // ── Predicted profile at mTarget ──────────────────────────────────────────
+  const hydFinal    = hydRef;
+  const hSc         = 0.5 + Math.max(0, Math.min(1.0, (hydFinal - 55) / 30));
+  const fC          = (plScore + hSc) / 2;
+  const sciMatFinal = Math.max(0, Math.min(1, 1 - Math.pow(mTarget - 0.87, 2) / 0.25));
+  const hydBonF     = Math.max(0, Math.min(0.8, (hydFinal - 55) / 50));
+  const wBonF       = Math.max(0, Math.min(0.3, (350 - W) / 500));
+
+  const predictedExt   = Math.max(1, Math.min(5, Math.round(3 * mTarget + fC)));
+  const predictedAroma = Math.max(1, Math.min(5, Math.round(1 + 2 * mTarget + prefContrib + coldContrib + sdContrib)));
+  const predictedSci   = Math.max(1, Math.min(5, Math.round(1 + 3 * sciMatFinal + hydBonF + 0 + wBonF + (styleSci[style] ?? 0))));
+
+  const totalH = puntataH + staglioH + tcHours;
+
+  return {
+    mTarget, mFromExt, mFromSci_lo, mFromSci_hi, conflictExtSci,
+    hydration: Math.round(hydRef), prefType, prefFrac, prefDurH, prefTempC, prefYeastPct,
+    agentType, tcHours: parseFloat(tcHours.toFixed(1)),
+    puntataH: parseFloat(puntataH.toFixed(1)), staglioH,
+    apprettoProtocol: tcHours > 0 ? 'tc_appreto' : 'ta',
+    predictedExt, predictedAroma, predictedSci,
+    totalH: parseFloat(totalH.toFixed(1)),
+  };
+}
+
+// ─── Quality Profile Result Card ─────────────────────────────────────────────
+function QualityDotRow({ label, target, predicted, color }: { label: string; target: number; predicted: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 100 }}>{label}</span>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} style={{
+            width: 10, height: 10, borderRadius: '50%',
+            background: i < predicted ? color : 'rgba(255,255,255,0.1)',
+            border: i === target - 1 ? '2px solid rgba(255,255,255,0.5)' : 'none',
+          }} />
+        ))}
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: predicted === target ? 'var(--state-optimal-hi)' : 'var(--accent-warning)', minWidth: 36, textAlign: 'right' }}>
+        {predicted === target ? `${predicted}/5` : `${predicted}/${target}`}
+      </span>
+    </div>
+  );
+}
+
+function QualityProfileResultCard({ result, onUse }: { result: QualityResult; onUse: () => void }) {
+  const prefLabels = { none: 'Diretto', biga: 'Biga', poolish: 'Poolish', riporto: 'Riporto' };
+  return (
+    <Card elevated>
+      <div style={{ ...S.label, marginBottom: 10 }}>Profilo Qualità · Protocollo consigliato</div>
+
+      {result.conflictExtSci && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 6, marginBottom: 12,
+          background: 'rgba(255,140,50,0.08)', border: '1px solid rgba(255,140,50,0.25)',
+          fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-warning)',
+        }}>
+          ⚠ Estensibilità 5/5 e Scioglievolezza 5/5 sono incompatibili — la maturazione necessaria per ext=5 supera il picco di scioglievolezza (87%). Il piano ottimizza l'estensibilità.
+        </div>
+      )}
+
+      {/* Maturazione target */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, padding: '8px 12px',
+        background: 'rgba(230,200,74,0.08)', borderRadius: 6, border: '1px solid rgba(230,200,74,0.2)' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Maturazione target</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color: '#e6c84a' }}>
+            {(result.mTarget * 100).toFixed(0)}%
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Idratazione</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-info)' }}>
+            {result.hydration}%
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>Totale</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            {result.totalH.toFixed(0)}h
+          </div>
+        </div>
+      </div>
+
+      {/* Schedule compatto */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 14 }}>
+        {result.prefType !== 'none' && (
+          <PlanRow label={`${prefLabels[result.prefType]} (${result.prefFrac}% farina)`}
+            value={`${result.prefDurH}h a ${result.prefTempC}°C · lievito ${result.prefYeastPct}%`} />
+        )}
+        <PlanRow label="Puntata TA" value={`${result.puntataH.toFixed(1)}h`} />
+        <PlanRow label="Staglio" value={`${result.staglioH.toFixed(1)}h`} />
+        {result.tcHours > 0 && <PlanRow label="Appretto TC (frigo)" value={`${result.tcHours.toFixed(1)}h`} />}
+        <PlanRow label="Protocollo" value={result.apprettoProtocol === 'tc_appreto' ? 'TC Appreto' : 'Tutto TA'} />
+      </div>
+
+      {/* Profilo previsto vs target */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+        <span style={{ ...S.label, fontSize: '0.65rem' }}>Profilo previsto (●) vs target (○)</span>
+        <QualityDotRow label="Estensibilità"   target={Math.round(result.mFromExt * 3 + 1)} predicted={result.predictedExt}   color="var(--pref-autolisi, #74b9ff)" />
+        <QualityDotRow label="Aromi"           target={-1} predicted={result.predictedAroma} color="var(--accent-warning)" />
+        <QualityDotRow label="Scioglievolezza" target={-1} predicted={result.predictedSci}   color="var(--state-approaching)" />
+      </div>
+
+      <button onClick={onUse} style={{
+        background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
+        borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
+        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+      }}>
+        Usa questo schema →
+      </button>
+    </Card>
+  );
+}
+
 function PlanRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
@@ -755,7 +988,12 @@ export function FermentationPlannerView() {
   const [targetTime,  setTargetTime]  = useState('12:00');
 
   // ── Modalità pianificatore: 'bake' (ora di cottura) | 'service' (finestra servizio) ──
-  const [plannerMode, setPlannerMode] = useState<'bake' | 'service'>('bake');
+  const [plannerMode, setPlannerMode] = useState<'bake' | 'service' | 'quality'>('bake');
+
+  // ── Modalità Profilo Qualità ───────────────────────────────────────────────
+  const [extTarget,   setExtTarget]   = useState(3);
+  const [aromaTarget, setAromaTarget] = useState(3);
+  const [sciTarget,   setSciTarget]   = useState(3);
   const [serviceDate, setServiceDate] = useState('');
   const [serviceTime, setServiceTime] = useState('19:00');
   const [serviceDurationH, setServiceDurationH] = useState(2);
@@ -960,6 +1198,56 @@ export function FermentationPlannerView() {
     dispatch({ type: 'NAV', view: 'wizard' });
   };
 
+  // ── Solver Profilo Qualità ──────────────────────────────────────────────────
+  const qualityResult = useMemo<QualityResult | null>(() => {
+    if (plannerMode !== 'quality') return null;
+    try {
+      return solveQualityProfile(
+        { extTarget, aromaTarget, sciTarget },
+        { W, pl: flourPl },
+        style,
+        tAmb,
+        fridgeT,
+      );
+    } catch { return null; }
+  }, [plannerMode, extTarget, aromaTarget, sciTarget, W, flourPl, style, tAmb, fridgeT]);
+
+  // Carica il piano qualità come sessione → wizard step 8
+  const useQualityResult = (r: QualityResult) => {
+    const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
+    const flourArr = [{
+      name: selectedEntry?.name ?? 'Farina', brand: selectedEntry?.brand ?? '',
+      W, pl: flourPl, protein: flourProtein, ash: selectedEntry?.ash ?? 0.55, percentage: 100,
+    }];
+    const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
+    const protocol = r.prefType !== 'none' ? ('single_pref' as const) : ('direct' as const);
+    const prefHydration = r.prefType === 'biga' ? 48 : r.prefType === 'riporto' ? 65 : 100;
+    const prefermenti = r.prefType !== 'none' ? [{
+      id: `quality_${Date.now()}`, type: r.prefType, flourGroup: mainFlourGroup,
+      flourFraction: r.prefFrac, hydration: prefHydration,
+      tempC: r.prefTempC, durationH: r.prefDurH,
+      yeastPct: r.prefType === 'riporto' ? undefined : r.prefYeastPct,
+    }] : [];
+    dispatch({ type: 'WIZARD_RESET_WITH_PATCH', step: 8, patch: {
+      style, protocol, mainFlourGroup, prefermenti,
+      agentType: r.agentType,
+      agentDosePct: r.agentType === 'sourdough_wheat' ? 15 : 0.3,
+      apprettoProtocol: r.apprettoProtocol,
+      puntataH: r.puntataH,
+      staglioH: r.staglioH,
+      apprettoH: r.tcHours > 0 ? 0 : 4,
+      tcHours: r.tcHours,
+      fridgeTempC: fridgeT,
+      totalFlourGrams: totalFlourG,
+      hydration: r.hydration,
+      salt,
+      numPanetti,
+      tLaboratorio: tAmb,
+      kneadingMethod,
+    }});
+    dispatch({ type: 'NAV', view: 'wizard' });
+  };
+
   // Dose range dipende dal tipo di agente
   const doseRange = agentType === 'sourdough_wheat'
     ? { min: 5, max: 40, step: 0.5, unit: '%' }
@@ -995,11 +1283,12 @@ export function FermentationPlannerView() {
       <SnapButtons
         label="Modalità"
         options={[
-          { value: 'bake',    label: 'Ora di cottura',     desc: 'Centra l\'85% all\'orario scelto' },
-          { value: 'service', label: 'Finestra di servizio', desc: 'Maturazione 90% per tutta la finestra' },
+          { value: 'bake',    label: 'Orario',   desc: 'Centra l\'85% all\'orario scelto' },
+          { value: 'service', label: 'Servizio',  desc: 'Maturazione 90% per tutta la finestra' },
+          { value: 'quality', label: 'Qualità',   desc: 'Raggiungi un profilo sensoriale target' },
         ]}
         value={plannerMode}
-        onChange={v => setPlannerMode(v as 'bake' | 'service')}
+        onChange={v => setPlannerMode(v as 'bake' | 'service' | 'quality')}
       />
 
       {/* ── Impasto ── */}
@@ -1168,6 +1457,58 @@ export function FermentationPlannerView() {
           onUse={() => useServiceResult(serviceResult)} />
       )}
 
+      {/* ── Profilo Qualità: target sliders ── */}
+      {plannerMode === 'quality' && (
+        <Card>
+          <div style={{ ...S.label, marginBottom: 14 }}>Obiettivi sensoriali</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={S.label}>Estensibilità</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--pref-autolisi, #74b9ff)' }}>
+                  {'●'.repeat(extTarget)}{'○'.repeat(5 - extTarget)}
+                </span>
+              </div>
+              <input type="range" min={1} max={5} step={1} value={extTarget} onChange={e => setExtTarget(+e.target.value)}
+                style={{ width: '100%', accentColor: 'var(--pref-autolisi, #74b9ff)' }} />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                Rilascio del panetto · legato a maturazione + P/L + idratazione
+              </div>
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={S.label}>Aromi</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--accent-warning)' }}>
+                  {'●'.repeat(aromaTarget)}{'○'.repeat(5 - aromaTarget)}
+                </span>
+              </div>
+              <input type="range" min={1} max={5} step={1} value={aromaTarget} onChange={e => setAromaTarget(+e.target.value)}
+                style={{ width: '100%', accentColor: 'var(--accent-warning)' }} />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                Maturazione + prefermenti (biga/poolish) + freddo prolungato
+              </div>
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={S.label}>Scioglievolezza</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--state-approaching)' }}>
+                  {'●'.repeat(sciTarget)}{'○'.repeat(5 - sciTarget)}
+                </span>
+              </div>
+              <input type="range" min={1} max={5} step={1} value={sciTarget} onChange={e => setSciTarget(+e.target.value)}
+                style={{ width: '100%', accentColor: 'var(--state-approaching)' }} />
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                Picco a 87% maturazione · idratazione + stile · non monotona
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {plannerMode === 'quality' && qualityResult && (
+        <QualityProfileResultCard result={qualityResult} onUse={() => useQualityResult(qualityResult)} />
+      )}
+
       {/* ── Target cottura ── */}
       {plannerMode === 'bake' && (
       <Card>
@@ -1276,7 +1617,7 @@ export function FermentationPlannerView() {
       </Card>
 
       {/* ── Acqua di impastamento (DDT live) ── */}
-      {results.length > 0 && (() => {
+      {plannerMode !== 'quality' && results.length > 0 && (() => {
         const waterG   = Math.round(totalFlourG * (hydration / 100));
         const tPref    = hasPref ? prefTemp : undefined;
         const ddtDef   = ddtForStyle(style);
