@@ -22,7 +22,8 @@ import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
 } from '../../engine';
-import { solveServiceWindow, SERVICE_WINDOW_DEFAULTS, type SolveServiceWindowResult } from '../../engine/serviceWindowSolver';
+import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
+import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
 import { ddtForStyle } from '../../data/styleConstraints';
@@ -566,7 +567,7 @@ function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; valu
 }
 
 function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, onUse }: {
-  result: SolveServiceWindowResult; serviceStart: Date | null;
+  result: NowAnchoredAlarmResult; serviceStart: Date | null;
   serviceDurationH: number; bubbleThresholdPct: number; onUse: () => void;
 }) {
   const fmt = (d: Date) => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -593,7 +594,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         {(inf?.mitigations ?? []).length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ ...S.label, fontSize: '0.65rem' }}>Mitigazioni</span>
-            {inf!.mitigations.map((m, i) => (
+            {(inf?.mitigations ?? []).map((m, i) => (
               <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>• {m}</div>
             ))}
           </div>
@@ -611,13 +612,49 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   const mixStart = result.mixStart ? new Date(result.mixStart) : null;
   const pullFromFridge = serviceStart ? new Date(serviceStart.getTime() - s.temperingH * 3_600_000) : null;
 
+  // ── Alarm type badge ──────────────────────────────────────────────────────
+  const alarmCfg: Record<string, { bg: string; border: string; color: string; icon: string; label: string }> = {
+    OK:                 { bg: 'rgba(0,184,148,0.08)',   border: 'rgba(0,184,148,0.3)',  color: 'var(--state-optimal-hi)', icon: '✓', label: 'OK — Piano realizzabile' },
+    OK_MARGINE_STRETTO: { bg: 'rgba(255,140,50,0.08)',  border: 'rgba(255,140,50,0.3)', color: 'var(--accent-warning)', icon: '⚡', label: 'MARGINE STRETTO — Inizia ora' },
+    SOTTOMATURAZIONE:   { bg: 'rgba(214,48,49,0.08)',   border: 'rgba(214,48,49,0.3)',  color: 'var(--state-critical)', icon: '↓', label: 'SOTTOMATURAZIONE — In ritardo' },
+    SOVRAMMATURAZIONE:  { bg: 'rgba(214,48,49,0.08)',   border: 'rgba(214,48,49,0.3)',  color: 'var(--state-critical)', icon: '↑', label: 'SOVRAMMATURAZIONE — Finestra troppo lunga' },
+  };
+  const ac = alarmCfg[result.alarmType ?? 'OK'] ?? alarmCfg['OK'];
+
   return (
     <Card elevated>
-      <div style={{ ...S.label, marginBottom: 12 }}>Piano servizio · maturazione 90% a fine finestra</div>
+      {/* Alarm header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '8px 12px', borderRadius: 8, marginBottom: 14,
+        background: ac.bg, border: `1px solid ${ac.border}`,
+      }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: ac.color }}>{ac.icon}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: ac.color }}>{ac.label}</span>
+        {result.deltaH != null && (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+            {result.deltaH >= 0 ? `+${result.deltaH.toFixed(1)}h` : `${result.deltaH.toFixed(1)}h`}
+          </span>
+        )}
+      </div>
+
+      {/* Suggerimenti real-time */}
+      {result.suggestions?.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14,
+          padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
+          {result.suggestions.map((s, i) => (
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              · {s}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...S.label, marginBottom: 10 }}>Piano servizio · maturazione 90% a fine finestra</div>
 
       {/* Schedule */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
-        {mixStart && <PlanRow label="Impasta" value={fmt(mixStart)} />}
+        {mixStart && <PlanRow label="Impasta (ottimale)" value={fmt(mixStart)} />}
         <PlanRow label="Dose lievito" value={`${result.dose?.toFixed(3)}%`} />
         <PlanRow label="Puntata TA" value={`${s.puntataH.toFixed(1)}h`} />
         <PlanRow label="Staglio" value={`${s.staglioH.toFixed(1)}h`} />
@@ -843,17 +880,18 @@ export function FermentationPlannerView() {
     dispatch({ type: 'NAV', view: 'wizard' });
   };
 
-  // ── Solver finestra di servizio ─────────────────────────────────────────────
+  // ── Solver finestra di servizio (now-anchored) ──────────────────────────────
   const serviceStart = useMemo(() => {
     if (!serviceDate) return null;
     const d = new Date(`${serviceDate}T${serviceTime}`);
     return isNaN(d.getTime()) ? null : d;
   }, [serviceDate, serviceTime]);
 
-  const serviceResult = useMemo<SolveServiceWindowResult | null>(() => {
+  const serviceResult = useMemo<NowAnchoredAlarmResult | null>(() => {
     if (plannerMode !== 'service' || !serviceStart) return null;
     try {
-      return (solveServiceWindow as Function)({
+      return (computeNowAnchoredAlarms as Function)({
+        now: new Date(nowMs),
         serviceStart,
         serviceDurationH,
         ambientTempC: tAmb,
@@ -873,12 +911,13 @@ export function FermentationPlannerView() {
         bubbleThresholdPct,
         staglioH,
         salt,
-      }) as SolveServiceWindowResult;
+        fridgeTempMin: 2,
+      }) as NowAnchoredAlarmResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH, salt]);
+  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH, salt]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
-  const useServiceResult = (r: SolveServiceWindowResult) => {
+  const useServiceResult = (r: NowAnchoredAlarmResult) => {
     if (!r.feasible || !r.timeline || !serviceStart) return;
     const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
     const flourArr = [{

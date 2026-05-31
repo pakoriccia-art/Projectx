@@ -15,6 +15,8 @@ import {
 } from '../ui';
 import { downsampleLTTB } from '../../lib/lttb';
 import { ddtForStyle } from '../../data/styleConstraints';
+import { simulateTimeline } from '../../engine/serviceWindowSolver';
+import { computeDriftAlarm } from '../../engine/plannerAlarmEngine';
 import {
   gompertz, sweetSpotMaturation, structuralState,
   computeAltitudeFactor, volumeMilestoneCorrection,
@@ -892,6 +894,91 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
   );
 }
 
+// ─── Drift Monitoring Card ────────────────────────────────────────────────────
+// Confronta la maturazione reale (tick engine) vs quella pianificata (ThermalTimeline).
+// Visibile solo se thermalTimeline è presente (sessioni finestra-servizio o piani solver).
+function DriftCard({ session, ts }: { session: any; ts: any }) {
+  // Planned maturation at current elapsed time via ThermalTimeline simulation
+  const plannedMat = useMemo(() => {
+    const tl = session.thermalTimeline;
+    const elH = ts?.elapsedH;
+    if (!tl?.length || !elH || elH < 0.5) return null;
+    const segments = tl
+      .map((seg: any) => {
+        if (seg.startElapsedH >= elH) return null;
+        const dH = Math.min(seg.endElapsedH, elH) - seg.startElapsedH;
+        if (dH <= 0) return null;
+        return { phaseType: seg.phaseType, durationH: dH, ambientTempC: seg.ambientTempC };
+      })
+      .filter(Boolean);
+    if (!segments.length) return null;
+    try {
+      const enzSeed = session.initialMaturationOffset
+        ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, session.initialMaturationOffset * 100) as number
+        : 0;
+      const prefFrac = Math.min(1, (session.prefermenti ?? []).reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
+      const leavLambda = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
+      const sim = (simulateTimeline as Function)(segments,
+        { tempDough: session.tLaboratorio ?? 22, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 },
+        {
+          agentEaKj: session.agentEaKj, agentType: session.agentType,
+          muMaxScaled: session.agentMuMax, leavLambda,
+          agentAsymptote: session.agentAsymptote ?? 100,
+          W0: session.effectiveW_initial ?? 280, hydration: session.hydration ?? 65,
+          salt: session.salt ?? 2, totalFlourGrams: session.totalFlourGrams ?? 1000,
+          numPanetti: session.numPanetti ?? 6, containerPreset: session.containerPreset ?? 'bare',
+        });
+      return sim.final?.enzymaticMatPct ?? null;
+    } catch { return null; }
+  }, [session, ts?.elapsedH]);
+
+  const drift = useMemo(() => {
+    const actualMat = ts?.enzymaticMatPct;
+    if (actualMat == null || plannedMat == null || !ts?.elapsedH) return null;
+    return (computeDriftAlarm as Function)({ elapsedH: ts.elapsedH, actualMatPct: actualMat, plannedMatPct: plannedMat });
+  }, [ts?.enzymaticMatPct, plannedMat, ts?.elapsedH]);
+
+  if (!session.thermalTimeline?.length || !drift) return null;
+
+  const { driftPct, driftAlarm } = drift;
+  if (!driftAlarm) {
+    // Small drift — show as subtle info only if |drift| > 2%
+    if (Math.abs(driftPct) <= 2) return null;
+    return (
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', padding: '4px 0' }}>
+        Piano: ~{plannedMat?.toFixed(1)}% · Reale: {ts?.enzymaticMatPct?.toFixed(1)}% · Δ {driftPct > 0 ? '+' : ''}{driftPct.toFixed(1)}%
+      </div>
+    );
+  }
+
+  const isAhead = driftAlarm.type === 'AHEAD';
+  const isCritical = driftAlarm.severity === 'critical';
+  const color = isCritical ? 'var(--state-critical)' : 'var(--accent-warning)';
+  return (
+    <div style={{
+      padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+      background: `rgba(${isCritical ? '214,48,49' : '255,140,50'},0.08)`,
+      border: `1px solid rgba(${isCritical ? '214,48,49' : '255,140,50'},0.3)`,
+      display: 'flex', flexDirection: 'column', gap: 5,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color }}>
+          {isAhead ? '▲' : '▼'} Deriva maturazione {driftPct > 0 ? '+' : ''}{driftPct.toFixed(1)}%
+        </span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+          piano {plannedMat?.toFixed(1)}% · reale {ts?.enzymaticMatPct?.toFixed(1)}%
+        </span>
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+        {driftAlarm.message}
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color, fontStyle: 'italic' }}>
+        → {driftAlarm.suggestion}
+      </div>
+    </div>
+  );
+}
+
 // ─── Malt Badge ───────────────────────────────────────────────────────────────
 function MaltBadge({ session }: { session: any }) {
   if (!session.malt) return null;
@@ -1010,6 +1097,9 @@ export function DashboardView() {
           <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} color="var(--text-secondary)" />
         </div>
       </Card>
+
+      {/* ── Drift monitoring (piano vs reale, solo con ThermalTimeline) ── */}
+      <DriftCard session={session} ts={ts} />
 
       {/* ── Malt warning ── */}
       <MaltBadge session={session} />
