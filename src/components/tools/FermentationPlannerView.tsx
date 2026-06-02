@@ -572,31 +572,61 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   serviceDurationH: number; bubbleThresholdPct: number; onUse: () => void;
 }) {
   const fmt = (d: Date) => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const inf = result.infeasibility;
 
+  // ── Infeasible: SOVRAMMATURAZIONE con opzioni esplicite ───────────────────
+  if (!result.feasible && result.alarmType === 'SOVRAMMATURAZIONE') {
+    return (
+      <Card style={{ border: '1px solid rgba(214,48,49,0.35)', background: 'rgba(214,48,49,0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--state-critical)' }}>↑</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: 'var(--state-critical)' }}>
+            SOVRAMMATURAZIONE — Impossibile rallentare abbastanza
+          </span>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+          Partendo adesso, anche al frigo minimo ({inf?.maturationAtMin?.toFixed(0) ?? '—'}% a fine servizio), la maturazione supera il {result.infeasibility?.reason === 'cannot_slow_enough' ? '90' : ''}% target.
+        </div>
+        {result.suggestions.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+            <span style={{ ...S.label, color: 'var(--text-muted)' }}>Opzioni (scegli tu)</span>
+            {result.suggestions.map((opt, i) => {
+              const isLast = opt.startsWith('[Ultima opzione]');
+              return (
+                <div key={i} style={{
+                  padding: '6px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.75rem',
+                  background: isLast ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.05)',
+                  border: isLast ? '1px dashed rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.1)',
+                  color: isLast ? 'var(--text-muted)' : 'var(--text-secondary)',
+                  opacity: isLast ? 0.75 : 1,
+                }}>
+                  {isLast ? '↩ ' : '→ '}{opt.replace('[Ultima opzione] ', '')}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    );
+  }
+
+  // ── Infeasible: SOTTOMATURAZIONE / altri ─────────────────────────────────
   if (!result.feasible) {
-    const inf = result.infeasibility;
     return (
       <Card style={{ border: '1px solid rgba(214,48,49,0.3)', background: 'rgba(214,48,49,0.05)' }}>
         <div style={{ ...S.label, marginBottom: 10, color: 'var(--state-critical)' }}>
-          ✗ Finestra non realizzabile
+          {result.alarmType === 'SOTTOMATURAZIONE' ? '↓ SOTTOMATURAZIONE — Finestra troppo corta' : '✗ Finestra non realizzabile'}
         </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
           {inf?.reason === 'cannot_temper' && 'A questa temperatura ambiente le palline non raggiungono 18°C.'}
-          {inf?.reason === 'maturation_overshoot' && `La maturazione supererebbe il 90% prima della fine del servizio.`}
+          {inf?.reason === 'window_too_short' && 'Tempo insufficiente per puntata + appretto + tempering + servizio.'}
+          {inf?.reason === 'window_too_short_maturation' && `La maturazione a fine servizio sarebbe solo ${inf.maturationAtMax?.toFixed(0) ?? '—'}% (target 90%).`}
           {inf?.reason === 'w_collapse' && 'La struttura del glutine collasserebbe prima della fine del servizio.'}
         </div>
-        {inf?.maxSafeServiceWindowH != null && inf.maxSafeServiceWindowH > 0 && (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', marginBottom: 10 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Finestra sicura massima: </span>
-            <strong style={{ color: 'var(--accent-warning)' }}>{inf.maxSafeServiceWindowH.toFixed(1)}h</strong>
-            <span style={{ color: 'var(--text-muted)' }}> (richiesti {serviceDurationH}h)</span>
-          </div>
-        )}
-        {(inf?.mitigations ?? []).length > 0 && (
+        {result.suggestions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ ...S.label, fontSize: '0.65rem' }}>Mitigazioni</span>
-            {(inf?.mitigations ?? []).map((m, i) => (
-              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>• {m}</div>
+            {result.suggestions.map((m, i) => (
+              <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>· {m}</div>
             ))}
           </div>
         )}
@@ -610,31 +640,26 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   const c1ok = start.tempDough >= 18 - 0.3;
   const c2ok = end.maturationPct <= 90.5 && end.structuralStatus !== 'CRITICAL' && end.structuralStatus !== 'COLLAPSED';
   const c3ok = !result.bubbleCapped && end.leaveningPct <= bubbleThresholdPct + 0.5;
-  const mixStart = result.mixStart ? new Date(result.mixStart) : null;
   const pullFromFridge = serviceStart ? new Date(serviceStart.getTime() - s.temperingH * 3_600_000) : null;
-
-  // ── Alarm type badge ──────────────────────────────────────────────────────
-  const alarmCfg: Record<string, { bg: string; border: string; color: string; icon: string; label: string }> = {
-    OK:                 { bg: 'rgba(0,184,148,0.08)',   border: 'rgba(0,184,148,0.3)',  color: 'var(--state-optimal-hi)', icon: '✓', label: 'OK — Piano realizzabile' },
-    OK_MARGINE_STRETTO: { bg: 'rgba(255,140,50,0.08)',  border: 'rgba(255,140,50,0.3)', color: 'var(--accent-warning)', icon: '⚡', label: 'MARGINE STRETTO — Inizia ora' },
-    SOTTOMATURAZIONE:   { bg: 'rgba(214,48,49,0.08)',   border: 'rgba(214,48,49,0.3)',  color: 'var(--state-critical)', icon: '↓', label: 'SOTTOMATURAZIONE — In ritardo' },
-    SOVRAMMATURAZIONE:  { bg: 'rgba(214,48,49,0.08)',   border: 'rgba(214,48,49,0.3)',  color: 'var(--state-critical)', icon: '↑', label: 'SOVRAMMATURAZIONE — Finestra troppo lunga' },
-  };
-  const ac = alarmCfg[result.alarmType ?? 'OK'] ?? alarmCfg['OK'];
+  const fridgeDisplay = result.recommendedFridgeTempC != null
+    ? `${result.recommendedFridgeTempC}°C`
+    : null;
 
   return (
     <Card elevated>
-      {/* Alarm header */}
+      {/* Alarm header — sempre OK con mixStart = ADESSO */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 12px', borderRadius: 8, marginBottom: 14,
-        background: ac.bg, border: `1px solid ${ac.border}`,
+        background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.3)',
       }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: ac.color }}>{ac.icon}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: ac.color }}>{ac.label}</span>
-        {result.deltaH != null && (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-            {result.deltaH >= 0 ? `+${result.deltaH.toFixed(1)}h` : `${result.deltaH.toFixed(1)}h`}
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--state-optimal-hi)' }}>✓</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: 'var(--state-optimal-hi)' }}>
+          OK — Impasta ADESSO
+        </span>
+        {result.fridgeTempAdjusted && fridgeDisplay && (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-warning)', marginLeft: 'auto' }}>
+            frigo → {fridgeDisplay}
           </span>
         )}
       </div>
@@ -643,9 +668,9 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
       {result.suggestions?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14,
           padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}>
-          {result.suggestions.map((s, i) => (
+          {result.suggestions.map((sg, i) => (
             <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-              · {s}
+              · {sg}
             </div>
           ))}
         </div>
@@ -653,9 +678,12 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
 
       <div style={{ ...S.label, marginBottom: 10 }}>Piano servizio · maturazione 90% a fine finestra</div>
 
-      {/* Schedule */}
+      {/* Schedule — mixStart = ADESSO */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
-        {mixStart && <PlanRow label="Impasta (ottimale)" value={fmt(mixStart)} />}
+        <PlanRow label="Impasta" value="ADESSO" />
+        {fridgeDisplay && (
+          <PlanRow label="Frigo consigliato" value={fridgeDisplay} />
+        )}
         <PlanRow label="Dose lievito" value={`${result.dose?.toFixed(3)}%`} />
         <PlanRow label="Puntata TA" value={`${s.puntataH.toFixed(1)}h`} />
         <PlanRow label="Staglio" value={`${s.staglioH.toFixed(1)}h`} />
@@ -1183,7 +1211,7 @@ export function FermentationPlannerView() {
       staglioH:         s.staglioH,
       apprettoH:        s.serviceDurationH,   // finestra servizio come fase finale TA
       tcHours:          s.tcHours,
-      fridgeTempC:      fridgeT,
+      fridgeTempC:      r.recommendedFridgeTempC ?? fridgeT,
       targetBakeAt,
       totalFlourGrams:  totalFlourG,
       hydration,

@@ -14,15 +14,15 @@ export type AlarmType =
 export interface NowAnchoredAlarmResult {
   feasible: boolean;
   alarmType: AlarmType;
-  /** Ore dal mixStart ottimale a now: >0 = futuro, <0 = ritardo */
-  deltaH?: number;
-  mixStartOptimal?: Date;
-  /** Maturazione stimata a fine servizio nel caso SOTTOMATURAZIONE */
-  estimatedFinalMat?: number;
   suggestions: string[];
   now: Date;
-  // Campi ereditati da SolveServiceWindowResult:
+  // Campi ereditati da SolveNowAnchoredWindowResult:
   mixStart?: Date;
+  mixStartIsNow?: boolean;
+  recommendedFridgeTempC?: number | null;
+  fridgeTempAdjusted?: boolean;
+  /** delayH: ore di ritardo minimo (solo SOVRAMMATURAZIONE, ultima opzione) */
+  delayH?: number | null;
   schedule?: {
     puntataH: number;
     staglioH: number;
@@ -43,7 +43,13 @@ export interface NowAnchoredAlarmResult {
   timeline?: import('../db/db').PhaseSegment[];
   bakeTargetElapsedH?: number;
   maxSafeServiceWindowH?: number;
-  infeasibility?: { reason: string; maxSafeServiceWindowH?: number; mitigations?: string[] };
+  infeasibility?: {
+    reason: string;
+    maxSafeServiceWindowH?: number;
+    maturationAtMin?: number;
+    maturationAtMax?: number;
+    mitigations?: string[];
+  };
 }
 
 export interface DriftAlarmResult {

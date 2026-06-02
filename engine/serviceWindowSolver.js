@@ -210,6 +210,235 @@ function bisectIncreasing(f, target, lo, hi, tol = 0.05, maxIter = 60) {
 }
 
 /**
+ * Solver ancorato a NOW: mixStart = now (fisso).
+ *
+ * Invece di ottimizzare l'orario di inizio, fissa mixStart = now e trova la
+ * temperatura frigo ottimale (fridgeTempC ∈ [fridgeTempMin, fridgeTempCUser])
+ * che centra maturazione(serviceEnd) = targetMaturationPct, assorbendo lo
+ * slack con il rallentamento (T frigo ↓), non con il ritardo dell'inizio.
+ *
+ * Sale: NON tocca l'orologio maturazione. Leva maturazione = temperatura frigo.
+ *
+ * Se non si rallenta abbastanza (matAtMin > target) → infeasibility.reason =
+ * 'cannot_slow_enough': il chiamante propone opzioni esplicite all'utente
+ * (anticipa servizio / riduci target / [ultima] ritarda inizio).
+ */
+export function solveNowAnchoredWindow(input) {
+  const {
+    now, serviceStart, serviceDurationH,
+    ambientTempC, fridgeTempC: fridgeTempCUser = 4, fridgeTempMin = 2,
+    agentType, agentEaKj, agentMuMax, agentLambda, agentAsymptote = 100,
+    agentDosePct = 0.3,
+    W0 = 280, hydration = 65, salt = 0, waterHardnessPpm, initialPH = 5.8,
+    totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare',
+    prefermenti = [], initialMaturationOffset = 0,
+    targetMaturationPct   = SERVICE_WINDOW_DEFAULTS.targetMaturationPct,
+    bubbleThresholdPct    = SERVICE_WINDOW_DEFAULTS.bubbleThresholdPct,
+    thermalServiceTargetC = SERVICE_WINDOW_DEFAULTS.thermalServiceTargetC,
+    puntataKickoffH       = SERVICE_WINDOW_DEFAULTS.puntataKickoffH,
+    staglioH              = SERVICE_WINDOW_DEFAULTS.staglioH,
+    doseRefPct, doseMinPct, doseMaxPct,
+    subStepH = 0.05,
+  } = input;
+
+  const mixStart   = now instanceof Date ? now : new Date(now);
+  const serviceEnd = new Date(serviceStart.getTime() + serviceDurationH * HOUR_MS);
+  const totalH     = (serviceEnd.getTime() - mixStart.getTime()) / HOUR_MS;
+
+  if (ambientTempC <= thermalServiceTargetC) {
+    return { feasible: false, mixStart, mixStartIsNow: true, infeasibility: { reason: 'cannot_temper', mitigations: ['Alza la temperatura ambiente sopra 18°C'] } };
+  }
+
+  const doseRef    = doseRefPct !== undefined ? doseRefPct : defaultDoseRef(agentType);
+  const prefFrac   = Math.min(1, (prefermenti ?? []).reduce((s, p) => s + (p.flourFraction ?? 0) / 100, 0));
+  const leavLambda = Math.max(0.3, agentLambda * (1 - 0.5 * prefFrac));
+  const enzSeed    = initialMaturationOffset > 0
+    ? findAduAt(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, initialMaturationOffset * 100)
+    : 0;
+  const { ballMassKg } = massesKg({ totalFlourGrams, hydration, salt, numPanetti });
+
+  const baseOpts = {
+    agentEaKj, agentType, leavLambda, agentAsymptote,
+    W0, hydration, salt, waterHardnessPpm, initialPH,
+    totalFlourGrams, numPanetti, containerPreset, subStepH,
+  };
+
+  // Costruisce schedule e simula per un dato fridgeTempC candidato
+  const scheduleFor = (fridgeTempC_c) => {
+    const tempH = computeTemperingH({
+      ballMassKg, hydration, fridgeTempC: fridgeTempC_c,
+      ambientTempC, targetC: thermalServiceTargetC, containerPreset,
+    });
+    const tcH = totalH - serviceDurationH - tempH - puntataKickoffH - staglioH;
+    if (tcH < 0) return null;
+    const segs = [
+      { phaseType: 'bulk_room',     durationH: puntataKickoffH, ambientTempC },
+      { phaseType: 'balled_room',   durationH: staglioH,         ambientTempC },
+      { phaseType: 'balled_fridge', durationH: tcH,              ambientTempC: fridgeTempC_c },
+      { phaseType: 'proofing',      durationH: tempH,            ambientTempC },
+      { phaseType: 'proofing',      durationH: serviceDurationH, ambientTempC },
+    ].filter(s => s.durationH > 1e-6);
+    return { temperingH: tempH, tcHours: tcH, segs };
+  };
+
+  // Maturazione a serviceEnd: CRESCENTE in fridgeTempC (temp più alta → più maturazione)
+  const matAtServiceEnd = (fridgeTempC_c) => {
+    const sc = scheduleFor(fridgeTempC_c);
+    if (!sc) return -1;
+    const mu = muMaxScaledFor(agentDosePct, agentMuMax, doseRef);
+    const r  = simulateTimeline(sc.segs, { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 }, { ...baseOpts, muMaxScaled: mu });
+    return r.final.enzymaticMatPct;
+  };
+
+  // Verifica fattibilità agli estremi
+  const minSc = scheduleFor(fridgeTempMin);
+  if (!minSc) {
+    return { feasible: false, mixStart, mixStartIsNow: true, infeasibility: { reason: 'window_too_short', mitigations: ['La finestra è troppo corta: non c\'è tempo per puntata + appretto + tempering + servizio'] } };
+  }
+  const matMin = matAtServiceEnd(fridgeTempMin);
+  const matMax = matAtServiceEnd(fridgeTempCUser);
+
+  if (matMin > targetMaturationPct) {
+    // Anche al minimo frigo la maturazione supera il target: SOVRAMMATURAZIONE.
+    // Il chiamante aggiungerà delayH come ultima opzione (calcolata separatamente).
+    return {
+      feasible: false, mixStart, mixStartIsNow: true,
+      infeasibility: {
+        reason: 'cannot_slow_enough',
+        maturationAtMin: parseFloat(matMin.toFixed(1)),
+        mitigations: [
+          'Anticipa il servizio (inizia a servire prima)',
+          `Riduci il target di maturazione (attuale: ${targetMaturationPct}%)`,
+        ],
+      },
+    };
+  }
+
+  if (matMax < targetMaturationPct) {
+    return {
+      feasible: false, mixStart, mixStartIsNow: true,
+      infeasibility: {
+        reason: 'window_too_short_maturation',
+        maturationAtMax: parseFloat(matMax.toFixed(1)),
+        mitigations: [
+          `Finestra troppo corta: maturazione a fine servizio sarebbe ${matMax.toFixed(0)}% (target ${targetMaturationPct}%)`,
+          'Posticipa l\'inizio del servizio o allunga la durata totale',
+          'Usa un prefermento per partire con maggiore maturazione iniziale',
+        ],
+      },
+    };
+  }
+
+  // Bisezione: trova fridgeTempC* s.t. matAtServiceEnd = targetMaturationPct
+  const optFridgeTempC_raw = bisectIncreasing(matAtServiceEnd, targetMaturationPct, fridgeTempMin, fridgeTempCUser, 0.15);
+  const optFridgeTempC     = parseFloat(optFridgeTempC_raw.toFixed(1));
+  const fridgeTempAdjusted = optFridgeTempC < fridgeTempCUser - 0.15;
+
+  const optSc = scheduleFor(optFridgeTempC) ?? scheduleFor(fridgeTempCUser);
+  const { temperingH, tcHours, segs: fullSegs } = optSc;
+
+  // C3: bisezione dose per soglia bolle (schedule fisso)
+  const initState = { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 };
+  const leaveningAtEnd = (dose) => simulateTimeline(fullSegs, initState,
+    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) }).final.leaveningPct;
+
+  let dose = agentDosePct;
+  let bubbleCapped = false;
+  if (doseRef != null) {
+    const dMin = doseMinPct ?? doseRef * 0.1;
+    const dMax = doseMaxPct ?? doseRef * 2;
+    if (leaveningAtEnd(dMin) > bubbleThresholdPct) {
+      dose = dMin; bubbleCapped = true;
+    } else if (leaveningAtEnd(dMax) < bubbleThresholdPct) {
+      dose = dMax;
+    } else {
+      dose = bisectIncreasing(leaveningAtEnd, bubbleThresholdPct, dMin, dMax, 0.1);
+    }
+  } else {
+    bubbleCapped = leaveningAtEnd(agentDosePct) > bubbleThresholdPct;
+  }
+
+  // Simulazione finale
+  const finalSim = simulateTimeline(fullSegs, initState,
+    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) });
+  const end = finalSim.final;
+
+  // Stato a serviceStart (prima del segmento servizio) per finestra sicura
+  const preServiceSegs = [
+    { phaseType: 'bulk_room',     durationH: puntataKickoffH, ambientTempC },
+    { phaseType: 'balled_room',   durationH: staglioH,         ambientTempC },
+    { phaseType: 'balled_fridge', durationH: tcHours,          ambientTempC: optFridgeTempC },
+    { phaseType: 'proofing',      durationH: temperingH,       ambientTempC },
+  ].filter(s => s.durationH > 1e-6);
+  const preServiceSim = simulateTimeline(preServiceSegs, initState,
+    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) });
+  const openState = {
+    tempDough: preServiceSim.final.tempDough, leavAdu: preServiceSim.final.leavAdu,
+    enzAdu: preServiceSim.final.enzAdu,       wDamage: preServiceSim.final.wDamage,
+  };
+  const { maxSafeServiceWindowH, binding } = computeMaxSafeServiceWindow(
+    openState,
+    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) },
+    { targetMaturationPct, bubbleThresholdPct, W0, ambientTempC },
+  );
+
+  const structuralStatus = structuralState(W0, end.W_current);
+  const wCollapsed = structuralStatus === 'CRITICAL' || structuralStatus === 'COLLAPSED';
+
+  const timeline = buildServiceWindowTimeline({
+    puntataH: puntataKickoffH, staglioH, tcHours, temperingH,
+    serviceDurationH, ambientTempC, fridgeTempC: optFridgeTempC,
+  });
+
+  const result = {
+    feasible: !wCollapsed,
+    mixStart,
+    mixStartIsNow: true,
+    recommendedFridgeTempC: fridgeTempAdjusted ? optFridgeTempC : null,
+    fridgeTempAdjusted,
+    schedule: {
+      puntataH:  parseFloat(puntataKickoffH.toFixed(2)),
+      staglioH:  parseFloat(staglioH.toFixed(2)),
+      tcHours:   parseFloat(tcHours.toFixed(2)),
+      temperingH: parseFloat(temperingH.toFixed(2)),
+      serviceDurationH,
+    },
+    dose: parseFloat(dose.toFixed(4)),
+    bubbleCapped,
+    atServiceStart: {
+      tempDough:    parseFloat(preServiceSim.final.tempDough.toFixed(1)),
+      maturationPct: parseFloat(preServiceSim.final.enzymaticMatPct.toFixed(1)),
+      leaveningPct:  parseFloat(preServiceSim.final.leaveningPct.toFixed(1)),
+    },
+    atServiceEnd: {
+      maturationPct:   parseFloat(end.enzymaticMatPct.toFixed(1)),
+      leaveningPct:    parseFloat(end.leaveningPct.toFixed(1)),
+      W_current:       parseFloat(end.W_current.toFixed(0)),
+      structuralStatus,
+      tempDough:       parseFloat(end.tempDough.toFixed(1)),
+    },
+    timeline,
+    bakeTargetElapsedH: parseFloat(totalH.toFixed(4)),
+    maxSafeServiceWindowH,
+    diagnostics: {
+      totalH: parseFloat(totalH.toFixed(2)),
+      optFridgeTempC,
+      fridgeTempAdjusted,
+      maxSafeBinding: binding,
+      enzSeed: parseFloat(enzSeed.toFixed(3)),
+    },
+  };
+
+  if (wCollapsed) {
+    result.infeasibility = {
+      reason: 'w_collapse',
+      mitigations: ['Usa una farina con W più alto', 'Aumenta il sale (rallenta la proteolisi)'],
+    };
+  }
+  return result;
+}
+
+/**
  * SOLVER principale. Vedi header per i vincoli/leve.
  */
 export function solveServiceWindow(input) {

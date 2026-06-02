@@ -22,24 +22,12 @@
  */
 
 import {
-  solveServiceWindow, computeMaxSafeServiceWindow, simulateTimeline,
+  solveNowAnchoredWindow, solveServiceWindow, computeMaxSafeServiceWindow, simulateTimeline,
   SERVICE_WINDOW_DEFAULTS, computeTemperingH, buildServiceWindowTimeline,
 } from './serviceWindowSolver.js';
 import { fArrhenius, findAduAt, ENZYMATIC_CLOCK_PARAMS } from './engine-v2.4.0.js';
 
 const HOUR_MS = 3_600_000;
-
-// ─── Tipi allarme ─────────────────────────────────────────────────────────────
-export const ALARM_TYPE = Object.freeze({
-  OK:                'OK',
-  OK_MARGINE_STRETTO: 'OK_MARGINE_STRETTO',
-  SOVRAMMATURAZIONE: 'SOVRAMMATURAZIONE',
-  SOTTOMATURAZIONE:  'SOTTOMATURAZIONE',
-});
-
-// Soglie
-const THRESHOLD_TIGHT_H    = 0.5;   // entro 30min → MARGINE_STRETTO
-const THRESHOLD_LATE_H     = 0.5;   // oltre 30min in ritardo → SOTTOMATURAZIONE
 
 function formatDeltaH(absH) {
   const hh = Math.floor(absH);
@@ -48,70 +36,24 @@ function formatDeltaH(absH) {
   return mm > 0 ? `${hh}h ${mm}min` : `${hh}h`;
 }
 
-// ─── Stima deficit maturazione per avvio in ritardo ──────────────────────────
-// Approssimazione analitica: tempo mancante × rate enzimatico a T_amb → ΔADU
-// → δ% = gompertz(ADU_opt − δADU) − gompertz(ADU_opt)  ≈ ΔADU × derivata
-// Per semplicità: δ% ≈ ΔADU / (ADU_target * 0.1) * 5  (euristica calibrata)
-function estimateMaturationDeficit(lateH, ambientTempC, targetMatPct) {
-  const deltaAdu = fArrhenius(ambientTempC) * lateH;
-  const aduTarget = findAduAt(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, targetMatPct);
-  // Derivata Gompertz al target ≈ muMax*e/100 * (1−m/100) * m/100  (appross.)
-  const m = targetMatPct / 100;
-  const deriv = ENZYMATIC_CLOCK_PARAMS.muMax * Math.E / 100 * (1 - m) * m * 100;
-  return Math.min(20, deltaAdu * deriv);
-}
-
-// ─── Suggerimento T_frigo per rallentare (nel caso SOVRAMMATURAZIONE) ─────────
-// Bisect monotono: upstreamEnzAtT(fridgeT) = target; result ∈ [fridgeTempMin, fridgeTempC]
-function suggestLowerFridgeTemp(opts, solverResult, fridgeTempMin = 2) {
-  const { ambientTempC, fridgeTempC, salt = 0, W0 = 280, hydration = 65, agentEaKj, agentType, agentMuMax, agentLambda, agentAsymptote = 100, agentDosePct, totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare', waterHardnessPpm, initialPH = 5.8, puntataKickoffH = SERVICE_WINDOW_DEFAULTS.puntataKickoffH, staglioH = SERVICE_WINDOW_DEFAULTS.staglioH, subStepH = 0.05 } = opts;
-  const { schedule } = solverResult;
-  if (!schedule) return null;
-  const puntataH = schedule.puntataH;
-  const tcH      = schedule.tcHours;
-  if (tcH < 0.5) return null;  // troppo poco tempo in frigo per fare differenza
-
-  const prefFrac = 0;
-  const leavLambda = Math.max(0.3, agentLambda * (1 - 0.5 * prefFrac));
-  const muMaxScaled = agentMuMax;  // dose-independent for this check
-
-  const baseOpts = { agentEaKj, agentType, muMaxScaled, leavLambda, agentAsymptote, W0, hydration, salt, waterHardnessPpm, initialPH, totalFlourGrams, numPanetti, containerPreset, subStepH };
-
-  const enzAtFridgeT = (tf) => {
-    const segs = [
-      { phaseType: 'bulk_room',     durationH: puntataH, ambientTempC },
-      { phaseType: 'balled_room',   durationH: staglioH, ambientTempC },
-      { phaseType: 'balled_fridge', durationH: tcH,      ambientTempC: tf },
-    ];
-    const sim = simulateTimeline(segs, { tempDough: ambientTempC, leavAdu: 0, enzAdu: 0, wDamage: 0 }, baseOpts);
-    return sim.final.enzymaticMatPct;
-  };
-
-  // We want enzAtFridgeT(tf) = targetMatPct (SERVICE_WINDOW_DEFAULTS.targetMaturationPct = 90%)
-  // At tf=fridgeTempC: result = solverResult.atServiceEnd.maturationPct ≈ 90% (already)
-  // So lowering T_frigo makes it < 90% when totalUpstreamH is the SAME
-  // This only makes sense if the OVERSHOOT is in the tail
-  const target = SERVICE_WINDOW_DEFAULTS.targetMaturationPct;
-  const atMin = enzAtFridgeT(fridgeTempMin);
-  const atCur = enzAtFridgeT(fridgeTempC);
-  if (atMin >= target) return null;  // even min fridge temp already exceeds target — no help
-  if (atCur <= target) return null;  // already at or below target — no problem
-
-  // Bisect
-  let a = fridgeTempMin, b = fridgeTempC;
-  for (let i = 0; i < 40; i++) {
-    const m = (a + b) / 2;
-    if (enzAtFridgeT(m) < target) a = m; else b = m;
-  }
-  return parseFloat(((a + b) / 2).toFixed(1));
-}
+// ─── Tipi allarme ─────────────────────────────────────────────────────────────
+export const ALARM_TYPE = Object.freeze({
+  OK:                'OK',
+  OK_MARGINE_STRETTO: 'OK_MARGINE_STRETTO',  // mantenuto per compat. (non più usato dal solver)
+  SOVRAMMATURAZIONE: 'SOVRAMMATURAZIONE',
+  SOTTOMATURAZIONE:  'SOTTOMATURAZIONE',
+});
 
 /**
- * Valuta lo stato della pianificazione rispetto a "now".
- * Chiama `solveServiceWindow` internamente e aggiunge alarmType + suggestions.
+ * Valuta la pianificazione con mixStart = NOW (fisso).
  *
- * @param input   Tutti i parametri di solveServiceWindow + `now: Date`
- * @returns       SolveServiceWindowResult esteso con alarmType + suggestions
+ * Chiama `solveNowAnchoredWindow` che assorbe lo slack rallentando la
+ * maturazione (T frigo ↓), non ritardando l'inizio. Se non si rallenta
+ * abbastanza, emette SOVRAMMATURAZIONE con opzioni esplicite; se la finestra
+ * è troppo corta emette SOTTOMATURAZIONE.
+ *
+ * @param input   Tutti i parametri di solveNowAnchoredWindow + `now: Date`
+ * @returns       Risultato esteso con alarmType + suggestions
  */
 export function computeNowAnchoredAlarms(input) {
   const {
@@ -133,8 +75,8 @@ export function computeNowAnchoredAlarms(input) {
     subStepH = 0.05,
   } = input;
 
-  const solverInput = {
-    serviceStart, serviceDurationH,
+  const commonInput = {
+    now, serviceStart, serviceDurationH,
     ambientTempC, fridgeTempC,
     agentType, agentEaKj, agentMuMax, agentLambda, agentAsymptote,
     agentDosePct, W0, hydration, salt, waterHardnessPpm, initialPH,
@@ -143,101 +85,67 @@ export function computeNowAnchoredAlarms(input) {
     targetMaturationPct, bubbleThresholdPct, thermalServiceTargetC,
     puntataKickoffH, staglioH,
     doseRefPct, doseMinPct, doseMaxPct,
-    subStepH,
+    fridgeTempMin, subStepH,
   };
 
-  // ── Step 1: solver ottimale a ritroso ──────────────────────────────────────
-  const optimal = solveServiceWindow(solverInput);
-
-  if (!optimal.feasible) {
-    const reason = optimal.infeasibility?.reason;
-    const alarmType = ALARM_TYPE.SOVRAMMATURAZIONE;
-
-    const suggestions = [...(optimal.infeasibility?.mitigations ?? [])];
-
-    // Per maturation_overshoot: suggerisci T_frigo più bassa (non applicabile a tail TA,
-    // ma utile se l'overshoot è dovuto a troppa maturazione in frigo)
-    if (reason === 'maturation_overshoot') {
-      // Closed-form: servizio più breve che sarebbe sostenibile
-      const maxSafe = optimal.infeasibility?.maxSafeServiceWindowH;
-      if (maxSafe != null && maxSafe > 0) {
-        suggestions.unshift(`Riduci durata servizio a ≤ ${maxSafe.toFixed(1)}h per rientrare nel margine`);
-      }
-    }
-
-    return { ...optimal, alarmType, suggestions, now };
-  }
-
-  // ── Step 2: confronta mixStart ottimale con now ────────────────────────────
-  const mixStartOpt = optimal.mixStart instanceof Date ? optimal.mixStart : new Date(optimal.mixStart);
-  const deltaH = (mixStartOpt.getTime() - now.getTime()) / HOUR_MS;
-  // deltaH > 0: ancora tempo (start in futuro)
-  // deltaH < 0: in ritardo rispetto all'ottimale
-
+  // ── Solver now-anchored: mixStart = now ─────────────────────────────────────
+  const result = solveNowAnchoredWindow(commonInput);
+  const reason = result.infeasibility?.reason;
   const suggestions = [];
 
-  // ── Case A: OK (start nel futuro, oltre soglia) ────────────────────────────
-  if (deltaH >= THRESHOLD_TIGHT_H) {
-    suggestions.push(`Inizia a impastare tra ${formatDeltaH(deltaH)}`);
-    if (optimal.dose != null) suggestions.push(`Dose consigliata: ${optimal.dose.toFixed(3)}%`);
-    const s = optimal.schedule;
-    if (s) {
-      const fridgeExitH = s.puntataH + s.staglioH + s.tcHours;
-      const fridgeExitMs = mixStartOpt.getTime() + fridgeExitH * HOUR_MS;
-      const fridgeExitFromNow = (fridgeExitMs - now.getTime()) / HOUR_MS;
-      suggestions.push(`Esci dal frigo tra ${formatDeltaH(fridgeExitFromNow)} (dopo puntata+staglio+TC)`);
+  // ── SOVRAMMATURAZIONE: non si riesce a rallentare abbastanza ────────────────
+  if (!result.feasible && reason === 'cannot_slow_enough') {
+    // Calcola il ritardo minimo necessario con il backward solver (ultima opzione)
+    let delayH = null;
+    try {
+      const backward = solveServiceWindow({
+        serviceStart, serviceDurationH, ambientTempC, fridgeTempC,
+        agentType, agentEaKj, agentMuMax, agentLambda, agentAsymptote,
+        agentDosePct, W0, hydration, salt, waterHardnessPpm, initialPH,
+        totalFlourGrams, numPanetti, containerPreset,
+        prefermenti, initialMaturationOffset,
+        targetMaturationPct, bubbleThresholdPct, thermalServiceTargetC,
+        puntataKickoffH, staglioH, doseRefPct, doseMinPct, doseMaxPct, subStepH,
+      });
+      if (backward.feasible && backward.mixStart) {
+        const ms = backward.mixStart instanceof Date ? backward.mixStart : new Date(backward.mixStart);
+        delayH = Math.max(0, (ms.getTime() - (now instanceof Date ? now.getTime() : now)) / HOUR_MS);
+      }
+    } catch { /* ignora */ }
+
+    suggestions.push(...(result.infeasibility?.mitigations ?? []));
+    if (delayH != null && delayH > 0.25) {
+      suggestions.push(`[Ultima opzione] Ritarda l'inizio di ${formatDeltaH(delayH)} (impasta alle ${new Date((now instanceof Date ? now.getTime() : now) + delayH * HOUR_MS).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })})`);
     }
-    return { ...optimal, alarmType: ALARM_TYPE.OK, deltaH: parseFloat(deltaH.toFixed(2)), mixStartOptimal: mixStartOpt, suggestions, now };
+
+    return { ...result, alarmType: ALARM_TYPE.SOVRAMMATURAZIONE, suggestions, now, delayH };
   }
 
-  // ── Case B: MARGINE_STRETTO (start ≈ now) ─────────────────────────────────
-  if (deltaH >= -THRESHOLD_TIGHT_H) {
-    const label = deltaH >= 0 ? `fra ${formatDeltaH(deltaH)}` : `${formatDeltaH(-deltaH)} fa (inizia subito)`;
-    suggestions.push(`Momento ottimale: ${label} — inizia ORA`);
-    if (optimal.dose != null) suggestions.push(`Dose: ${optimal.dose.toFixed(3)}%`);
-    if (optimal.schedule) {
-      const s = optimal.schedule;
-      suggestions.push(`Schedule: puntata ${s.puntataH.toFixed(1)}h · TC ${s.tcHours.toFixed(1)}h · tempering ${s.temperingH.toFixed(1)}h`);
-    }
-    return { ...optimal, alarmType: ALARM_TYPE.OK_MARGINE_STRETTO, deltaH: parseFloat(deltaH.toFixed(2)), mixStartOptimal: mixStartOpt, suggestions, now };
+  // ── SOTTOMATURAZIONE: finestra troppo corta per raggiungere il target ────────
+  if (!result.feasible && (reason === 'window_too_short_maturation' || reason === 'window_too_short' || reason === 'cannot_temper')) {
+    suggestions.push(...(result.infeasibility?.mitigations ?? []));
+    return { ...result, alarmType: ALARM_TYPE.SOTTOMATURAZIONE, suggestions, now };
   }
 
-  // ── Case C: SOTTOMATURAZIONE (in ritardo) ─────────────────────────────────
-  const lateH = -deltaH;  // ore in ritardo
-  const deficitPct = estimateMaturationDeficit(lateH, ambientTempC, targetMaturationPct);
-  const estimatedFinalMat = Math.max(60, targetMaturationPct - deficitPct);
-
-  suggestions.push(`Avvio in ritardo di ${formatDeltaH(lateH)} rispetto all'ottimale`);
-  suggestions.push(`Maturazione stimata a fine servizio: ~${estimatedFinalMat.toFixed(0)}% (target ${targetMaturationPct}%)`);
-
-  // Mitigation A: riduci durata servizio per compensare (meno esposizione a TA)
-  if (optimal.maxSafeServiceWindowH != null && optimal.maxSafeServiceWindowH < serviceDurationH) {
-    suggestions.push(`Riduci la durata servizio a ${Math.max(0.5, (serviceDurationH - lateH * 0.5)).toFixed(1)}h per compensare il ritardo`);
+  // ── W collapse ───────────────────────────────────────────────────────────────
+  if (!result.feasible) {
+    suggestions.push(...(result.infeasibility?.mitigations ?? []));
+    return { ...result, alarmType: ALARM_TYPE.SOVRAMMATURAZIONE, suggestions, now };
   }
 
-  // Mitigation B: dose ridotta (rallenta lievitazione, nessun effetto su maturazione)
-  if (optimal.dose != null && optimal.dose > (doseMinPct ?? agentDosePct * 0.1)) {
-    const suggestedDose = Math.max(doseMinPct ?? agentDosePct * 0.1, optimal.dose * 0.8);
-    suggestions.push(`↓ dose a ${suggestedDose.toFixed(3)}% per rallentare la lievitazione durante il ritardo`);
+  // ── OK: piano realizzabile, mixStart = ADESSO ────────────────────────────────
+  const s = result.schedule;
+  if (result.fridgeTempAdjusted && result.recommendedFridgeTempC != null) {
+    suggestions.push(`Frigo consigliato: ${result.recommendedFridgeTempC}°C (abbassato da ${fridgeTempC}°C per assorbire lo slack)`);
+  }
+  if (result.dose != null) {
+    suggestions.push(`Dose lievito: ${result.dose.toFixed(3)}%`);
+  }
+  if (s) {
+    suggestions.push(`Schedule: puntata ${s.puntataH.toFixed(1)}h · frigo ${s.tcHours.toFixed(1)}h · tempering ${s.temperingH.toFixed(1)}h`);
   }
 
-  // Mitigation C: sale per protezione W (rallenta proteolisi)
-  const saltMax = 3.5;
-  if (salt < saltMax) {
-    const saltSugg = Math.min(saltMax, salt + 0.5);
-    suggestions.push(`↑ sale a ${saltSugg.toFixed(1)}% (da ${salt.toFixed(1)}%) per rallentare la proteolisi e proteggere la struttura`);
-  }
-
-  // Per la card: usiamo il risultato ottimale ma con alarmType SOTTOMATURAZIONE
-  return {
-    ...optimal,
-    alarmType: ALARM_TYPE.SOTTOMATURAZIONE,
-    deltaH: parseFloat(deltaH.toFixed(2)),
-    mixStartOptimal: mixStartOpt,
-    estimatedFinalMat: parseFloat(estimatedFinalMat.toFixed(1)),
-    suggestions,
-    now,
-  };
+  return { ...result, alarmType: ALARM_TYPE.OK, suggestions, now };
 }
 
 /**

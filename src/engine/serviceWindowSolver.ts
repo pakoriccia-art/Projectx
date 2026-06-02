@@ -49,14 +49,20 @@ export interface ServiceWindowSchedule {
 }
 
 export interface ServiceWindowInfeasibility {
-  reason: 'cannot_temper' | 'maturation_overshoot' | 'w_collapse';
-  maxSafeServiceWindowH: number;
+  reason: 'cannot_temper' | 'maturation_overshoot' | 'w_collapse'
+    | 'cannot_slow_enough' | 'window_too_short' | 'window_too_short_maturation';
+  maxSafeServiceWindowH?: number;
+  maturationAtMin?: number;
+  maturationAtMax?: number;
   mitigations: string[];
 }
 
 export interface SolveServiceWindowResult {
   feasible: boolean;
   mixStart?: Date;
+  mixStartIsNow?: boolean;
+  recommendedFridgeTempC?: number | null;
+  fridgeTempAdjusted?: boolean;
   schedule?: ServiceWindowSchedule;
   dose?: number;
   bubbleCapped?: boolean;
@@ -71,8 +77,14 @@ export interface SolveServiceWindowResult {
   timeline?: PhaseSegment[];
   bakeTargetElapsedH?: number;
   maxSafeServiceWindowH?: number;
-  diagnostics?: Record<string, number | string>;
+  diagnostics?: Record<string, number | string | boolean>;
   infeasibility?: ServiceWindowInfeasibility;
+}
+
+/** Input per solveNowAnchoredWindow (mixStart fisso = now) */
+export interface SolveNowAnchoredWindowInput extends SolveServiceWindowInput {
+  now: Date;
+  fridgeTempMin?: number;
 }
 
 export interface SimulateTimelineSample {
