@@ -455,9 +455,9 @@ function FlourSelector({ value, onSelect }: {
         color: value ? 'var(--text-primary)' : 'var(--text-muted)',
         border: '1px solid rgba(255,255,255,0.12)',
         borderRadius: 'var(--radius-sm)',
-        padding: '7px 10px',
+        padding: '8px 12px',
         fontFamily: 'var(--font-mono)',
-        fontSize: '0.78rem',
+        fontSize: '0.75rem',
         cursor: 'pointer',
         outline: 'none',
         appearance: 'none',
@@ -548,7 +548,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
   const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
 
   return (
-    <Card elevated style={{ borderLeft: `3px solid ${color}`, paddingLeft: 14 }}>
+    <Card elevated style={{ borderLeft: `4px solid ${color}`, paddingLeft: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ ...S.label, color }}>Pre-fermento {idx + 1}</span>
         <button onClick={onRemove} style={{

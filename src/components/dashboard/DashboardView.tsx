@@ -399,10 +399,10 @@ function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; rem
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <span style={S.label}>Sweet Spot</span>
         <span style={{
-          fontSize: '0.68rem', fontFamily: 'var(--font-mono)',
+          fontSize: '0.69rem', fontFamily: 'var(--font-mono)',
           background: isPast ? 'rgba(0,184,148,0.15)' : 'rgba(255,140,50,0.15)',
           color: isPast ? 'var(--state-optimal-hi)' : 'var(--accent-brand)',
-          borderRadius: 4, padding: '2px 6px',
+          borderRadius: 4, padding: '4px 8px',
         }}>
           target {spot.peakPct ?? 85}%
         </span>
@@ -431,7 +431,7 @@ function SweetSpotCard({ session, ts, remainingH }: { session: any; ts: any; rem
         </div>
       )}
       {!isPast && !estimateDiverges && hoursLeft > 0 && (
-        <div style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+        <div style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
           Stima: ~{primaryH.toFixed(1)}h al sweet spot a {tAmb.toFixed(1)}°C amb.
         </div>
       )}
@@ -577,7 +577,7 @@ function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={S.label}>Profilo impasto</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.60rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)' }}>
           ● ora · ◐ a cottura
         </span>
       </div>
@@ -588,7 +588,7 @@ function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
           { label: 'Scioglievolezza', now: nowIdx.sci,   bake: bakeIdx.sci,   color: 'var(--state-approaching)'       },
         ].map(({ label, now, bake, color }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               {label}
             </span>
             <QualityOverlayDot now={now} bake={bake} color={color} label={label} />
@@ -596,11 +596,11 @@ function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
         ))}
       </div>
       {sciDeclines && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--accent-warning)', marginTop: 6 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--accent-warning)', marginTop: 8 }}>
           ⚠ Scioglievolezza in calo a cottura — considera anticipo servizio
         </div>
       )}
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: 4 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)', marginTop: 4 }}>
         Stima euristica · varia con protocollo, farine e prefermenti
       </div>
     </Card>
@@ -627,9 +627,10 @@ function PhaseStepper({ currentPhase, onPhaseChange, protocol }: {
               color: active ? '#0a0806' : 'var(--text-secondary)',
               border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: 'var(--radius-sm)',
-              padding: '6px 10px',
+              padding: '10px 12px',   // KB §3.2: touch target ≥44px
+              minHeight: 44,          // WCAG 2.5.5
               fontFamily: 'var(--font-mono)',
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               fontWeight: active ? 700 : 400,
               cursor: 'pointer',
             }}>
@@ -890,18 +891,18 @@ function GompertzChart({ session, ts }: { session: any; ts: any }) {
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={S.label}>Lievitazione · Maturazione</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)' }}>
           {tAmb.toFixed(1)}°C TA · {fridgeT}°C TC · {protoLabel[proto] ?? proto}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 14, marginBottom: 8 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--accent-brand)' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--accent-brand)' }}>
           ╌╌ Lievitazione (lievito)
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: '#e6c84a' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: '#e6c84a' }}>
           —— Maturazione (enzimatica)
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--state-cold)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--state-cold)' }}>
           ╌╌ T impasto
         </span>
       </div>
@@ -1072,7 +1073,7 @@ function MaltBadge({ session }: { session: any }) {
     <div style={{
       padding: '8px 12px', borderRadius: 'var(--radius-sm)',
       background: `${colors[level]}18`, border: `1px solid ${colors[level]}44`,
-      fontSize: '0.8rem', fontFamily: 'var(--font-mono)', color: colors[level],
+      fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: colors[level],
     }}>
       ⚗ Malto: idx={idx.toFixed(3)} — {
         level === 'ADVISORY' ? 'Rischio destrinizzazione' :
@@ -1136,13 +1137,13 @@ export function DashboardView() {
           <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)' }}>
             PizzaMatrix
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)', marginTop: 4 }}>
             {now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })} · {session.style?.toUpperCase()} · {session.totalFlourGrams}g
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: phaseInfo.color }}>{phaseInfo.label}</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: phaseInfo.color }}>{phaseInfo.label}</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
             +{elapsedH.toFixed(1)}h · {remainingH > 0 ? `${remainingH.toFixed(1)}h ⏳` : '🍕 cottura'}
           </div>
         </div>
@@ -1155,6 +1156,7 @@ export function DashboardView() {
           label="Maturazione enzimatica"
           value={matPct.toFixed(1)}
           unit="%"
+          live
           color={
             matPct >= 85 ? 'var(--state-optimal-hi)' :
             matPct >= 65 ? 'var(--state-optimal-lo)' :
@@ -1164,15 +1166,15 @@ export function DashboardView() {
         />
         <ProgressBar pct={matPct} />
         {matPct >= 85 && (
-          <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--state-optimal-hi)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--state-optimal-hi)', fontFamily: 'var(--font-mono)' }}>
             ✓ Zona ottimale raggiunta
           </div>
         )}
         {/* Metriche secondarie in griglia compatta 3-col */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
-          <Metric label="Lievitaz." value={leaveningPct.toFixed(1)} unit="%" color="var(--accent-brand)" />
-          <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} color="var(--accent-info)" />
-          <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} color="var(--text-secondary)" />
+          <Metric label="Lievitaz." value={leaveningPct.toFixed(1)} unit="%" live color="var(--accent-brand)" />
+          <Metric label="pH" value={(ts?.estimatedPH ?? 5.8).toFixed(2)} live color="var(--accent-info)" />
+          <Metric label="W att." value={(ts?.W_current ?? session.effectiveW_initial ?? 0).toFixed(0)} live color="var(--text-secondary)" />
         </div>
       </Card>
 

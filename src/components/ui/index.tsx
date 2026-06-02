@@ -18,9 +18,9 @@ const S = {
     borderRadius: 'var(--radius-lg)',
     padding: '16px',
   } as React.CSSProperties,
-  // Typography
+  // Typography — scala 11/12/15/18/22/32px (KB §1.4)
   label: {
-    fontSize: '0.72rem',
+    fontSize: '0.75rem',          // 12px — era 0.72rem (11.5, fuori scala)
     letterSpacing: '0.08em',
     textTransform: 'uppercase' as const,
     color: 'var(--text-muted)',
@@ -32,10 +32,11 @@ const S = {
     fontWeight: 800,
     color: 'var(--text-primary)',
     lineHeight: 1,
+    fontVariantNumeric: 'tabular-nums',  // KB §1.4: anti-jitter numeri live
   } as React.CSSProperties,
   unit: {
     fontFamily: 'var(--font-mono)',
-    fontSize: '0.8rem',
+    fontSize: '0.75rem',          // 12px — era 0.8rem (12.8, fuori scala)
     color: 'var(--text-secondary)',
     marginLeft: '4px',
   } as React.CSSProperties,
@@ -44,7 +45,7 @@ const S = {
     color: '#0a0806',
     border: 'none',
     borderRadius: 'var(--radius-md)',
-    padding: '13px 20px',
+    padding: '12px 20px',         // era 13px (fuori scala 4px)
     fontFamily: 'var(--font-mono)',
     fontWeight: 700,
     fontSize: '0.9rem',
@@ -66,7 +67,7 @@ const S = {
     background: 'var(--bg-elevated)',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 'var(--radius-sm)',
-    padding: '11px 14px',
+    padding: '12px 16px',         // era 11px 14px (entrambi fuori scala)
     color: 'var(--text-primary)',
     fontFamily: 'var(--font-mono)',
     fontSize: '1rem',
@@ -85,11 +86,20 @@ export function Card({ children, elevated, style }: { children: ReactNode; eleva
 }
 
 // ─── Metric Display ───────────────────────────────────────────────────────────
-export function Metric({ label, value, unit, color }: { label: string; value: string | number; unit?: string; color?: string }) {
+export function Metric({
+  label, value, unit, color, live,
+}: {
+  label: string; value: string | number; unit?: string; color?: string;
+  live?: boolean;  // true → aria-live="polite" per screen-reader (KB §3.3)
+}) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       <span style={S.label}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'baseline' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'baseline' }}
+        aria-live={live ? 'polite' : undefined}
+        aria-atomic={live ? 'true' : undefined}
+      >
         <span style={{ ...S.value, color: color ?? 'var(--text-primary)' }}>
           {typeof value === 'number' ? value.toFixed(1) : value}
         </span>
@@ -131,7 +141,7 @@ export function NumInput({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <label style={S.label}>{label}{unit ? ` (${unit})` : ''}</label>
       <input
         type="number" value={raw}
@@ -193,7 +203,7 @@ export function SnapButtons<T extends string>({
               borderRadius: 'var(--radius-md)',
               padding: '10px 14px',
               fontFamily: 'var(--font-mono)',
-              fontSize: '0.82rem',
+              fontSize: '0.75rem',
               fontWeight: value === opt.value ? 700 : 400,
               cursor: 'pointer',
               flex: '1 1 auto',
@@ -203,7 +213,7 @@ export function SnapButtons<T extends string>({
           >
             {opt.label}
             {opt.desc && (
-              <div style={{ fontSize: '0.68rem', fontWeight: 400, marginTop: '2px', opacity: 0.7 }}>
+              <div style={{ fontSize: '0.69rem', fontWeight: 400, marginTop: '4px', opacity: 0.7 }}>
                 {opt.desc}
               </div>
             )}
@@ -239,7 +249,7 @@ export function ProgressBar({ pct, color }: { pct: number; color?: string }) {
            : pct >= 30 ? 'var(--state-approaching)'
            : 'var(--state-underfermented)');
   return (
-    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
       <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: c, transition: 'width 0.5s ease' }} />
     </div>
   );
@@ -257,11 +267,11 @@ export function AlertBadge({ level, message }: { level: string; message: string 
     <div style={{
       background: `${colors[level] ?? colors.info}18`,
       border: `1px solid ${colors[level] ?? colors.info}44`,
-      borderLeft: `3px solid ${colors[level] ?? colors.info}`,
+      borderLeft: `4px solid ${colors[level] ?? colors.info}`,
       borderRadius: 'var(--radius-sm)',
       padding: '10px 14px',
       fontFamily: 'var(--font-body)',
-      fontSize: '0.83rem',
+      fontSize: '0.75rem',
       color: 'var(--text-primary)',
     }}>
       {message}
@@ -276,7 +286,7 @@ export function StepHeader({ step, total, title }: { step: number; total: number
       <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
         {Array.from({ length: total }, (_, i) => (
           <div key={i} style={{
-            flex: 1, height: 3, borderRadius: 2,
+            flex: 1, height: 4, borderRadius: 2,
             background: i < step ? 'var(--accent-brand)' : 'rgba(255,255,255,0.08)',
           }} />
         ))}
@@ -311,7 +321,7 @@ export function FormSection({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
         <span style={{
-          fontSize: '0.60rem', letterSpacing: '0.14em', textTransform: 'uppercase',
+          fontSize: '0.69rem', letterSpacing: '0.14em', textTransform: 'uppercase',
           color: accent ?? 'var(--text-muted)', fontFamily: 'var(--font-mono)',
           whiteSpace: 'nowrap',
         }}>
