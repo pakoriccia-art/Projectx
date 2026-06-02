@@ -1244,6 +1244,7 @@ export function FermentationPlannerView() {
       numPanetti,
       tLaboratorio: tAmb,
       kneadingMethod,
+      alertThreshold: Math.round(r.mTarget * 100),  // soglia allarme = maturazione target dal solver
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
