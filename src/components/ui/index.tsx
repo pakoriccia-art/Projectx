@@ -2,7 +2,7 @@
  * PizzaMatrix — Shared UI Primitives
  * Design system §6: tokens, typography, interaction patterns
  */
-import { type InputHTMLAttributes, type ReactNode, useState, useEffect } from 'react';
+import { type InputHTMLAttributes, type ReactNode, useState, useEffect, useRef } from 'react';
 
 const S = {
   // Card
@@ -79,7 +79,7 @@ const S = {
 // ─── Card ─────────────────────────────────────────────────────────────────────
 export function Card({ children, elevated, style }: { children: ReactNode; elevated?: boolean; style?: React.CSSProperties }) {
   return (
-    <div style={{ ...(elevated ? S.cardElevated : S.card), ...style }}>
+    <div className="pm-card" style={{ ...(elevated ? S.cardElevated : S.card), ...style }}>
       {children}
     </div>
   );
@@ -92,6 +92,23 @@ export function Metric({
   label: string; value: string | number; unit?: string; color?: string;
   live?: boolean;  // true → aria-live="polite" per screen-reader (KB §3.3)
 }) {
+  const prevRef = useRef(value);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (live && prevRef.current !== value) {
+      prevRef.current = value;
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 400);
+      return () => clearTimeout(t);
+    }
+  }, [value, live]);
+
+  const glowClass = color === 'var(--state-critical)' ? ' pm-glow-critical'
+                  : color === 'var(--state-danger)'   ? ' pm-glow-danger'
+                  : color === 'var(--state-optimal-hi)' || color === 'var(--accent-brand)' ? ' pm-glow-optimal'
+                  : '';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       <span style={S.label}>{label}</span>
@@ -100,7 +117,10 @@ export function Metric({
         aria-live={live ? 'polite' : undefined}
         aria-atomic={live ? 'true' : undefined}
       >
-        <span style={{ ...S.value, color: color ?? 'var(--text-primary)' }}>
+        <span
+          className={`${flash ? 'pm-num-flash' : ''}${glowClass}`}
+          style={{ ...S.value, color: color ?? 'var(--text-primary)' }}
+        >
           {typeof value === 'number' ? value.toFixed(1) : value}
         </span>
         {unit && <span style={S.unit}>{unit}</span>}
@@ -149,7 +169,7 @@ export function NumInput({
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         min={min} max={max} step={step}
-        style={S.input} {...rest}
+        className="pm-input" style={S.input} {...rest}
       />
     </div>
   );
@@ -196,6 +216,7 @@ export function SnapButtons<T extends string>({
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
+            className={`pm-snap-btn${value === opt.value ? ' pm-snap-active' : ''}`}
             style={{
               background: value === opt.value ? 'var(--accent-brand)' : 'var(--bg-elevated)',
               color: value === opt.value ? '#0a0806' : 'var(--text-secondary)',
@@ -236,7 +257,11 @@ export function Btn({
                ? { ...S.btn, background: 'var(--state-critical)', color: '#fff' }
                : S.btnSecondary;
   return (
-    <button onClick={onClick} disabled={disabled} style={{ ...base, opacity: disabled ? 0.4 : 1 }}>
+    <button
+      onClick={onClick} disabled={disabled}
+      className={`pm-btn-${variant}`}
+      style={{ ...base, opacity: disabled ? 0.38 : 1 }}
+    >
       {children}
     </button>
   );
@@ -250,7 +275,7 @@ export function ProgressBar({ pct, color }: { pct: number; color?: string }) {
            : 'var(--state-underfermented)');
   return (
     <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-      <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: c, transition: 'width 0.5s ease' }} />
+      <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: c, transition: 'width 0.5s var(--ease-out)' }} />
     </div>
   );
 }

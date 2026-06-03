@@ -67,6 +67,150 @@
         --font-body: -apple-system, 'Roboto', sans-serif;
       }
 
+      /* ── P2: Border / Shadow / Opacity tokens ─────────────────────────────── */
+      :root {
+        --border-subtle:    rgba(255,255,255,0.06);
+        --border-normal:    rgba(255,255,255,0.10);
+        --border-emphasis:  rgba(255,255,255,0.18);
+        --shadow-card:      0 2px 12px rgba(0,0,0,0.35);
+        --shadow-elevated:  0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+        --shadow-brand:     0 4px 18px rgba(255,140,50,0.28);
+        --shadow-critical:  0 4px 16px rgba(255,118,117,0.22);
+        --opacity-disabled: 0.38;
+        --opacity-muted:    0.55;
+        --ease-spring:      cubic-bezier(0.34, 1.4, 0.64, 1);
+        --ease-out:         cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      /* ── P4: Animazioni ─────────────────────────────────────────────────────── */
+      @keyframes pm-card-reveal {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pm-fade-up {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pm-num-flash {
+        0%   { filter: brightness(1); }
+        35%  { filter: brightness(1.5); color: var(--accent-brand); }
+        100% { filter: brightness(1); }
+      }
+      @keyframes pm-glow-pulse {
+        0%, 100% { text-shadow: 0 0 8px rgba(255,118,117,0.4); }
+        50%       { text-shadow: 0 0 18px rgba(255,118,117,0.75); }
+      }
+
+      /* ── P4: Card staggered reveal ──────────────────────────────────────────── */
+      .pm-card { animation: pm-card-reveal 0.22s var(--ease-out) both; }
+      .pm-card:nth-child(2) { animation-delay: 0.06s; }
+      .pm-card:nth-child(3) { animation-delay: 0.12s; }
+      .pm-card:nth-child(4) { animation-delay: 0.17s; }
+      .pm-card:nth-child(5) { animation-delay: 0.21s; }
+      .pm-card:nth-child(n+6) { animation-delay: 0.25s; }
+
+      /* ── P1: Button interactions ─────────────────────────────────────────────── */
+      .pm-btn-primary {
+        transition: transform 0.13s var(--ease-spring), box-shadow 0.13s ease, opacity 0.15s ease;
+      }
+      .pm-btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-brand);
+      }
+      .pm-btn-primary:active:not(:disabled) { transform: translateY(0); box-shadow: none; opacity: 0.85; }
+      .pm-btn-secondary {
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      }
+      .pm-btn-secondary:hover:not(:disabled) {
+        background: rgba(255,255,255,0.07) !important;
+        border-color: rgba(255,255,255,0.2) !important;
+        color: var(--text-primary) !important;
+      }
+      .pm-btn-secondary:active:not(:disabled) { transform: scale(0.98); }
+      .pm-btn-danger {
+        transition: transform 0.13s ease, box-shadow 0.13s ease, opacity 0.15s ease;
+      }
+      .pm-btn-danger:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-critical); }
+      .pm-btn-danger:active:not(:disabled) { transform: translateY(0); opacity: 0.85; }
+
+      /* ── P1: Input focus ────────────────────────────────────────────────────── */
+      .pm-input { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+      .pm-input:focus { border-color: var(--accent-brand) !important; box-shadow: 0 0 0 3px rgba(255,140,50,0.15); }
+
+      /* ── P1: SnapButton interactions ─────────────────────────────────────────── */
+      .pm-snap-btn { transition: background 0.12s ease, transform 0.1s ease, box-shadow 0.1s ease; }
+      .pm-snap-btn:not(.pm-snap-active):hover {
+        background: rgba(255,255,255,0.09) !important;
+        border-color: rgba(255,255,255,0.18) !important;
+      }
+      .pm-snap-btn:active { transform: scale(0.97); }
+      .pm-snap-active { box-shadow: 0 2px 10px rgba(255,140,50,0.2); }
+
+      /* ── P1: Number flash (live values) ─────────────────────────────────────── */
+      .pm-num-flash { animation: pm-num-flash 0.38s ease both; }
+
+      /* ── P3: State glows ─────────────────────────────────────────────────────── */
+      .pm-glow-critical {
+        text-shadow: 0 0 12px rgba(255,118,117,0.5);
+        animation: pm-glow-pulse 2.5s ease-in-out infinite;
+      }
+      .pm-glow-danger  { text-shadow: 0 0 8px rgba(225,112,85,0.4); }
+      .pm-glow-optimal { text-shadow: 0 0 10px rgba(255,140,50,0.3); }
+
+      /* ── Accessibility: focus ring ───────────────────────────────────────────── */
+      :focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 3px; border-radius: 4px; }
+      button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
+
+      /* ── Range slider custom ─────────────────────────────────────────────────── */
+      input[type="range"] {
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        border-radius: 2px;
+        outline: none;
+        cursor: pointer;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        background: var(--accent-brand);
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
+      }
+      input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.3);
+        box-shadow: 0 0 0 5px rgba(255,140,50,0.18), 0 2px 6px rgba(0,0,0,0.5);
+      }
+      input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.1); }
+      input[type="range"]::-moz-range-thumb {
+        width: 20px; height: 20px;
+        border: none;
+        border-radius: 50%;
+        background: var(--accent-brand);
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      }
+
+      /* ── Scrollbar minimal ──────────────────────────────────────────────────── */
+      ::-webkit-scrollbar { width: 3px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+      /* ── Grain texture overlay ──────────────────────────────────────────────── */
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+        opacity: 0.028;
+        z-index: 9000;
+      }
+
       /* Elimina delay 300ms tap su mobile (WebView Android/iOS) */
       a, button, input[type="range"], input[type="checkbox"], label, [role="button"] {
         touch-action: manipulation;
