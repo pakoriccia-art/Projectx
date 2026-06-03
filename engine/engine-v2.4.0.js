@@ -960,7 +960,7 @@ function computeDeltaAdu({
  */
 function sweetSpot(session, currentAdu, currentTempC) {
   const { agentMuMax, agentLambda, agentAsymptote: A = 100 } = session;
-  const peakPct = session.alertThreshold ?? 85;
+  const peakPct = session.alertThreshold ?? getStyleProfile(session.style).alertThreshold;
   const aduAtPeak = findAduAt(agentMuMax, agentLambda, A, peakPct);
   if (aduAtPeak <= currentAdu) {
     return { status: 'past_peak', hoursUntilPeak: 0, peakPct };
@@ -990,7 +990,7 @@ function sweetSpot(session, currentAdu, currentTempC) {
  */
 function sweetSpotMaturation(session, currentEnzAdu, currentTempC) {
   const { muMax, lambda } = ENZYMATIC_CLOCK_PARAMS;
-  const peakPct   = session.alertThreshold ?? 85;
+  const peakPct   = session.alertThreshold ?? getStyleProfile(session.style).alertThreshold;
   const aduAtPeak = findAduAt(muMax, lambda, 100, peakPct);
   const enzNow    = currentEnzAdu ?? 0;
   if (aduAtPeak <= enzNow) {
@@ -1467,6 +1467,356 @@ const _constants = {
   ENZYMATIC_CLOCK_PARAMS,
 };
 
+// § S Style Profile Parameters (v2.4.4)
+const STYLE_PROFILES = {
+
+  napoletana: {
+    // === FARINA ===
+    W_range:          [250, 320],
+    W_ottimale:       280,
+    PL_range:         [0.5, 0.7],
+    PL_ottimale:      0.60,
+    protein_range:    [11.0, 12.5],
+
+    // === IMPASTO ===
+    hydration_range:  [55.5, 62.5],
+    hydration_ott:    60.0,
+    salt_range:       [2.5, 3.0],
+    salt_ott:         2.8,
+    peso_panetto_range: [200, 280],
+    peso_panetto_ott:   250,
+
+    // === FERMENTAZIONE — DISTRIBUZIONE ===
+    sviluppo_puntata_range: [0, 10],
+    sviluppo_puntata_ott:   5,
+    sviluppo_appreto_range: [40, 70],
+    sviluppo_appreto_ott:   60,
+    puntataH_range_ta:  [1, 4],
+    puntataH_ott_ta:    2,
+    protocollo_preferito: 'ta_only',
+
+    // === PARAMETRI MOTORE ===
+    alertThreshold:       80,
+    alertThreshold_range: [75, 85],
+    puntataMatPct_target: 10,
+    puntataMatPct_range:  [5, 20],
+    W_minimo_stesura:     160,
+    bubbleThresholdPct:   85,
+    primarySignal:        'maturation',
+    structuralAlertEnabled: false,
+
+    // === COTTURA ===
+    temp_forno_range:   [430, 485],
+    temp_forno_ott:     450,
+    tempo_cottura_s:    [60, 90],
+    superficie_cottura: ['refrattario biscotto'],
+
+    // === QUALITÀ ===
+    indicatori_pronto:      ['Panetto rilassato', 'Leggero appiattimento senza collasso', 'Bollicine superficiali lievi'],
+    indicatori_over:        ['Maglia glutinica cede allo staglio', 'Odore marcatamente acido/alcolico'],
+    difetti_puntata_lunga:  ['Panetti che non tengono la forma', 'Eccessiva tenacità se non compensata'],
+    difetti_puntata_corta:  ['Cornicione gommoso', 'Mancanza di maculatura in cottura'],
+  },
+
+  contemporanea: {
+    // === FARINA ===
+    W_range:          [280, 350],
+    W_ottimale:       320,
+    PL_range:         [0.5, 0.6],
+    PL_ottimale:      0.55,
+    protein_range:    [12.0, 14.0],
+
+    // === IMPASTO ===
+    hydration_range:  [65.0, 75.0],
+    hydration_ott:    70.0,
+    salt_range:       [2.5, 3.0],
+    salt_ott:         2.7,
+    peso_panetto_range: [250, 280],
+    peso_panetto_ott:   260,
+
+    // === FERMENTAZIONE — DISTRIBUZIONE ===
+    sviluppo_puntata_range: [20, 40],
+    sviluppo_puntata_ott:   30,
+    sviluppo_appreto_range: [80, 120],
+    sviluppo_appreto_ott:   100,
+    puntataH_range_ta:  [1, 3],
+    puntataH_ott_ta:    2,
+    protocollo_preferito: 'misto_ta_tc',
+
+    // === PARAMETRI MOTORE ===
+    alertThreshold:       90,
+    alertThreshold_range: [85, 95],
+    puntataMatPct_target: 30,
+    puntataMatPct_range:  [20, 40],
+    W_minimo_stesura:     190,
+    bubbleThresholdPct:   92,
+    primarySignal:        'dual',
+    structuralAlertEnabled: true,
+
+    // === COTTURA ===
+    temp_forno_range:   [380, 430],
+    temp_forno_ott:     410,
+    tempo_cottura_s:    [90, 120],
+    superficie_cottura: ['refrattario biscotto'],
+
+    // === QUALITÀ ===
+    indicatori_pronto:      ['Raddoppio visibile in cassetta', 'Struttura gelatinosa/tremolante', 'Ragnatela glutinica visibile sotto'],
+    indicatori_over:        ['Collasso strutturale al tocco', 'Incordatura persa, impasto appiccicoso'],
+    difetti_puntata_lunga:  ['Eccessiva acidità', 'Difficoltà di stesura per maglia compromessa'],
+    difetti_puntata_corta:  ['Cornicione chiuso/pesante', 'Effetto chewing-gum'],
+  },
+
+  teglia: {
+    // === FARINA ===
+    W_range:          [320, 400],
+    W_ottimale:       350,
+    PL_range:         [0.5, 0.6],
+    PL_ottimale:      0.55,
+    protein_range:    [13.0, 15.0],
+
+    // === IMPASTO ===
+    hydration_range:  [75.0, 90.0],
+    hydration_ott:    80.0,
+    salt_range:       [2.2, 3.0],
+    salt_ott:         2.5,
+    grasso:           true,
+    grasso_range:     [2.0, 3.0],
+    peso_panetto_range: [500, 1200],
+    peso_panetto_ott:   600,
+
+    // === FERMENTAZIONE — DISTRIBUZIONE ===
+    sviluppo_puntata_range: [30, 60],
+    sviluppo_puntata_ott:   50,
+    sviluppo_appreto_range: [30, 60],
+    sviluppo_appreto_ott:   50,
+    puntataH_range_ta:  [2.0, 3.5],
+    puntataH_ott_ta:    2.5,
+    protocollo_preferito: 'misto_ta_tc',
+
+    // === PARAMETRI MOTORE ===
+    alertThreshold:       96,
+    alertThreshold_range: [92, 100],
+    puntataMatPct_target: 40,
+    puntataMatPct_range:  [30, 55],
+    W_minimo_stesura:     140,
+    bubbleThresholdPct:   98,
+    primarySignal:        'structural',
+    structuralAlertEnabled: true,
+
+    // === COTTURA ===
+    temp_forno_range:   [250, 290],
+    temp_forno_ott:     280,
+    tempo_cottura_s:    [720, 1080],
+    superficie_cottura: ['teglia in ferro blu'],
+
+    // === QUALITÀ ===
+    indicatori_pronto:      ['Panetto estremamente soffice', 'Aumento visibile 50% in cassetta', 'Grandi bolle in superficie'],
+    indicatori_over:        ['Impasto si lacera traslandolo in teglia', 'Mancanza di spinta in forno'],
+    difetti_puntata_lunga:  ['Proteolisi avanzata (impasto liquido/informe)'],
+    difetti_puntata_corta:  ['Gommosità', 'Alveolatura fine e densa', 'Mancanza di croccantezza in base'],
+  },
+
+  pala: {
+    // === FARINA ===
+    W_range:          [280, 350],
+    W_ottimale:       320,
+    PL_range:         [0.5, 0.6],
+    PL_ottimale:      0.55,
+    protein_range:    [12.5, 14.0],
+
+    // === IMPASTO ===
+    hydration_range:  [75.0, 85.0],
+    hydration_ott:    80.0,
+    salt_range:       [2.0, 2.7],
+    salt_ott:         2.5,
+    grasso:           true,
+    grasso_range:     [1.5, 2.5],
+    peso_panetto_range: [400, 800],
+    peso_panetto_ott:   500,
+
+    // === FERMENTAZIONE — DISTRIBUZIONE ===
+    sviluppo_puntata_range: [40, 70],
+    sviluppo_puntata_ott:   60,
+    sviluppo_appreto_range: [50, 80],
+    sviluppo_appreto_ott:   60,
+    puntataH_range_ta:  [1.0, 2.0],
+    puntataH_ott_ta:    1.5,
+    protocollo_preferito: 'misto_ta_tc',
+
+    // === PARAMETRI MOTORE ===
+    alertThreshold:       92,
+    alertThreshold_range: [88, 95],
+    puntataMatPct_target: 50,
+    puntataMatPct_range:  [40, 65],
+    W_minimo_stesura:     180,
+    bubbleThresholdPct:   92,
+    primarySignal:        'structural',
+    structuralAlertEnabled: true,
+
+    // === COTTURA ===
+    temp_forno_range:   [260, 290],
+    temp_forno_ott:     275,
+    tempo_cottura_s:    [420, 600],
+    superficie_cottura: ['refrattario'],
+
+    // === QUALITÀ ===
+    indicatori_pronto:      ['Panetto arioso', 'Resistenza minima alla trazione'],
+    indicatori_over:        ['Strappo durante il caricamento in pala', 'Perdita di spinta verticale in cottura'],
+    difetti_puntata_lunga:  ['Difficoltà di scorrimento dalla pala', 'Eccessivo appiattimento in forno'],
+    difetti_puntata_corta:  ['Struttura interna troppo compatta (mollica da pane)'],
+  },
+
+  nystyle: {
+    // === FARINA ===
+    W_range:          [320, 380],
+    W_ottimale:       350,
+    PL_range:         [0.5, 0.6],
+    PL_ottimale:      0.55,
+    protein_range:    [13.0, 14.5],
+
+    // === IMPASTO ===
+    hydration_range:  [58.0, 65.0],
+    hydration_ott:    62.0,
+    salt_range:       [1.5, 2.5],
+    salt_ott:         2.0,
+    grasso:           true,
+    grasso_range:     [1.5, 3.0],
+    peso_panetto_range: [350, 500],
+    peso_panetto_ott:   400,
+
+    // === FERMENTAZIONE — DISTRIBUZIONE ===
+    sviluppo_puntata_range: [0, 15],
+    sviluppo_puntata_ott:   5,
+    sviluppo_appreto_range: [50, 80],
+    sviluppo_appreto_ott:   60,
+    puntataH_range_ta:  [0.25, 1.0],
+    puntataH_ott_ta:    0.5,
+    protocollo_preferito: 'tc_only',
+
+    // === PARAMETRI MOTORE ===
+    alertThreshold:       85,
+    alertThreshold_range: [80, 90],
+    puntataMatPct_target: 10,
+    puntataMatPct_range:  [5, 15],
+    W_minimo_stesura:     220,
+    bubbleThresholdPct:   88,
+    primarySignal:        'maturation',
+    structuralAlertEnabled: false,
+
+    // === COTTURA ===
+    temp_forno_range:   [260, 315],
+    temp_forno_ott:     285,
+    tempo_cottura_s:    [300, 480],
+    superficie_cottura: ['acciaio', 'refrattario'],
+
+    // === QUALITÀ ===
+    indicatori_pronto:      ['Panetti espansi ma ancora tonici', 'Leggera ragnatela sul fondo della cassetta'],
+    indicatori_over:        ['Impasto si lacera se lanciato ai bordi', 'Eccesso di bolle sul cornicione'],
+    difetti_puntata_lunga:  ['n/a — puntata vera quasi inesistente in questo stile'],
+    difetti_puntata_corta:  ['Retrazione (snapback) durante la stesura'],
+  },
+};
+
+function getStyleProfile(style) {
+  return STYLE_PROFILES[style] ?? STYLE_PROFILES['napoletana'];
+}
+
+function matLevelMessage(level) {
+  switch (level) {
+    case 'OK':          return 'Fermentazione in corso';
+    case 'APPROACHING': return 'Sweet spot in avvicinamento';
+    case 'SWEET_SPOT':  return 'Sweet spot raggiunto';
+    default:            return '';
+  }
+}
+
+function computeStyleAwareAlertLevel(session, matPct, W_current, W_initial, leaveningPct) {
+  const profile = getStyleProfile(session.style);
+  const wDecayPct = ((W_initial - W_current) / W_initial) * 100;
+
+  const structuralLevel =
+    wDecayPct > 55 ? 'STRUCTURAL_COLLAPSED' :
+    wDecayPct > 35 ? 'STRUCTURAL_CRITICAL'  :
+    wDecayPct > 20 ? 'STRUCTURAL_WARNING'   : null;
+
+  const matLevel =
+    matPct >= profile.alertThreshold        ? 'SWEET_SPOT'  :
+    matPct >= profile.alertThreshold * 0.90 ? 'APPROACHING' : 'OK';
+
+  const bubbleAlert = leaveningPct >= profile.bubbleThresholdPct;
+
+  switch (profile.primarySignal) {
+    case 'maturation':
+      if (bubbleAlert)
+        return { level: 'STRUCTURAL_WARNING', bindingSignal: 'bubble',
+                 message: 'Lievitazione al limite — rischio bolle in cottura' };
+      if (profile.structuralAlertEnabled && structuralLevel === 'STRUCTURAL_CRITICAL')
+        return { level: 'STRUCTURAL_CRITICAL', bindingSignal: 'structural',
+                 message: 'Struttura compromessa — cuoci o usa subito' };
+      return { level: matLevel, bindingSignal: 'maturation',
+               message: matLevelMessage(matLevel) };
+
+    case 'dual':
+      if (structuralLevel === 'STRUCTURAL_COLLAPSED')
+        return { level: 'STRUCTURAL_COLLAPSED', bindingSignal: 'structural',
+                 message: 'Collasso strutturale — gas perso, non recuperabile' };
+      if (structuralLevel === 'STRUCTURAL_CRITICAL' && matPct >= profile.alertThreshold)
+        return { level: 'STRUCTURAL_CRITICAL', bindingSignal: 'structural',
+                 message: 'Struttura al limite — inforna ora prima del collasso' };
+      if (structuralLevel === 'STRUCTURAL_CRITICAL')
+        return { level: 'STRUCTURAL_CRITICAL', bindingSignal: 'structural',
+                 message: 'Struttura critica — maturazione ancora incompleta, monitora' };
+      if (matPct >= profile.alertThreshold && structuralLevel === 'STRUCTURAL_WARNING')
+        return { level: 'SWEET_SPOT', bindingSignal: 'dual',
+                 message: 'Sweet spot raggiunto — finestra strutturale in chiusura' };
+      if (bubbleAlert)
+        return { level: 'STRUCTURAL_WARNING', bindingSignal: 'bubble',
+                 message: 'Lievitazione al limite — rischio bolle in cottura' };
+      return { level: matLevel, bindingSignal: 'maturation',
+               message: matLevelMessage(matLevel) };
+
+    case 'structural':
+      if (structuralLevel === 'STRUCTURAL_COLLAPSED')
+        return { level: 'STRUCTURAL_COLLAPSED', bindingSignal: 'structural',
+                 message: 'Collasso strutturale — impasto non lavorabile' };
+      if (structuralLevel === 'STRUCTURAL_CRITICAL')
+        return { level: 'STRUCTURAL_CRITICAL', bindingSignal: 'structural',
+                 message: 'Struttura critica — trasferisci in teglia/pala ora' };
+      if (structuralLevel === 'STRUCTURAL_WARNING')
+        return { level: 'STRUCTURAL_WARNING', bindingSignal: 'structural',
+                 message: 'Struttura in indebolimento — verifica visivamente' };
+      if (bubbleAlert)
+        return { level: 'STRUCTURAL_WARNING', bindingSignal: 'bubble',
+                 message: 'Lievitazione al limite per questo stile' };
+      return { level: matLevel, bindingSignal: 'maturation',
+               message: matLevelMessage(matLevel) };
+
+    default:
+      return { level: matLevel, bindingSignal: 'maturation',
+               message: matLevelMessage(matLevel) };
+  }
+}
+
+function checkPuntataTarget(session, currentMatPct) {
+  if (session.doughLocation !== 'bulk_room' && session.doughLocation !== 'bulk_fridge') return null;
+  const profile = getStyleProfile(session.style);
+  const target = profile.puntataMatPct_target;
+  const [, hi] = profile.puntataMatPct_range;
+  if (currentMatPct >= hi)
+    return { level: 'CRITICAL', message: `Puntata oltre il target per ${session.style} (${currentMatPct.toFixed(0)}% > ${hi}%) — procedi allo staglio` };
+  if (currentMatPct >= target)
+    return { level: 'ADVISORY', message: `Puntata al target per ${session.style} (${currentMatPct.toFixed(0)}%) — momento ideale per lo staglio` };
+  return null;
+}
+
+function checkWMinimoStesura(session, W_current) {
+  const profile = getStyleProfile(session.style);
+  if (W_current < profile.W_minimo_stesura) {
+    return { level: 'CRITICAL', message: `W strutturale (${W_current.toFixed(0)}) sotto il minimo per stesura ${session.style} (${profile.W_minimo_stesura}) — rischio lacerazione` };
+  }
+  return null;
+}
+
 // Per CommonJS (Node.js test)
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -1562,6 +1912,13 @@ if (typeof module !== 'undefined' && module.exports) {
     estimatePHForLBF,
     computeExtensibilityIndex,
     computeInverseProgram,
+
+    // § S Style Profile Parameters (v2.4.4)
+    STYLE_PROFILES,
+    getStyleProfile,
+    computeStyleAwareAlertLevel,
+    checkPuntataTarget,
+    checkWMinimoStesura,
   };
 }
 
@@ -1596,4 +1953,6 @@ export {
   fHardnessGluten, fHardnessProtease,
   computeReverseScaling,
   estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
+  STYLE_PROFILES, getStyleProfile, computeStyleAwareAlertLevel,
+  checkPuntataTarget, checkWMinimoStesura,
 };

@@ -22,6 +22,7 @@ import {
   doughCoreTemp, thermalTimeConstant, thermalTimeConstantSphere, applyContainerResistance,
   computeTCrit, computeWHill, structuralState,
   fSaltYeast, fSaltProtease, fHardnessProtease, estimatePHForLBF,
+  getStyleProfile,
 } from './engine-v2.4.0.js';
 
 // ─── Default calibrabili (niente magic number) ───────────────────────────────
@@ -232,6 +233,7 @@ export function solveNowAnchoredWindow(input) {
     W0 = 280, hydration = 65, salt = 0, waterHardnessPpm, initialPH = 5.8,
     totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare',
     prefermenti = [], initialMaturationOffset = 0,
+    style,   // v2.4.4 — se presente, leggi targetMaturationPct e bubbleThresholdPct dal profilo
     targetMaturationPct   = SERVICE_WINDOW_DEFAULTS.targetMaturationPct,
     bubbleThresholdPct    = SERVICE_WINDOW_DEFAULTS.bubbleThresholdPct,
     thermalServiceTargetC = SERVICE_WINDOW_DEFAULTS.thermalServiceTargetC,
@@ -240,6 +242,15 @@ export function solveNowAnchoredWindow(input) {
     doseRefPct, doseMinPct, doseMaxPct,
     subStepH = 0.05,
   } = input;
+
+  // v2.4.4: se style fornito, i default globali vengono sostituiti dal profilo stile
+  let _targetMaturationPct = targetMaturationPct;
+  let _bubbleThresholdPct  = bubbleThresholdPct;
+  if (style) {
+    const prof = getStyleProfile(style);
+    _targetMaturationPct = prof.alertThreshold;
+    _bubbleThresholdPct  = prof.bubbleThresholdPct;
+  }
 
   const mixStart   = now instanceof Date ? now : new Date(now);
   const serviceEnd = new Date(serviceStart.getTime() + serviceDurationH * HOUR_MS);
@@ -298,7 +309,7 @@ export function solveNowAnchoredWindow(input) {
   const matMin = matAtServiceEnd(fridgeTempMin);
   const matMax = matAtServiceEnd(fridgeTempCUser);
 
-  if (matMin > targetMaturationPct) {
+  if (matMin > _targetMaturationPct) {
     // Anche al minimo frigo la maturazione supera il target: SOVRAMMATURAZIONE.
     // Il chiamante aggiungerà delayH come ultima opzione (calcolata separatamente).
     return {
@@ -308,20 +319,20 @@ export function solveNowAnchoredWindow(input) {
         maturationAtMin: parseFloat(matMin.toFixed(1)),
         mitigations: [
           'Anticipa il servizio (inizia a servire prima)',
-          `Riduci il target di maturazione (attuale: ${targetMaturationPct}%)`,
+          `Riduci il target di maturazione (attuale: ${_targetMaturationPct}%)`,
         ],
       },
     };
   }
 
-  if (matMax < targetMaturationPct) {
+  if (matMax < _targetMaturationPct) {
     return {
       feasible: false, mixStart, mixStartIsNow: true,
       infeasibility: {
         reason: 'window_too_short_maturation',
         maturationAtMax: parseFloat(matMax.toFixed(1)),
         mitigations: [
-          `Finestra troppo corta: maturazione a fine servizio sarebbe ${matMax.toFixed(0)}% (target ${targetMaturationPct}%)`,
+          `Finestra troppo corta: maturazione a fine servizio sarebbe ${matMax.toFixed(0)}% (target ${_targetMaturationPct}%)`,
           'Posticipa l\'inizio del servizio o allunga la durata totale',
           'Usa un prefermento per partire con maggiore maturazione iniziale',
         ],
@@ -329,8 +340,8 @@ export function solveNowAnchoredWindow(input) {
     };
   }
 
-  // Bisezione: trova fridgeTempC* s.t. matAtServiceEnd = targetMaturationPct
-  const optFridgeTempC_raw = bisectIncreasing(matAtServiceEnd, targetMaturationPct, fridgeTempMin, fridgeTempCUser, 0.15);
+  // Bisezione: trova fridgeTempC* s.t. matAtServiceEnd = _targetMaturationPct
+  const optFridgeTempC_raw = bisectIncreasing(matAtServiceEnd, _targetMaturationPct, fridgeTempMin, fridgeTempCUser, 0.15);
   const optFridgeTempC     = parseFloat(optFridgeTempC_raw.toFixed(1));
   const fridgeTempAdjusted = optFridgeTempC < fridgeTempCUser - 0.15;
 
@@ -347,15 +358,15 @@ export function solveNowAnchoredWindow(input) {
   if (doseRef != null) {
     const dMin = doseMinPct ?? doseRef * 0.1;
     const dMax = doseMaxPct ?? doseRef * 2;
-    if (leaveningAtEnd(dMin) > bubbleThresholdPct) {
+    if (leaveningAtEnd(dMin) > _bubbleThresholdPct) {
       dose = dMin; bubbleCapped = true;
-    } else if (leaveningAtEnd(dMax) < bubbleThresholdPct) {
+    } else if (leaveningAtEnd(dMax) < _bubbleThresholdPct) {
       dose = dMax;
     } else {
-      dose = bisectIncreasing(leaveningAtEnd, bubbleThresholdPct, dMin, dMax, 0.1);
+      dose = bisectIncreasing(leaveningAtEnd, _bubbleThresholdPct, dMin, dMax, 0.1);
     }
   } else {
-    bubbleCapped = leaveningAtEnd(agentDosePct) > bubbleThresholdPct;
+    bubbleCapped = leaveningAtEnd(agentDosePct) > _bubbleThresholdPct;
   }
 
   // Simulazione finale
@@ -379,7 +390,7 @@ export function solveNowAnchoredWindow(input) {
   const { maxSafeServiceWindowH, binding } = computeMaxSafeServiceWindow(
     openState,
     { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) },
-    { targetMaturationPct, bubbleThresholdPct, W0, ambientTempC },
+    { targetMaturationPct: _targetMaturationPct, bubbleThresholdPct: _bubbleThresholdPct, W0, ambientTempC },
   );
 
   const structuralStatus = structuralState(W0, end.W_current);

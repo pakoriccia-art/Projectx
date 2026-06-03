@@ -4,6 +4,7 @@
  * Esegui con: node engine/stress-tests.js
  */
 import * as e from './engine-v2.4.0.js';
+import { solveNowAnchoredWindow } from './serviceWindowSolver.js';
 
 let passed = 0, failed = 0;
 
@@ -1007,6 +1008,186 @@ console.log('\n§ ST-EDGE — Edge Cases e Robustezza Numerica');
   const H_pH14 = Math.pow(10, -14); // pH=14 → 1e-14
   assert(isFinite(H_pH0) && isFinite(H_pH14),
     'ST-EDGE-08d pH 0 e 14: H+ finito');
+}
+
+// ─────────────────────────────────────────────────────────────
+console.log('\n§ ST-STYLE — Style Profile Parameters (v2.4.4)');
+
+// ST-STYLE-01 — napoletana profile params
+{
+  const p = e.getStyleProfile('napoletana');
+  assert(p.alertThreshold       === 80,         'ST-STYLE-01a napoletana alertThreshold=80');
+  assert(p.bubbleThresholdPct   === 85,         'ST-STYLE-01b napoletana bubbleThresholdPct=85');
+  assert(p.primarySignal        === 'maturation','ST-STYLE-01c napoletana primarySignal=maturation');
+  assert(p.W_minimo_stesura     === 160,         'ST-STYLE-01d napoletana W_minimo_stesura=160');
+  assert(p.puntataMatPct_target === 10,          'ST-STYLE-01e napoletana puntataMatPct_target=10');
+}
+
+// ST-STYLE-02 — contemporanea profile params
+{
+  const p = e.getStyleProfile('contemporanea');
+  assert(p.alertThreshold       === 90,   'ST-STYLE-02a contemporanea alertThreshold=90');
+  assert(p.bubbleThresholdPct   === 92,   'ST-STYLE-02b contemporanea bubbleThresholdPct=92');
+  assert(p.primarySignal        === 'dual','ST-STYLE-02c contemporanea primarySignal=dual');
+  assert(p.W_minimo_stesura     === 190,  'ST-STYLE-02d contemporanea W_minimo_stesura=190');
+  assert(p.puntataMatPct_target === 30,   'ST-STYLE-02e contemporanea puntataMatPct_target=30');
+}
+
+// ST-STYLE-03 — teglia profile params
+{
+  const p = e.getStyleProfile('teglia');
+  assert(p.alertThreshold       === 96,         'ST-STYLE-03a teglia alertThreshold=96');
+  assert(p.bubbleThresholdPct   === 98,         'ST-STYLE-03b teglia bubbleThresholdPct=98');
+  assert(p.primarySignal        === 'structural','ST-STYLE-03c teglia primarySignal=structural');
+  assert(p.W_minimo_stesura     === 140,         'ST-STYLE-03d teglia W_minimo_stesura=140');
+  assert(p.puntataMatPct_target === 40,          'ST-STYLE-03e teglia puntataMatPct_target=40');
+}
+
+// ST-STYLE-04 — pala profile params
+{
+  const p = e.getStyleProfile('pala');
+  assert(p.alertThreshold       === 92,         'ST-STYLE-04a pala alertThreshold=92');
+  assert(p.bubbleThresholdPct   === 92,         'ST-STYLE-04b pala bubbleThresholdPct=92');
+  assert(p.primarySignal        === 'structural','ST-STYLE-04c pala primarySignal=structural');
+  assert(p.W_minimo_stesura     === 180,         'ST-STYLE-04d pala W_minimo_stesura=180');
+  assert(p.puntataMatPct_target === 50,          'ST-STYLE-04e pala puntataMatPct_target=50');
+}
+
+// ST-STYLE-05 — nystyle profile params
+{
+  const p = e.getStyleProfile('nystyle');
+  assert(p.alertThreshold       === 85,         'ST-STYLE-05a nystyle alertThreshold=85');
+  assert(p.bubbleThresholdPct   === 88,         'ST-STYLE-05b nystyle bubbleThresholdPct=88');
+  assert(p.primarySignal        === 'maturation','ST-STYLE-05c nystyle primarySignal=maturation');
+  assert(p.W_minimo_stesura     === 220,         'ST-STYLE-05d nystyle W_minimo_stesura=220');
+  assert(p.puntataMatPct_target === 10,          'ST-STYLE-05e nystyle puntataMatPct_target=10');
+}
+
+// ST-STYLE-06 — computeStyleAwareAlertLevel
+{
+  const sess = (style) => ({ style });
+
+  // napoletana/maturation: matPct < 80 → OK
+  const r1 = e.computeStyleAwareAlertLevel(sess('napoletana'), 50, 280, 280, 50);
+  assert(r1.level === 'OK' && r1.bindingSignal === 'maturation',
+    'ST-STYLE-06a napoletana matPct=50 → OK/maturation');
+
+  // napoletana: matPct=75 ≥ 80×0.9=72 → APPROACHING
+  const r2 = e.computeStyleAwareAlertLevel(sess('napoletana'), 75, 280, 280, 50);
+  assert(r2.level === 'APPROACHING',
+    'ST-STYLE-06b napoletana matPct=75 → APPROACHING');
+
+  // napoletana: matPct=82 ≥ 80 → SWEET_SPOT
+  const r3 = e.computeStyleAwareAlertLevel(sess('napoletana'), 82, 280, 280, 50);
+  assert(r3.level === 'SWEET_SPOT' && r3.bindingSignal === 'maturation',
+    'ST-STYLE-06c napoletana matPct=82 → SWEET_SPOT/maturation');
+
+  // napoletana: leaveningPct=90 > bubbleThr=85 → STRUCTURAL_WARNING/bubble
+  const r4 = e.computeStyleAwareAlertLevel(sess('napoletana'), 50, 280, 280, 90);
+  assert(r4.level === 'STRUCTURAL_WARNING' && r4.bindingSignal === 'bubble',
+    'ST-STYLE-06d napoletana bubble=90 → STRUCTURAL_WARNING/bubble');
+
+  // contemporanea/dual: wDecay=(290-182)/290=37.2% → STRUCTURAL_CRITICAL, matPct=91≥90 → CRITICAL wins
+  const r5 = e.computeStyleAwareAlertLevel(sess('contemporanea'), 91, 182, 290, 50);
+  assert(r5.level === 'STRUCTURAL_CRITICAL' && r5.bindingSignal === 'structural',
+    'ST-STYLE-06e contemporanea wDecay=37% + matPct=91 → STRUCTURAL_CRITICAL/structural');
+
+  // contemporanea/dual: wDecay=0%, matPct=91≥90 → SWEET_SPOT/maturation
+  const r6 = e.computeStyleAwareAlertLevel(sess('contemporanea'), 91, 290, 290, 50);
+  assert(r6.level === 'SWEET_SPOT' && r6.bindingSignal === 'maturation',
+    'ST-STYLE-06f contemporanea wDecay=0% + matPct=91 → SWEET_SPOT/maturation');
+
+  // teglia/structural: wDecay=(350-277)/350=20.86% → STRUCTURAL_WARNING/structural
+  const r7 = e.computeStyleAwareAlertLevel(sess('teglia'), 50, 277, 350, 50);
+  assert(r7.level === 'STRUCTURAL_WARNING' && r7.bindingSignal === 'structural',
+    'ST-STYLE-06g teglia wDecay=20.9% → STRUCTURAL_WARNING/structural');
+
+  // teglia/structural: wDecay=0%, matPct=97≥96 → SWEET_SPOT (fallback a matLevel)
+  const r8 = e.computeStyleAwareAlertLevel(sess('teglia'), 97, 350, 350, 50);
+  assert(r8.level === 'SWEET_SPOT',
+    'ST-STYLE-06h teglia wDecay=0% + matPct=97 → SWEET_SPOT');
+}
+
+// ST-STYLE-07 — checkPuntataTarget
+{
+  // napoletana in bulk_room, matPct=12% (≥ target=10, < hi=20) → ADVISORY
+  const r1 = e.checkPuntataTarget({ style: 'napoletana', doughLocation: 'bulk_room' }, 12);
+  assert(r1?.level === 'ADVISORY',
+    'ST-STYLE-07a napoletana bulk_room matPct=12 → ADVISORY');
+
+  // napoletana in bulk_room, matPct=22% (≥ hi=20) → CRITICAL
+  const r2 = e.checkPuntataTarget({ style: 'napoletana', doughLocation: 'bulk_room' }, 22);
+  assert(r2?.level === 'CRITICAL',
+    'ST-STYLE-07b napoletana bulk_room matPct=22 → CRITICAL');
+
+  // napoletana NOT in bulk → null
+  const r3 = e.checkPuntataTarget({ style: 'napoletana', doughLocation: 'balled_fridge' }, 12);
+  assert(r3 === null,
+    'ST-STYLE-07c napoletana non-bulk → null');
+
+  // contemporanea in bulk_room, matPct=31% (≥ target=30, < hi=40) → ADVISORY
+  const r4 = e.checkPuntataTarget({ style: 'contemporanea', doughLocation: 'bulk_room' }, 31);
+  assert(r4?.level === 'ADVISORY',
+    'ST-STYLE-07d contemporanea bulk_room matPct=31 → ADVISORY');
+}
+
+// ST-STYLE-08 — checkWMinimoStesura
+{
+  // napoletana, W_current=155 < W_minimo=160 → CRITICAL
+  const r1 = e.checkWMinimoStesura({ style: 'napoletana' }, 155);
+  assert(r1?.level === 'CRITICAL',
+    'ST-STYLE-08a napoletana W=155 < 160 → CRITICAL');
+
+  // napoletana, W_current=165 ≥ W_minimo=160 → null
+  const r2 = e.checkWMinimoStesura({ style: 'napoletana' }, 165);
+  assert(r2 === null,
+    'ST-STYLE-08b napoletana W=165 ≥ 160 → null');
+
+  // nystyle, W_current=215 < W_minimo=220 → CRITICAL
+  const r3 = e.checkWMinimoStesura({ style: 'nystyle' }, 215);
+  assert(r3?.level === 'CRITICAL',
+    'ST-STYLE-08c nystyle W=215 < 220 → CRITICAL');
+}
+
+// ST-STYLE-09 — solveNowAnchoredWindow style-aware
+// Scenario 24h: infeasible con target=90% (window_too_short_maturation), feasible con napoletana (target=80%)
+{
+  const agent = e.AGENT_GOMPERTZ.fresh_yeast;
+  const now = new Date('2026-06-03T00:00:00');
+  const serviceStart = new Date('2026-06-03T22:00:00'); // +22h, service end +24h
+
+  const base = {
+    now, serviceStart, serviceDurationH: 2,
+    ambientTempC: 22, fridgeTempC: 4, fridgeTempMin: 2,
+    agentType: 'fresh_yeast', agentMuMax: agent.muMax, agentLambda: agent.lambda,
+    agentEaKj: agent.Ea_kJ, agentAsymptote: 100, agentDosePct: 0.3,
+    W0: 280, hydration: 65, salt: 2.8,
+    totalFlourGrams: 1000, numPanetti: 1, containerPreset: 'bare',
+  };
+
+  // Default (no style): target=90% → window_too_short_maturation
+  const rDef = solveNowAnchoredWindow(base);
+  assert(!rDef.feasible && rDef.infeasibility?.reason === 'window_too_short_maturation',
+    'ST-STYLE-09a 24h default (90%) → infeasible window_too_short_maturation');
+
+  // Napoletana: target=80% → feasible
+  const rNap = solveNowAnchoredWindow({ ...base, style: 'napoletana' });
+  assert(rNap.feasible === true,
+    'ST-STYLE-09b 24h napoletana (80%) → feasible');
+  assert(rNap.atServiceEnd != null && Math.abs(rNap.atServiceEnd.maturationPct - 80) <= 2,
+    'ST-STYLE-09c napoletana atServiceEnd.maturationPct ≈ 80±2',
+    `got ${rNap.atServiceEnd?.maturationPct?.toFixed(1)}`);
+  assert(rNap.atServiceEnd != null && rNap.atServiceEnd.leaveningPct <= 85.5,
+    'ST-STYLE-09d napoletana atServiceEnd.leaveningPct ≤ 85.5 (bubbleThr)',
+    `got ${rNap.atServiceEnd?.leaveningPct?.toFixed(1)}`);
+}
+
+// ST-STYLE-10 — fallback napoletana per stile non riconosciuto
+{
+  const pUndef   = e.getStyleProfile(undefined);
+  const pUnknown = e.getStyleProfile('unknown');
+  assert(pUndef.alertThreshold   === 80, 'ST-STYLE-10a getStyleProfile(undefined) → napoletana');
+  assert(pUnknown.alertThreshold === 80, 'ST-STYLE-10b getStyleProfile("unknown") → napoletana');
 }
 
 // ─────────────────────────────────────────────────────────────

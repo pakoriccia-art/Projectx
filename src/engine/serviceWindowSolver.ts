@@ -85,6 +85,7 @@ export interface SolveServiceWindowResult {
 export interface SolveNowAnchoredWindowInput extends SolveServiceWindowInput {
   now: Date;
   fridgeTempMin?: number;
+  style?: 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';  // v2.4.4
 }
 
 export interface SimulateTimelineSample {
