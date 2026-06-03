@@ -367,15 +367,57 @@ export function solveNowAnchoredWindow(input) {
 
   if (matMin > targetMaturationPct) {
     // NEAR_CEILING: entro la tolleranza overshootTol — feasible con warning.
+    // Simulazione completa con fridgeTempMin per popolare tutti i campi del risultato.
     const ncSc = scheduleFor(fridgeTempMin);
+    const ncTemperingH = ncSc?.temperingH ?? 0;
+    const ncTcHours    = ncSc?.tcHours ?? 0;
+    const ncSegs       = ncSc?.segs ?? [];
     const puntataMaxH_nc = style ? computePuntataMaxH(style, ambientTempC) : null;
     const effectivePuntataH_nc = puntataMaxH_nc != null ? Math.min(puntataKickoffH, puntataMaxH_nc) : puntataKickoffH;
+
+    const initState_nc = { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 };
+    const leaveningAtEnd_nc = (d) => simulateTimeline(ncSegs, initState_nc,
+      { ...baseOpts, muMaxScaled: muMaxScaledFor(d, agentMuMax, doseRef) }).final.leaveningPct;
+
+    let dose_nc = agentDosePct, bubbleCapped_nc = false;
+    if (doseRef != null) {
+      const dMin_nc = doseMinPct ?? doseRef * 0.1;
+      const dMax_nc = doseMaxPct ?? doseRef * 2;
+      if (leaveningAtEnd_nc(dMin_nc) > bubbleThresholdPct) {
+        dose_nc = dMin_nc; bubbleCapped_nc = true;
+      } else if (leaveningAtEnd_nc(dMax_nc) < bubbleThresholdPct) {
+        dose_nc = dMax_nc;
+      } else {
+        dose_nc = bisectIncreasing(leaveningAtEnd_nc, bubbleThresholdPct, dMin_nc, dMax_nc, 0.1);
+      }
+    } else {
+      bubbleCapped_nc = leaveningAtEnd_nc(agentDosePct) > bubbleThresholdPct;
+    }
+
+    const ncMu = muMaxScaledFor(dose_nc, agentMuMax, doseRef);
+    const finalSim_nc = simulateTimeline(ncSegs, initState_nc, { ...baseOpts, muMaxScaled: ncMu });
+    const end_nc = finalSim_nc.final;
+
+    const preSegs_nc = [
+      { phaseType: 'bulk_room',     durationH: puntataKickoffH, ambientTempC },
+      { phaseType: 'balled_room',   durationH: staglioH,         ambientTempC },
+      { phaseType: 'balled_fridge', durationH: ncTcHours,        ambientTempC: fridgeTempMin },
+      { phaseType: 'proofing',      durationH: ncTemperingH,     ambientTempC },
+    ].filter(s => s.durationH > 1e-6);
+    const preSim_nc = simulateTimeline(preSegs_nc, initState_nc, { ...baseOpts, muMaxScaled: ncMu });
+    const openState_nc = { tempDough: preSim_nc.final.tempDough, leavAdu: preSim_nc.final.leavAdu,
+      enzAdu: preSim_nc.final.enzAdu, wDamage: preSim_nc.final.wDamage };
+    const { maxSafeServiceWindowH: maxSafe_nc } = computeMaxSafeServiceWindow(
+      openState_nc, { ...baseOpts, muMaxScaled: ncMu },
+      { targetMaturationPct, bubbleThresholdPct, W0, ambientTempC });
+
+    const structuralStatus_nc = structuralState(W0, end_nc.W_current);
     const timeline_nc = buildServiceWindowTimeline({
       puntataH: puntataKickoffH, puntataMaxH: puntataMaxH_nc,
-      staglioH, tcHours: ncSc?.tcHours ?? 0,
-      temperingH: ncSc ? computeTemperingH({ ballMassKg, hydration, fridgeTempC: fridgeTempMin, ambientTempC, targetC: thermalServiceTargetC, containerPreset }) : 0,
+      staglioH, tcHours: ncTcHours, temperingH: ncTemperingH,
       serviceDurationH, ambientTempC, fridgeTempC: fridgeTempMin,
     });
+
     return {
       feasible: true, mixStart, mixStartIsNow: true,
       recommendedFridgeTempC: fridgeTempMin,
@@ -386,7 +428,29 @@ export function solveNowAnchoredWindow(input) {
       resolvedBubbleThresholdPct: bubbleThresholdPct,
       puntataMaxH: puntataMaxH_nc,
       effectivePuntataH: effectivePuntataH_nc,
+      schedule: {
+        puntataH:  parseFloat(puntataKickoffH.toFixed(2)),
+        staglioH:  parseFloat(staglioH.toFixed(2)),
+        tcHours:   parseFloat(ncTcHours.toFixed(2)),
+        temperingH: parseFloat(ncTemperingH.toFixed(2)),
+        serviceDurationH,
+      },
+      dose: parseFloat(dose_nc.toFixed(4)),
+      bubbleCapped: bubbleCapped_nc,
+      atServiceStart: {
+        tempDough:    parseFloat(preSim_nc.final.tempDough.toFixed(1)),
+        maturationPct: parseFloat(preSim_nc.final.enzymaticMatPct.toFixed(1)),
+        leaveningPct:  parseFloat(preSim_nc.final.leaveningPct.toFixed(1)),
+      },
+      atServiceEnd: {
+        maturationPct:   parseFloat(end_nc.enzymaticMatPct.toFixed(1)),
+        leaveningPct:    parseFloat(end_nc.leaveningPct.toFixed(1)),
+        W_current:       parseFloat(end_nc.W_current.toFixed(0)),
+        structuralStatus: structuralStatus_nc,
+        tempDough:       parseFloat(end_nc.tempDough.toFixed(1)),
+      },
       timeline: timeline_nc,
+      maxSafeServiceWindowH: maxSafe_nc,
     };
   }
 
