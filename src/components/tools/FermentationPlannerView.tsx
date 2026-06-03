@@ -638,7 +638,8 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   const end = result.atServiceEnd!;
   const start = result.atServiceStart!;
   const c1ok = start.tempDough >= 18 - 0.3;
-  const c2ok = end.maturationPct <= 90.5 && end.structuralStatus !== 'CRITICAL' && end.structuralStatus !== 'COLLAPSED';
+  const resolvedTarget = result.resolvedTargetMaturationPct ?? 90;
+  const c2ok = end.maturationPct <= resolvedTarget + 0.5 && end.structuralStatus !== 'CRITICAL' && end.structuralStatus !== 'COLLAPSED';
   const c3ok = !result.bubbleCapped && end.leaveningPct <= bubbleThresholdPct + 0.5;
   const pullFromFridge = serviceStart ? new Date(serviceStart.getTime() - s.temperingH * 3_600_000) : null;
   const fridgeDisplay = result.recommendedFridgeTempC != null
@@ -1053,7 +1054,7 @@ export function FermentationPlannerView() {
   const [serviceDate, setServiceDate] = useState('');
   const [serviceTime, setServiceTime] = useState('19:00');
   const [serviceDurationH, setServiceDurationH] = useState(2);
-  const [bubbleThresholdPct, setBubbleThresholdPct] = useState(SERVICE_WINDOW_DEFAULTS.bubbleThresholdPct);
+  const [userBubbleThresholdPct, setUserBubbleThresholdPct] = useState<number | null>(null);
   const [userTargetMatPct, setUserTargetMatPct] = useState<number | null>(null);
 
   // Clock reattivo per countdown live (KB §11.3 — evita Date.now() in useMemo)
@@ -1205,13 +1206,13 @@ export function FermentationPlannerView() {
         initialMaturationOffset: 0,
         style,
         userTargetMaturationPct: userTargetMatPct ?? undefined,
-        bubbleThresholdPct,
+        userBubbleThresholdPct: userBubbleThresholdPct ?? undefined,
         staglioH,
         salt,
         fridgeTempMin: 2,
       }) as NowAnchoredAlarmResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, style, userTargetMatPct, bubbleThresholdPct, staglioH, salt]);
+  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, style, userTargetMatPct, userBubbleThresholdPct, staglioH, salt]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
   const useServiceResult = (r: NowAnchoredAlarmResult) => {
@@ -1251,7 +1252,7 @@ export function FermentationPlannerView() {
       tLaboratorio:     tAmb,
       kneadingMethod,
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
-      bubbleThresholdPct,
+      bubbleThresholdPct: r.resolvedBubbleThresholdPct ?? 92,
       alertThreshold:   r.resolvedTargetMaturationPct ?? 90,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
@@ -1502,8 +1503,19 @@ export function FermentationPlannerView() {
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <PlannerSlider label="Durata servizio" value={serviceDurationH} onChange={setServiceDurationH}
               min={0.5} max={8} step={0.5} unit="h" color="var(--accent-brand)" />
-            <PlannerSlider label="Soglia anti-bolle (lievitazione)" value={bubbleThresholdPct} onChange={setBubbleThresholdPct}
+            <PlannerSlider
+              label={`Soglia anti-bolle (lievitazione)${userBubbleThresholdPct == null ? ` · Profilo: ${getStyleProfile(style).bubbleThresholdPct}%` : ''}`}
+              value={userBubbleThresholdPct ?? getStyleProfile(style).bubbleThresholdPct}
+              onChange={(v) => setUserBubbleThresholdPct(v)}
               min={60} max={95} step={1} unit="%" color="var(--state-approaching)" />
+            {userBubbleThresholdPct != null && (
+              <button
+                onClick={() => setUserBubbleThresholdPct(null)}
+                style={{ fontSize: 11, color: '#a09070', background: 'none', border: 'none', cursor: 'pointer', marginTop: 2, padding: 0 }}
+              >
+                Reset soglia bolle
+              </button>
+            )}
           </div>
           <div style={{ marginTop: 12 }}>
             <label style={{ fontSize: 13, color: '#a09070', display: 'block', marginBottom: 4 }}>
@@ -1545,7 +1557,8 @@ export function FermentationPlannerView() {
 
       {plannerMode === 'service' && serviceResult && (
         <ServiceWindowResultCard result={serviceResult} serviceStart={serviceStart}
-          serviceDurationH={serviceDurationH} bubbleThresholdPct={bubbleThresholdPct}
+          serviceDurationH={serviceDurationH}
+          bubbleThresholdPct={serviceResult.resolvedBubbleThresholdPct ?? 92}
           puntataKickoffH={SERVICE_WINDOW_DEFAULTS.puntataKickoffH}
           onUse={() => useServiceResult(serviceResult)} />
       )}

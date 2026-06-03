@@ -312,7 +312,16 @@ export function solveNowAnchoredWindow(input) {
     totalFlourGrams, numPanetti, containerPreset, subStepH,
   };
 
-  // Costruisce schedule e simula per un dato fridgeTempC candidato
+  // v2.4.5: puntata cap — calcolato una volta prima di scheduleFor e della bisezione
+  // così la simulazione usata per trovare fridgeTempC* è coerente con la timeline reale.
+  const puntataMaxH = style ? computePuntataMaxH(style, ambientTempC) : null;
+  const effectivePuntataH_base = puntataMaxH != null ? Math.min(puntataKickoffH, puntataMaxH) : puntataKickoffH;
+  const extraPuntataH = puntataKickoffH - effectivePuntataH_base;
+
+  // Costruisce schedule e simula per un dato fridgeTempC candidato.
+  // Usa puntataKickoffH SENZA cap: la bisezione trova il fridgeTempC corretto
+  // per il target di maturazione sul schedule reale; il cap viene applicato
+  // solo alle simulazioni di display (fullSegs_display / preServiceSegs).
   const scheduleFor = (fridgeTempC_c) => {
     const tempH = computeTemperingH({
       ballMassKg, hydration, fridgeTempC: fridgeTempC_c,
@@ -368,12 +377,18 @@ export function solveNowAnchoredWindow(input) {
   if (matMin > targetMaturationPct) {
     // NEAR_CEILING: entro la tolleranza overshootTol — feasible con warning.
     // Simulazione completa con fridgeTempMin per popolare tutti i campi del risultato.
-    const ncSc = scheduleFor(fridgeTempMin);
-    const ncTemperingH = ncSc?.temperingH ?? 0;
-    const ncTcHours    = ncSc?.tcHours ?? 0;
-    const ncSegs       = ncSc?.segs ?? [];
-    const puntataMaxH_nc = style ? computePuntataMaxH(style, ambientTempC) : null;
-    const effectivePuntataH_nc = puntataMaxH_nc != null ? Math.min(puntataKickoffH, puntataMaxH_nc) : puntataKickoffH;
+    const ncSc = minSc;  // Bug #7: riusa minSc già calcolato, evita chiamata doppia
+    const ncTemperingH   = ncSc.temperingH;
+    const ncTcHours      = ncSc.tcHours;
+    const ncEffectiveTcH = ncTcHours + extraPuntataH;
+    // Segs con puntata cappata per simulazioni di display
+    const ncSegs = [
+      { phaseType: 'bulk_room',     durationH: effectivePuntataH_base, ambientTempC },
+      { phaseType: 'balled_room',   durationH: staglioH,               ambientTempC },
+      { phaseType: 'balled_fridge', durationH: ncEffectiveTcH,         ambientTempC: fridgeTempMin },
+      { phaseType: 'proofing',      durationH: ncTemperingH,           ambientTempC },
+      { phaseType: 'proofing',      durationH: serviceDurationH,       ambientTempC },
+    ].filter(s => s.durationH > 1e-6);
 
     const initState_nc = { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 };
     const leaveningAtEnd_nc = (d) => simulateTimeline(ncSegs, initState_nc,
@@ -399,10 +414,10 @@ export function solveNowAnchoredWindow(input) {
     const end_nc = finalSim_nc.final;
 
     const preSegs_nc = [
-      { phaseType: 'bulk_room',     durationH: puntataKickoffH, ambientTempC },
-      { phaseType: 'balled_room',   durationH: staglioH,         ambientTempC },
-      { phaseType: 'balled_fridge', durationH: ncTcHours,        ambientTempC: fridgeTempMin },
-      { phaseType: 'proofing',      durationH: ncTemperingH,     ambientTempC },
+      { phaseType: 'bulk_room',     durationH: effectivePuntataH_base, ambientTempC },
+      { phaseType: 'balled_room',   durationH: staglioH,               ambientTempC },
+      { phaseType: 'balled_fridge', durationH: ncEffectiveTcH,         ambientTempC: fridgeTempMin },
+      { phaseType: 'proofing',      durationH: ncTemperingH,           ambientTempC },
     ].filter(s => s.durationH > 1e-6);
     const preSim_nc = simulateTimeline(preSegs_nc, initState_nc, { ...baseOpts, muMaxScaled: ncMu });
     const openState_nc = { tempDough: preSim_nc.final.tempDough, leavAdu: preSim_nc.final.leavAdu,
@@ -413,7 +428,7 @@ export function solveNowAnchoredWindow(input) {
 
     const structuralStatus_nc = structuralState(W0, end_nc.W_current);
     const timeline_nc = buildServiceWindowTimeline({
-      puntataH: puntataKickoffH, puntataMaxH: puntataMaxH_nc,
+      puntataH: puntataKickoffH, puntataMaxH,
       staglioH, tcHours: ncTcHours, temperingH: ncTemperingH,
       serviceDurationH, ambientTempC, fridgeTempC: fridgeTempMin,
     });
@@ -426,12 +441,12 @@ export function solveNowAnchoredWindow(input) {
       enzymaticMatAtServiceEnd: parseFloat(matMin.toFixed(1)),
       resolvedTargetMaturationPct: targetMaturationPct,
       resolvedBubbleThresholdPct: bubbleThresholdPct,
-      puntataMaxH: puntataMaxH_nc,
-      effectivePuntataH: effectivePuntataH_nc,
+      puntataMaxH,
+      effectivePuntataH: effectivePuntataH_base,
       schedule: {
-        puntataH:  parseFloat(puntataKickoffH.toFixed(2)),
+        puntataH:  parseFloat(effectivePuntataH_base.toFixed(2)),
         staglioH:  parseFloat(staglioH.toFixed(2)),
-        tcHours:   parseFloat(ncTcHours.toFixed(2)),
+        tcHours:   parseFloat(ncEffectiveTcH.toFixed(2)),
         temperingH: parseFloat(ncTemperingH.toFixed(2)),
         serviceDurationH,
       },
@@ -476,7 +491,16 @@ export function solveNowAnchoredWindow(input) {
   const fridgeTempAdjusted = optFridgeTempC < fridgeTempCUser - 0.15;
 
   const optSc = scheduleFor(optFridgeTempC) ?? scheduleFor(fridgeTempCUser);
-  const { temperingH, tcHours, segs: fullSegs } = optSc;
+  const { temperingH, tcHours } = optSc;
+  // Segs con puntata cappata per simulazioni di display (C3, atServiceEnd, atServiceStart)
+  const effectiveTcH = tcHours + extraPuntataH;
+  const fullSegs = [
+    { phaseType: 'bulk_room',     durationH: effectivePuntataH_base, ambientTempC },
+    { phaseType: 'balled_room',   durationH: staglioH,               ambientTempC },
+    { phaseType: 'balled_fridge', durationH: effectiveTcH,           ambientTempC: optFridgeTempC },
+    { phaseType: 'proofing',      durationH: temperingH,             ambientTempC },
+    { phaseType: 'proofing',      durationH: serviceDurationH,       ambientTempC },
+  ].filter(s => s.durationH > 1e-6);
 
   // C3: bisezione dose per soglia bolle (schedule fisso)
   const initState = { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 };
@@ -506,10 +530,10 @@ export function solveNowAnchoredWindow(input) {
 
   // Stato a serviceStart (prima del segmento servizio) per finestra sicura
   const preServiceSegs = [
-    { phaseType: 'bulk_room',     durationH: puntataKickoffH, ambientTempC },
-    { phaseType: 'balled_room',   durationH: staglioH,         ambientTempC },
-    { phaseType: 'balled_fridge', durationH: tcHours,          ambientTempC: optFridgeTempC },
-    { phaseType: 'proofing',      durationH: temperingH,       ambientTempC },
+    { phaseType: 'bulk_room',     durationH: effectivePuntataH_base, ambientTempC },
+    { phaseType: 'balled_room',   durationH: staglioH,               ambientTempC },
+    { phaseType: 'balled_fridge', durationH: effectiveTcH,           ambientTempC: optFridgeTempC },
+    { phaseType: 'proofing',      durationH: temperingH,             ambientTempC },
   ].filter(s => s.durationH > 1e-6);
   const preServiceSim = simulateTimeline(preServiceSegs, initState,
     { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) });
@@ -526,9 +550,6 @@ export function solveNowAnchoredWindow(input) {
   const structuralStatus = structuralState(W0, end.W_current);
   const wCollapsed = structuralStatus === 'CRITICAL' || structuralStatus === 'COLLAPSED';
 
-  const puntataMaxH = style ? computePuntataMaxH(style, ambientTempC) : null;
-  const effectivePuntataH = puntataMaxH != null ? Math.min(puntataKickoffH, puntataMaxH) : puntataKickoffH;
-
   const timeline = buildServiceWindowTimeline({
     puntataH: puntataKickoffH, puntataMaxH, staglioH, tcHours, temperingH,
     serviceDurationH, ambientTempC, fridgeTempC: optFridgeTempC,
@@ -541,9 +562,9 @@ export function solveNowAnchoredWindow(input) {
     recommendedFridgeTempC: fridgeTempAdjusted ? optFridgeTempC : null,
     fridgeTempAdjusted,
     schedule: {
-      puntataH:  parseFloat(puntataKickoffH.toFixed(2)),
+      puntataH:  parseFloat(effectivePuntataH_base.toFixed(2)),
       staglioH:  parseFloat(staglioH.toFixed(2)),
-      tcHours:   parseFloat(tcHours.toFixed(2)),
+      tcHours:   parseFloat(effectiveTcH.toFixed(2)),
       temperingH: parseFloat(temperingH.toFixed(2)),
       serviceDurationH,
     },
@@ -565,7 +586,7 @@ export function solveNowAnchoredWindow(input) {
     bakeTargetElapsedH: parseFloat(totalH.toFixed(4)),
     maxSafeServiceWindowH,
     puntataMaxH,
-    effectivePuntataH,
+    effectivePuntataH: effectivePuntataH_base,
     resolvedTargetMaturationPct: targetMaturationPct,
     resolvedBubbleThresholdPct: bubbleThresholdPct,
     diagnostics: {

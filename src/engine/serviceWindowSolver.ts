@@ -29,6 +29,9 @@ export interface SolveServiceWindowInput {
   containerPreset?: string;
   prefermenti?: Array<{ flourFraction?: number }>;
   initialMaturationOffset?: number;
+  style?: 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';
+  userTargetMaturationPct?: number;
+  userBubbleThresholdPct?: number;
   targetMaturationPct?: number;
   bubbleThresholdPct?: number;
   thermalServiceTargetC?: number;
@@ -91,10 +94,7 @@ export interface SolveServiceWindowResult {
 export interface SolveNowAnchoredWindowInput extends SolveServiceWindowInput {
   now: Date;
   fridgeTempMin?: number;
-  style?: 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';
-  userTargetMaturationPct?: number;  // range [70, 100] — override manuale
-  userBubbleThresholdPct?: number;   // range [75, 100] — override manuale
-  overshootTolerance?: number;       // default 2.0
+  overshootTolerance?: number;  // default 2.0
 }
 
 export interface SimulateTimelineSample {

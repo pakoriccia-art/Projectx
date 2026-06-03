@@ -107,6 +107,7 @@ export function computeNowAnchoredAlarms(input) {
         agentDosePct, W0, hydration, salt, waterHardnessPpm, initialPH,
         totalFlourGrams, numPanetti, containerPreset,
         prefermenti, initialMaturationOffset,
+        style, userTargetMaturationPct,
         targetMaturationPct, bubbleThresholdPct, thermalServiceTargetC,
         puntataKickoffH, staglioH, doseRefPct, doseMinPct, doseMaxPct, subStepH,
       });
