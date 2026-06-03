@@ -21,7 +21,7 @@ import { Card, Metric, SnapButtons, S } from '../ui';
 import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
-  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
 } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
@@ -567,9 +567,9 @@ function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; valu
   );
 }
 
-function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, onUse }: {
+function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, puntataKickoffH, onUse }: {
   result: NowAnchoredAlarmResult; serviceStart: Date | null;
-  serviceDurationH: number; bubbleThresholdPct: number; onUse: () => void;
+  serviceDurationH: number; bubbleThresholdPct: number; puntataKickoffH: number; onUse: () => void;
 }) {
   const fmt = (d: Date) => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const inf = result.infeasibility;
@@ -699,6 +699,34 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         <ConstraintChip ok={c2ok} label="C2 · maturazione fine servizio" value={`${end.maturationPct.toFixed(0)}%`} />
         <ConstraintChip ok={c3ok} label="C3 · lievitazione fine servizio" value={`${end.leaveningPct.toFixed(0)}% / ${bubbleThresholdPct}%`} />
       </div>
+
+      {result.matWarning === 'NEAR_CEILING' && (
+        <div style={{
+          background: 'rgba(255,209,102,0.15)', border: '1px solid #ffd166',
+          borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+        }}>
+          <span style={{ color: '#ffd166', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+            ⚠ Maturazione al limite ({result.enzymaticMatAtServiceEnd?.toFixed(1)}%) —
+            T_frigo al minimo ({result.recommendedFridgeTempC}°C).
+            Considera di ridurre il target di 1–2%.
+          </span>
+        </div>
+      )}
+
+      {result.puntataMaxH != null &&
+       result.effectivePuntataH != null &&
+       result.effectivePuntataH < puntataKickoffH && (
+        <div style={{
+          background: 'rgba(116,185,255,0.1)', border: '1px solid #74b9ff',
+          borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+        }}>
+          <span style={{ color: '#74b9ff', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+            ℹ Puntata ridotta a {result.effectivePuntataH.toFixed(1)}h
+            (max per stile: {result.puntataMaxH.toFixed(1)}h) —
+            tempo residuo spostato in TC.
+          </span>
+        </div>
+      )}
 
       {/* Inizio vs fine */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -1026,6 +1054,7 @@ export function FermentationPlannerView() {
   const [serviceTime, setServiceTime] = useState('19:00');
   const [serviceDurationH, setServiceDurationH] = useState(2);
   const [bubbleThresholdPct, setBubbleThresholdPct] = useState(SERVICE_WINDOW_DEFAULTS.bubbleThresholdPct);
+  const [userTargetMatPct, setUserTargetMatPct] = useState<number | null>(null);
 
   // Clock reattivo per countdown live (KB §11.3 — evita Date.now() in useMemo)
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -1174,13 +1203,15 @@ export function FermentationPlannerView() {
         containerPreset: 'closed_box',
         prefermenti: pref ? [{ flourFraction: pref.flourFraction }] : [],
         initialMaturationOffset: 0,
+        style,
+        userTargetMaturationPct: userTargetMatPct ?? undefined,
         bubbleThresholdPct,
         staglioH,
         salt,
         fridgeTempMin: 2,
       }) as NowAnchoredAlarmResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, bubbleThresholdPct, staglioH, salt]);
+  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, style, userTargetMatPct, bubbleThresholdPct, staglioH, salt]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
   const useServiceResult = (r: NowAnchoredAlarmResult) => {
@@ -1221,7 +1252,7 @@ export function FermentationPlannerView() {
       kneadingMethod,
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
       bubbleThresholdPct,
-      alertThreshold:   90,                   // target modalità finestra servizio = 90%
+      alertThreshold:   r.resolvedTargetMaturationPct ?? 90,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -1474,8 +1505,40 @@ export function FermentationPlannerView() {
             <PlannerSlider label="Soglia anti-bolle (lievitazione)" value={bubbleThresholdPct} onChange={setBubbleThresholdPct}
               min={60} max={95} step={1} unit="%" color="var(--state-approaching)" />
           </div>
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 13, color: '#a09070', display: 'block', marginBottom: 4 }}>
+              Target maturazione (enzimatica)
+              {userTargetMatPct == null && (
+                <span style={{ color: '#555', marginLeft: 6 }}>
+                  Profilo {style}: {getStyleProfile(style).alertThreshold}%
+                </span>
+              )}
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="range" min={70} max={100} step={1}
+                value={userTargetMatPct ?? getStyleProfile(style).alertThreshold}
+                onChange={e => setUserTargetMatPct(Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, minWidth: 36 }}>
+                {userTargetMatPct ?? getStyleProfile(style).alertThreshold}%
+              </span>
+              {userTargetMatPct != null && (
+                <button
+                  onClick={() => setUserTargetMatPct(null)}
+                  style={{ fontSize: 11, color: '#a09070', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize: 11, color: '#555', margin: '4px 0 0', fontFamily: 'var(--font-mono)' }}>
+              Abbassa per accettare maturazione parziale · Alza per spingere al massimo
+            </p>
+          </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 10 }}>
-            La finestra è a {tAmb}°C (palline fuori dal frigo). Target maturazione 90% a fine servizio.
+            La finestra è a {tAmb}°C (palline fuori dal frigo). Target maturazione {userTargetMatPct ?? getStyleProfile(style).alertThreshold}% a fine servizio.
           </div>
         </Card>
       )}
@@ -1483,6 +1546,7 @@ export function FermentationPlannerView() {
       {plannerMode === 'service' && serviceResult && (
         <ServiceWindowResultCard result={serviceResult} serviceStart={serviceStart}
           serviceDurationH={serviceDurationH} bubbleThresholdPct={bubbleThresholdPct}
+          puntataKickoffH={SERVICE_WINDOW_DEFAULTS.puntataKickoffH}
           onUse={() => useServiceResult(serviceResult)} />
       )}
 

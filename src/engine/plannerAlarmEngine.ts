@@ -43,6 +43,12 @@ export interface NowAnchoredAlarmResult {
   timeline?: import('../db/db').PhaseSegment[];
   bakeTargetElapsedH?: number;
   maxSafeServiceWindowH?: number;
+  puntataMaxH?: number;
+  effectivePuntataH?: number;
+  matWarning?: 'NEAR_CEILING';
+  enzymaticMatAtServiceEnd?: number;
+  resolvedTargetMaturationPct?: number;
+  resolvedBubbleThresholdPct?: number;
   infeasibility?: {
     reason: string;
     maxSafeServiceWindowH?: number;

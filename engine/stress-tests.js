@@ -4,7 +4,7 @@
  * Esegui con: node engine/stress-tests.js
  */
 import * as e from './engine-v2.4.0.js';
-import { solveNowAnchoredWindow } from './serviceWindowSolver.js';
+import { solveNowAnchoredWindow, buildServiceWindowTimeline } from './serviceWindowSolver.js';
 
 let passed = 0, failed = 0;
 
@@ -1188,6 +1188,141 @@ console.log('\n§ ST-STYLE — Style Profile Parameters (v2.4.4)');
   const pUnknown = e.getStyleProfile('unknown');
   assert(pUndef.alertThreshold   === 80, 'ST-STYLE-10a getStyleProfile(undefined) → napoletana');
   assert(pUnknown.alertThreshold === 80, 'ST-STYLE-10b getStyleProfile("unknown") → napoletana');
+}
+
+// ─────────────────────────────────────────────────────────────
+// ST-SOLVER — v2.4.5: puntataMaxH, overshootTolerance, resolveTargetMaturationPct
+// ─────────────────────────────────────────────────────────────
+
+// Base condiviso per i test ST-SOLVER (stesso base di ST-STYLE-09 — finestra 24h feasible)
+const _solverBase = (() => {
+  const agent = e.AGENT_GOMPERTZ.fresh_yeast;
+  const now   = new Date('2026-06-03T00:00:00');
+  const serviceStart = new Date('2026-06-03T22:00:00'); // +22h → totalH=24h
+  return {
+    now, serviceStart, serviceDurationH: 2,
+    ambientTempC: 22, fridgeTempC: 4, fridgeTempMin: 2,
+    agentType: 'fresh_yeast', agentMuMax: agent.muMax, agentLambda: agent.lambda,
+    agentEaKj: agent.Ea_kJ, agentAsymptote: 100, agentDosePct: 0.3,
+    W0: 280, hydration: 65, salt: 2.8,
+    totalFlourGrams: 1000, numPanetti: 1, containerPreset: 'bare',
+  };
+})();
+
+// ST-SOLVER-01: findHoursAtEnzMatPct via computePuntataMaxH — Contemporanea a 22°C
+// puntataMatPct_target=30. Il tempo effettivo dipende da fArrhenius(22) del modello.
+{
+  const prof = e.getStyleProfile('contemporanea');
+  const { muMax, lambda, A } = e.ENZYMATIC_CLOCK_PARAMS;
+  const subStepH = 0.05;
+  let enzAdu = 0;
+  let hFound = 10.0;
+  for (let step = 0; step < 200; step++) {
+    if (e.gompertz(enzAdu, muMax, lambda, A) >= prof.puntataMatPct_target) { hFound = step * subStepH; break; }
+    enzAdu += e.fArrhenius(22) * subStepH;
+  }
+  assert(hFound > 0 && hFound < 10.0,
+    'ST-SOLVER-01 findHoursAtEnzMatPct(30, 22) è finito (< 10h fallback)',
+    `got ${hFound.toFixed(2)}h`);
+}
+
+// ST-SOLVER-02: findHoursAtEnzMatPct — Napoletana a 22°C
+// puntataMatPct_target=10 < 30 → deve richiedere meno ore di contemp.
+{
+  const profNap = e.getStyleProfile('napoletana');
+  const profCon = e.getStyleProfile('contemporanea');
+  const { muMax, lambda, A } = e.ENZYMATIC_CLOCK_PARAMS;
+  const findH = (target) => {
+    let enzAdu = 0, h = 10.0;
+    for (let s = 0; s < 200; s++) {
+      if (e.gompertz(enzAdu, muMax, lambda, A) >= target) { h = s * 0.05; break; }
+      enzAdu += e.fArrhenius(22) * 0.05;
+    }
+    return h;
+  };
+  const hNap = findH(profNap.puntataMatPct_target);
+  const hCon = findH(profCon.puntataMatPct_target);
+  assert(hNap < hCon,
+    'ST-SOLVER-02 findHoursAtEnzMatPct: napoletana(10%) richiede meno ore di contemporanea(30%)',
+    `nap=${hNap.toFixed(2)}h con=${hCon.toFixed(2)}h`);
+}
+
+// ST-SOLVER-03: resolvedTargetMaturationPct esposto in tutti i path — napoletana
+// Il base 24h con stile napoletana è feasible (verificato da ST-STYLE-09)
+{
+  const r3 = solveNowAnchoredWindow({ ..._solverBase, style: 'napoletana' });
+  assert(r3.resolvedTargetMaturationPct === 80,
+    'ST-SOLVER-03 napoletana → resolvedTargetMaturationPct=80 (qualsiasi path)',
+    `got ${r3.resolvedTargetMaturationPct}`);
+  assert(r3.resolvedBubbleThresholdPct === 85,
+    'ST-SOLVER-03b napoletana → resolvedBubbleThresholdPct=85',
+    `got ${r3.resolvedBubbleThresholdPct}`);
+}
+
+// ST-SOLVER-04: resolvedTargetMaturationPct esposto anche in infeasible path
+// (window_too_short_maturation: 24h con target=90% default → infeasible)
+{
+  const r4 = solveNowAnchoredWindow(_solverBase); // no style → target=90 → infeasible
+  assert(!r4.feasible && r4.infeasibility?.reason === 'window_too_short_maturation',
+    'ST-SOLVER-04 base 24h + no style → window_too_short_maturation');
+  assert(r4.resolvedTargetMaturationPct === 90,
+    'ST-SOLVER-04b resolvedTargetMaturationPct=90 anche in infeasible',
+    `got ${r4.resolvedTargetMaturationPct}`);
+}
+
+// ST-SOLVER-05: userTargetMaturationPct=75 vince su stile napoletana (alertThr=80)
+{
+  const r5 = solveNowAnchoredWindow({ ..._solverBase, style: 'napoletana', userTargetMaturationPct: 75 });
+  assert(r5.resolvedTargetMaturationPct === 75,
+    'ST-SOLVER-05 userTargetMaturationPct=75 vince su stile napoletana (alertThr=80)',
+    `got ${r5.resolvedTargetMaturationPct}`);
+}
+
+// ST-SOLVER-06: no override + stile napoletana → resolved=80
+{
+  const r6 = solveNowAnchoredWindow({ ..._solverBase, style: 'napoletana' });
+  assert(r6.resolvedTargetMaturationPct === 80,
+    'ST-SOLVER-06 no override + style napoletana → resolved=80',
+    `got ${r6.resolvedTargetMaturationPct}`);
+}
+
+// ST-SOLVER-07: resolveTargetMaturationPct — no override, no style → fallback globale 90
+{
+  const now7 = new Date('2026-06-03T00:00:00Z');
+  const r7 = solveNowAnchoredWindow({
+    now: now7,
+    serviceStart: new Date('2026-06-04T08:00:00Z'),
+    serviceDurationH: 2,
+    ambientTempC: 22, fridgeTempC: 4, fridgeTempMin: 2,
+    agentType: 'fresh_yeast', agentEaKj: 65, agentMuMax: 0.35, agentLambda: 3.5,
+    agentDosePct: 0.3, W0: 280, hydration: 65, salt: 2.5,
+    totalFlourGrams: 1000, numPanetti: 4, containerPreset: 'closed_box',
+  });
+  assert(r7.resolvedTargetMaturationPct === 90,
+    'ST-SOLVER-07 no override + no style → resolved=90 (fallback globale)',
+    `got ${r7.resolvedTargetMaturationPct}`);
+}
+
+// ST-SOLVER-08: buildServiceWindowTimeline con puntataMaxH=2, puntataH=13
+// effectivePuntataH=2, extraH=11 spostato in TC, totalH invariato
+{
+  const tl = buildServiceWindowTimeline({
+    puntataH: 13, puntataMaxH: 2, staglioH: 0.5,
+    tcHours: 8, temperingH: 1, serviceDurationH: 2,
+    ambientTempC: 22, fridgeTempC: 4,
+  });
+  const puntataPhase = tl.find(p => p.phaseType === 'bulk_room');
+  const fridgePhase  = tl.find(p => p.phaseType === 'balled_fridge');
+  const totalH = tl[tl.length - 1].endElapsedH;
+  assert(puntataPhase != null && Math.abs(puntataPhase.endElapsedH - puntataPhase.startElapsedH - 2) < 0.01,
+    'ST-SOLVER-08a buildServiceWindowTimeline puntataMaxH=2 → effectivePuntataH=2',
+    `got ${(puntataPhase?.endElapsedH ?? 0) - (puntataPhase?.startElapsedH ?? 0)}`);
+  assert(fridgePhase != null && Math.abs((fridgePhase.endElapsedH - fridgePhase.startElapsedH) - 19) < 0.01,
+    'ST-SOLVER-08b tcH = 8 + 11 (extra) = 19',
+    `got ${(fridgePhase?.endElapsedH ?? 0) - (fridgePhase?.startElapsedH ?? 0)}`);
+  assert(Math.abs(totalH - (2 + 0.5 + 19 + 1 + 2)) < 0.01,
+    'ST-SOLVER-08c totalH invariato = 24.5',
+    `got ${totalH}`);
 }
 
 // ─────────────────────────────────────────────────────────────

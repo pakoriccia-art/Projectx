@@ -77,6 +77,12 @@ export interface SolveServiceWindowResult {
   timeline?: PhaseSegment[];
   bakeTargetElapsedH?: number;
   maxSafeServiceWindowH?: number;
+  puntataMaxH?: number;
+  effectivePuntataH?: number;
+  matWarning?: 'NEAR_CEILING';
+  enzymaticMatAtServiceEnd?: number;
+  resolvedTargetMaturationPct?: number;
+  resolvedBubbleThresholdPct?: number;
   diagnostics?: Record<string, number | string | boolean>;
   infeasibility?: ServiceWindowInfeasibility;
 }
@@ -85,7 +91,10 @@ export interface SolveServiceWindowResult {
 export interface SolveNowAnchoredWindowInput extends SolveServiceWindowInput {
   now: Date;
   fridgeTempMin?: number;
-  style?: 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';  // v2.4.4
+  style?: 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';
+  userTargetMaturationPct?: number;  // range [70, 100] — override manuale
+  userBubbleThresholdPct?: number;   // range [75, 100] — override manuale
+  overshootTolerance?: number;       // default 2.0
 }
 
 export interface SimulateTimelineSample {
