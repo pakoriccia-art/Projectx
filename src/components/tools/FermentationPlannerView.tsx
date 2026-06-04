@@ -527,6 +527,13 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
   );
 }
 
+// ─── Grammi lievito ──────────────────────────────────────────────────────────
+function computeGrammiLievito(pesoFarinaG: number, dosePct: number, agentType: string): string {
+  const grammi = (pesoFarinaG * dosePct) / 100;
+  if (agentType === 'sourdough_wheat') return `${Math.round(grammi)}g lievito madre`;
+  return `${grammi.toFixed(1)}g`;
+}
+
 // ─── Slider con label inline ──────────────────────────────────────────────────
 function PlannerSlider({ label, value, onChange, min, max, step, unit, color }: {
   label: string; value: number; onChange: (v: number) => void;
@@ -1107,6 +1114,14 @@ export function FermentationPlannerView() {
   const [pesoPanetto,   setPesoPanetto]   = useState(250);
   const [farinaManuale, setFarinaManuale] = useState(false);
 
+  // Bug #65: ricalcola farina quando idratazione o sale cambiano (a meno di override manuale)
+  useEffect(() => {
+    if (farinaManuale) return;
+    const divisore = 1 + hydration / 100 + salt / 100;
+    if (divisore <= 0) return;
+    setTotalFlourG(Math.max(50, Math.round((numPanetti * pesoPanetto) / divisore)));
+  }, [numPanetti, pesoPanetto, hydration, salt, farinaManuale]);
+
   // Prefermento rimosso dal planner (v2.4.6) — sempre null per il solver di servizio
   const pref: PrefConfig | null = null;
 
@@ -1565,6 +1580,12 @@ export function FermentationPlannerView() {
           <PlannerSlider label={`Dose lievito (% su farina)`}
             value={dosePct} onChange={setDosePct}
             {...doseRange} color="var(--accent-brand)" />
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -10 }}>
+            {dosePct}% su {totalFlourG}g farina ={' '}
+            <strong style={{ color: 'var(--accent-brand)' }}>
+              {computeGrammiLievito(totalFlourG, dosePct, agentType)}
+            </strong>
+          </div>
         </div>
       </Card>
 

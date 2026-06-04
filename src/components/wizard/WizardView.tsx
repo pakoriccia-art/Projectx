@@ -926,6 +926,12 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   );
 }
 
+function computeGrammiLievito(pesoFarinaG: number, dosePct: number, agentType: string): string {
+  const grammi = (pesoFarinaG * dosePct) / 100;
+  if (agentType === 'sourdough_wheat') return `${Math.round(grammi)}g lievito madre`;
+  return `${grammi.toFixed(1)}g`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STEP 5 — Agente + malto
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -965,13 +971,19 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           update({ agentType: v as any, agentDosePct: defaults[v] ?? 0.3 });
         }}
       />
-      {draft.agentType && (
+      {draft.agentType && (<>
         <SliderInput
           label={doseLabel} value={draft.agentDosePct ?? doseRange[0]}
           onChange={v => update({ agentDosePct: v })}
           min={doseRange[0]} max={doseRange[1]}
           step={draft.agentType === 'sourdough_wheat' ? 1 : 0.05} unit="%" />
-      )}
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -8 }}>
+          {draft.agentDosePct ?? doseRange[0]}% su {draft.totalFlourGrams ?? 1000}g farina ={' '}
+          <strong style={{ color: 'var(--accent-brand)' }}>
+            {computeGrammiLievito(draft.totalFlourGrams ?? 1000, draft.agentDosePct ?? doseRange[0], draft.agentType)}
+          </strong>
+        </div>
+      </>)}
 
       <button
         onClick={() => { setShowMalt(s => !s); if (showMalt) update({ maltDosePct: undefined }); }}
@@ -1359,6 +1371,9 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Metric label="Tipo" value={agentLabel[draft.agentType ?? ''] ?? draft.agentType ?? '–'} />
           <Metric label="Dose" value={draft.agentDosePct ?? '–'} unit="%" />
+          {draft.agentType && draft.agentDosePct != null && (draft.totalFlourGrams ?? 0) > 0 && (
+            <Metric label="Grammi lievito" value={computeGrammiLievito(draft.totalFlourGrams!, draft.agentDosePct, draft.agentType)} />
+          )}
           {(draft.maltDosePct ?? 0) > 0 && <Metric label="Malto" value={draft.maltDosePct!} unit="%" />}
         </div>
       </Card>

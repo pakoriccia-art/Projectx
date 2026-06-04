@@ -37,15 +37,16 @@ export const SERVICE_WINDOW_DEFAULTS = {
 
 const HOUR_MS = 3_600_000;
 
-// ─── Helper: dose di riferimento per scaling muMax ───────────────────────────
+// ─── Helper: dose di riferimento per scaling muMax (KB §2.3) ─────────────────
+// v2.4.7: LBF refDose corretta a 0.25 (da 0.30); LM abilitato con refDose=20
 function defaultDoseRef(agentType) {
-  return agentType === 'fresh_yeast' ? 0.3
-    : agentType === 'instant_dry_yeast' ? 0.1
-    : null;  // sourdough: nessun scaling lineare
+  return agentType === 'fresh_yeast'       ? 0.25
+    : agentType === 'instant_dry_yeast'    ? 0.10
+    : /* sourdough_wheat */                  20.0;
 }
 
 function muMaxScaledFor(dose, agentMuMax, doseRefPct) {
-  if (doseRefPct == null) return agentMuMax;   // sourdough
+  if (doseRefPct == null) return agentMuMax;
   return agentMuMax * Math.max(0.1, Math.min(2, dose / doseRefPct));
 }
 
@@ -409,20 +410,9 @@ export function solveNowAnchoredWindow(input) {
     const leaveningAtEnd_nc = (d) => simulateTimeline(ncSegs, initState_nc,
       { ...baseOpts, muMaxScaled: muMaxScaledFor(d, agentMuMax, doseRef) }).final.leaveningPct;
 
-    let dose_nc = agentDosePct, bubbleCapped_nc = false;
-    if (doseRef != null) {
-      const dMin_nc = doseMinPct ?? doseRef * 0.1;
-      const dMax_nc = doseMaxPct ?? doseRef * 2;
-      if (leaveningAtEnd_nc(dMin_nc) > bubbleThresholdPct) {
-        dose_nc = dMin_nc; bubbleCapped_nc = true;
-      } else if (leaveningAtEnd_nc(dMax_nc) < bubbleThresholdPct) {
-        dose_nc = dMax_nc;
-      } else {
-        dose_nc = bisectIncreasing(leaveningAtEnd_nc, bubbleThresholdPct, dMin_nc, dMax_nc, 0.1);
-      }
-    } else {
-      bubbleCapped_nc = leaveningAtEnd_nc(agentDosePct) > bubbleThresholdPct;
-    }
+    // v2.4.7: usa la dose utente direttamente (no auto-bisection C3)
+    const dose_nc = agentDosePct;
+    const bubbleCapped_nc = leaveningAtEnd_nc(dose_nc) > bubbleThresholdPct;
 
     const ncMu = muMaxScaledFor(dose_nc, agentMuMax, doseRef);
     const finalSim_nc = simulateTimeline(ncSegs, initState_nc, { ...baseOpts, muMaxScaled: ncMu });
@@ -517,30 +507,16 @@ export function solveNowAnchoredWindow(input) {
     { phaseType: 'proofing',      durationH: serviceDurationH,       ambientTempC },
   ].filter(s => s.durationH > 1e-6);
 
-  // C3: bisezione dose per soglia bolle (schedule fisso)
+  // C3: verifica soglia bolle con dose utente (v2.4.7: no auto-bisection)
   const initState = { tempDough: ambientTempC, leavAdu: 0, enzAdu: enzSeed, wDamage: 0 };
-  const leaveningAtEnd = (dose) => simulateTimeline(fullSegs, initState,
-    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) }).final.leaveningPct;
+  const muForDose = muMaxScaledFor(agentDosePct, agentMuMax, doseRef);
+  const dose = agentDosePct;
+  const bubbleCapped = simulateTimeline(fullSegs, initState,
+    { ...baseOpts, muMaxScaled: muForDose }).final.leaveningPct > bubbleThresholdPct;
 
-  let dose = agentDosePct;
-  let bubbleCapped = false;
-  if (doseRef != null) {
-    const dMin = doseMinPct ?? doseRef * 0.1;
-    const dMax = doseMaxPct ?? doseRef * 2;
-    if (leaveningAtEnd(dMin) > bubbleThresholdPct) {
-      dose = dMin; bubbleCapped = true;
-    } else if (leaveningAtEnd(dMax) < bubbleThresholdPct) {
-      dose = dMax;
-    } else {
-      dose = bisectIncreasing(leaveningAtEnd, bubbleThresholdPct, dMin, dMax, 0.1);
-    }
-  } else {
-    bubbleCapped = leaveningAtEnd(agentDosePct) > bubbleThresholdPct;
-  }
-
-  // Simulazione finale
+  // Simulazione finale (usa muForDose già calcolato)
   const finalSim = simulateTimeline(fullSegs, initState,
-    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) });
+    { ...baseOpts, muMaxScaled: muForDose });
   const end = finalSim.final;
 
   // Stato a serviceStart (prima del segmento servizio) per finestra sicura
@@ -551,14 +527,14 @@ export function solveNowAnchoredWindow(input) {
     { phaseType: 'proofing',      durationH: temperingH,             ambientTempC },
   ].filter(s => s.durationH > 1e-6);
   const preServiceSim = simulateTimeline(preServiceSegs, initState,
-    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) });
+    { ...baseOpts, muMaxScaled: muForDose });
   const openState = {
     tempDough: preServiceSim.final.tempDough, leavAdu: preServiceSim.final.leavAdu,
     enzAdu: preServiceSim.final.enzAdu,       wDamage: preServiceSim.final.wDamage,
   };
   const { maxSafeServiceWindowH, binding } = computeMaxSafeServiceWindow(
     openState,
-    { ...baseOpts, muMaxScaled: muMaxScaledFor(dose, agentMuMax, doseRef) },
+    { ...baseOpts, muMaxScaled: muForDose },
     { targetMaturationPct: targetMaturationPct, bubbleThresholdPct: bubbleThresholdPct, W0, ambientTempC },
   );
 
