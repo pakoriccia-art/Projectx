@@ -144,6 +144,8 @@ export const WizardInputSchema = z.object({
   thermalTimeline:  z.array(z.object({}).passthrough()).optional(),
   bubbleThresholdPct: z.number().min(50).max(99).optional(),
   alertThreshold:   z.number().min(50).max(100).optional(),
+  // Navigazione: traccia l'origine del percorso verso il riepilogo
+  navigationSource: z.enum(['planner']).optional(),
 }).strict();
 
 export type WizardInput = z.infer<typeof WizardInputSchema>;
