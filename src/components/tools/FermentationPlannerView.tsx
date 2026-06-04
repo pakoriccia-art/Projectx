@@ -1040,6 +1040,28 @@ export function FermentationPlannerView() {
   const [hydration,   setHydration]   = useState(65);
   const [numPanetti,  setNumPanetti]  = useState(4);
 
+  // Handler reattivi numPanetti ↔ pesoPanetto → farina
+  const handleNumPanettiChange = (val: number) => {
+    setNumPanetti(val);
+    if (!farinaManuale) {
+      setTotalFlourG(Math.max(50, Math.round((val * pesoPanetto) / (1 + hydration / 100 + salt / 100))));
+    }
+  };
+  const handlePesoPanettoChange = (val: number) => {
+    setPesoPanetto(val);
+    if (!farinaManuale) {
+      setTotalFlourG(Math.max(50, Math.round((numPanetti * val) / (1 + hydration / 100 + salt / 100))));
+    }
+  };
+  const handleFarinaChange = (val: number) => {
+    setTotalFlourG(val);
+    setFarinaManuale(true);
+  };
+  const resetFarinaCalcolata = () => {
+    setFarinaManuale(false);
+    setTotalFlourG(Math.max(50, Math.round((numPanetti * pesoPanetto) / (1 + hydration / 100 + salt / 100))));
+  };
+
   // Target cottura
   const [targetDate,  setTargetDate]  = useState('');
   const [targetTime,  setTargetTime]  = useState('12:00');
@@ -1072,17 +1094,21 @@ export function FermentationPlannerView() {
     return diffMs > 0 ? diffMs / 3_600_000 : undefined;
   }, [targetDate, targetTime, nowMs]);
 
-  // Prefermento opzionale
-  const [hasPref,     setHasPref]     = useState(false);
-  const [prefType,    setPrefType]    = useState<'poolish' | 'biga' | 'riporto'>('biga');
-  const [prefFrac,    setPrefFrac]    = useState(40);
-  const [prefYeast,   setPrefYeast]   = useState(0.10);
-  const [prefTemp,    setPrefTemp]    = useState(16);
-  const [prefDur,     setPrefDur]     = useState(16);
+  // Mix farine (blend builder)
+  const [useBlend,     setUseBlend]    = useState(false);
+  const [blendFlours,  setBlendFlours] = useState<{ W: number; pct: number }[]>([{ W: 300, pct: 100 }]);
 
-  const pref: PrefConfig | null = hasPref
-    ? { type: prefType, flourFraction: prefFrac, yeastPct: prefType === 'riporto' ? 0 : prefYeast, tempC: prefTemp, durationH: prefDur }
+  // W effettivo: da blend o da slider singolo
+  const effectiveBlendW = useBlend && blendFlours.length > 0
+    ? Math.round(blendFlours.reduce((s, f) => s + f.W * f.pct / 100, 0))
     : null;
+
+  // Peso panetto e flag override manuale farina (MODIFICA 2B)
+  const [pesoPanetto,   setPesoPanetto]   = useState(250);
+  const [farinaManuale, setFarinaManuale] = useState(false);
+
+  // Prefermento rimosso dal planner (v2.4.6) — sempre null per il solver di servizio
+  const pref: PrefConfig | null = null;
 
   // Parametri agente Gompertz
   const agent   = AGENT_GOMPERTZ as any;
@@ -1109,24 +1135,27 @@ export function FermentationPlannerView() {
     return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef);
   })();
 
+  // W effettivo passato al solver — usa blend se attivo, altrimenti slider singolo
+  const solverW = effectiveBlendW ?? W;
+
   // Calcolo ottimale per tutti i protocolli (targetTotalH dalle ore fino a cottura)
   const results = useMemo(() => {
     try {
-      return computeAllProtocols({ W, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner, rampAdu: rampAduPlanner });
+      return computeAllProtocols({ W: solverW, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner, rampAdu: rampAduPlanner });
     } catch { return []; }
-  }, [W, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner]);
+  }, [solverW, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner]);
 
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
-    // FlourGroup sintetico dal W selezionato nel planner
+    // FlourGroup sintetico dal W selezionato nel planner (blend o singolo)
     const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
-    const flourArr = [{
-      name: selectedEntry?.name ?? 'Farina',
-      brand: selectedEntry?.brand ?? '',
-      W, pl: flourPl, protein: flourProtein,
-      ash: selectedEntry?.ash ?? 0.55,
-      percentage: 100,
-    }];
+    const flourArr = useBlend && blendFlours.length > 0
+      ? blendFlours.map((bf, i) => ({
+          name: `Farina ${i + 1}`, brand: '', W: bf.W, pl: flourPl, protein: flourProtein,
+          ash: 0.55, percentage: bf.pct,
+        }))
+      : [{ name: selectedEntry?.name ?? 'Farina', brand: selectedEntry?.brand ?? '',
+           W: solverW, pl: flourPl, protein: flourProtein, ash: selectedEntry?.ash ?? 0.55, percentage: 100 }];
     const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
 
     // Target cottura (opzionale)
@@ -1135,28 +1164,12 @@ export function FermentationPlannerView() {
       targetBakeAt = new Date(`${targetDate}T${targetTime}`);
     }
 
-    // Protocollo wizard (direct vs single_pref)
-    const protocol = hasPref ? ('single_pref' as const) : ('direct' as const);
-
-    // Prefermento per wizard (se presente)
-    const prefHydration = prefType === 'biga' ? 48 : prefType === 'riporto' ? 65 : 100;
-    const prefermenti = hasPref ? [{
-      id: `planner_${Date.now()}`,
-      type: prefType,
-      flourGroup: mainFlourGroup,
-      flourFraction: prefFrac,
-      hydration: prefHydration,
-      tempC: prefTemp,
-      durationH: prefDur,
-      yeastPct: prefType === 'riporto' ? undefined : prefYeast,
-    }] : [];
-
     // Transizione atomica: reset + patch + step 8 in un solo dispatch (evita flash Step1)
     dispatch({ type: 'WIZARD_RESET_WITH_PATCH', step: 8, patch: {
       style,
-      protocol,
+      protocol: 'direct' as const,
       mainFlourGroup,
-      prefermenti,
+      prefermenti: [],
       agentType,
       agentDosePct:     dosePct,
       apprettoProtocol: r.protocol,
@@ -1197,12 +1210,12 @@ export function FermentationPlannerView() {
         agentMuMax: aParams.muMax,
         agentLambda: aParams.lambda,
         agentDosePct: dosePct,
-        W0: W,
+        W0: solverW,
         hydration,
         totalFlourGrams: totalFlourG,
         numPanetti,
         containerPreset: 'closed_box',
-        prefermenti: pref ? [{ flourFraction: pref.flourFraction }] : [],
+        prefermenti: [],
         initialMaturationOffset: 0,
         style,
         userTargetMaturationPct: userTargetMatPct ?? undefined,
@@ -1212,7 +1225,7 @@ export function FermentationPlannerView() {
         fridgeTempMin: 2,
       }) as NowAnchoredAlarmResult;
     } catch { return null; }
-  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, W, hydration, totalFlourG, numPanetti, pref, style, userTargetMatPct, userBubbleThresholdPct, staglioH, salt]);
+  }, [plannerMode, serviceStart, serviceDurationH, nowMs, tAmb, fridgeT, agentType, aParams, dosePct, solverW, hydration, totalFlourG, numPanetti, style, userTargetMatPct, userBubbleThresholdPct, staglioH, salt]);
 
   // Carica il piano servizio come sessione: timeline precomputata → wizard step 8
   const useServiceResult = (r: NowAnchoredAlarmResult) => {
@@ -1220,22 +1233,15 @@ export function FermentationPlannerView() {
     const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
     const flourArr = [{
       name: selectedEntry?.name ?? 'Farina', brand: selectedEntry?.brand ?? '',
-      W, pl: flourPl, protein: flourProtein, ash: selectedEntry?.ash ?? 0.55, percentage: 100,
+      W: solverW, pl: flourPl, protein: flourProtein, ash: selectedEntry?.ash ?? 0.55, percentage: 100,
     }];
     const mainFlourGroup = (normalizeFlourGroup as Function)(flourArr) as any;
-    const protocol = hasPref ? ('single_pref' as const) : ('direct' as const);
-    const prefHydration = prefType === 'biga' ? 48 : prefType === 'riporto' ? 65 : 100;
-    const prefermenti = hasPref ? [{
-      id: `planner_${Date.now()}`, type: prefType, flourGroup: mainFlourGroup,
-      flourFraction: prefFrac, hydration: prefHydration, tempC: prefTemp, durationH: prefDur,
-      yeastPct: prefType === 'riporto' ? undefined : prefYeast,
-    }] : [];
     // serviceEnd = targetBakeAt (i marker dashboard puntano a fine servizio)
     const targetBakeAt = new Date(serviceStart.getTime() + serviceDurationH * 3_600_000);
     const s = r.schedule!;
 
     dispatch({ type: 'WIZARD_RESET_WITH_PATCH', step: 8, patch: {
-      style, protocol, mainFlourGroup, prefermenti,
+      style, protocol: 'direct' as const, mainFlourGroup, prefermenti: [],
       agentType,
       agentDosePct:     r.dose ?? dosePct,
       apprettoProtocol: 'tc_appreto',
@@ -1368,22 +1374,37 @@ export function FermentationPlannerView() {
             onChange={v => setStyle(v as typeof style)}
           />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <PlannerSlider label="Farina totale" value={totalFlourG} onChange={setTotalFlourG}
-              min={100} max={13_000} step={50} unit="g" color="var(--text-primary)" />
-            <PlannerSlider label="Panetti" value={numPanetti} onChange={setNumPanetti}
-              min={1} max={20} step={1} color="var(--text-muted)" />
+            <PlannerSlider label="N° panetti" value={numPanetti} onChange={handleNumPanettiChange}
+              min={1} max={130} step={1} color="var(--text-muted)" />
+            <PlannerSlider label="Peso panetto" value={pesoPanetto} onChange={handlePesoPanettoChange}
+              min={80} max={500} step={5} unit="g" color="var(--text-primary)" />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <PlannerSlider label="Farina totale" value={totalFlourG} onChange={handleFarinaChange}
+                min={50} max={16_000} step={50} unit="g" color={farinaManuale ? 'var(--accent-warning)' : 'var(--text-primary)'} />
+            </div>
+            {farinaManuale && (
+              <button onClick={resetFarinaCalcolata} style={{
+                fontSize: 11, color: 'var(--text-muted)', background: 'none',
+                border: 'none', cursor: 'pointer', paddingTop: 18, whiteSpace: 'nowrap',
+              }}>
+                Ricalcola
+              </button>
+            )}
           </div>
           <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
             min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
           <PlannerSlider label="Sale" value={salt} onChange={setSalt}
             min={0} max={4} step={0.1} unit="%" color="var(--accent-info)" />
-          {/* Preview peso panetto */}
+          {/* Preview peso panetto calcolato */}
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-            Peso panetto stimato:{' '}
+            Peso impasto stimato:{' '}
             <strong style={{ color: 'var(--text-secondary)' }}>
               {Math.round(totalFlourG * (1 + hydration / 100 + salt / 100) / numPanetti)}g
             </strong>
-            {' '}(farina + acqua + {salt.toFixed(1)}% sale)
+            {' '}· farina totale:{' '}
+            <strong style={{ color: 'var(--text-secondary)' }}>{totalFlourG}g</strong>
           </div>
         </div>
       </Card>
@@ -1437,8 +1458,94 @@ export function FermentationPlannerView() {
               <option value="custom">✏️ Personalizzata</option>
             </select>
           </div>
-          <PlannerSlider label="Forza farina (W)" value={W} onChange={setW}
-            min={100} max={500} step={5} unit="W" color="var(--text-primary)" />
+          {/* Blend builder toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ ...S.label, flex: 1 }}>
+              {useBlend ? 'Mix farine' : 'Forza farina (W)'}
+            </span>
+            <button
+              onClick={() => setUseBlend(v => !v)}
+              style={{
+                fontSize: 11, fontFamily: 'var(--font-mono)',
+                color: useBlend ? 'var(--accent-brand)' : 'var(--text-muted)',
+                background: useBlend ? 'rgba(253,186,116,0.1)' : 'none',
+                border: `1px solid ${useBlend ? 'rgba(253,186,116,0.3)' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
+              }}
+            >
+              {useBlend ? '▼ Mix' : '+ Mix farine'}
+            </button>
+          </div>
+
+          {!useBlend && (
+            <PlannerSlider label="Forza farina (W)" value={W} onChange={setW}
+              min={100} max={500} step={5} unit="W" color="var(--text-primary)" />
+          )}
+
+          {useBlend && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {blendFlours.map((fl, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
+                      Farina {i + 1} — W
+                    </div>
+                    <input type="number" min={100} max={500} step={5}
+                      value={fl.W}
+                      onChange={e => {
+                        const next = [...blendFlours];
+                        next[i] = { ...next[i], W: Math.max(100, Math.min(500, Number(e.target.value))) };
+                        setBlendFlours(next);
+                      }}
+                      style={{
+                        width: '100%', background: 'var(--bg-elevated)', color: 'var(--text-primary)',
+                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
+                        padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>%</div>
+                    <input type="number" min={5} max={100} step={5}
+                      value={fl.pct}
+                      onChange={e => {
+                        const next = [...blendFlours];
+                        next[i] = { ...next[i], pct: Math.max(5, Math.min(100, Number(e.target.value))) };
+                        setBlendFlours(next);
+                      }}
+                      style={{
+                        width: '100%', background: 'var(--bg-elevated)', color: 'var(--text-primary)',
+                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
+                        padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => setBlendFlours(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)}
+                    style={{ fontSize: 14, color: 'var(--state-critical)', background: 'none', border: 'none', cursor: 'pointer', paddingBottom: 2 }}
+                  >×</button>
+                </div>
+              ))}
+              {blendFlours.length < 3 && (
+                <button
+                  onClick={() => setBlendFlours(prev => [...prev, { W: 300, pct: 20 }])}
+                  style={{
+                    fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent-brand)',
+                    background: 'none', border: '1px dashed rgba(253,186,116,0.3)',
+                    borderRadius: 6, padding: '5px 12px', cursor: 'pointer', width: '100%',
+                  }}
+                >
+                  + aggiungi farina
+                </button>
+              )}
+              {effectiveBlendW != null && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  W ponderato:{' '}
+                  <strong style={{ color: 'var(--accent-brand)' }}>{effectiveBlendW}</strong>
+                </div>
+              )}
+            </div>
+          )}
 
           <SnapButtons
             label="Agente lievitante"
@@ -1666,66 +1773,10 @@ export function FermentationPlannerView() {
       </Card>
       )}
 
-      {/* ── Prefermento ── */}
-      <Card>
-        <SnapButtons
-          label="Prefermento"
-          options={[
-            { value: 'none',    label: 'Nessuno',  desc: 'Impasto diretto' },
-            { value: 'poolish', label: 'Poolish',   desc: 'Idr. 100%' },
-            { value: 'biga',    label: 'Biga',      desc: 'Idr. 44–50%' },
-            { value: 'riporto', label: 'Riporto',   desc: 'Impasto vecchio' },
-          ]}
-          value={hasPref ? prefType : 'none'}
-          onChange={v => {
-            if (v === 'none') { setHasPref(false); }
-            else {
-              setHasPref(true);
-              setPrefType(v as 'poolish' | 'biga' | 'riporto');
-              // Default riporto: 20% farina, 24h, 20°C
-              if (v === 'riporto') { setPrefFrac(20); setPrefDur(24); setPrefTemp(20); setPrefYeast(0); }
-            }
-          }}
-        />
-
-        {hasPref && (
-          <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <PlannerSlider
-              label={prefType === 'riporto' ? '% impasto di riporto' : '% farina nel prefermento'}
-              value={prefFrac} onChange={setPrefFrac}
-              min={prefType === 'riporto' ? 5 : 10} max={prefType === 'riporto' ? 40 : 70} step={5}
-              unit="%" color="var(--pref-biga)" />
-            {prefType !== 'riporto' && (
-              <PlannerSlider label="Lievito nel prefermento" value={prefYeast} onChange={setPrefYeast}
-                min={0.01} max={prefType === 'biga' ? 1.0 : 0.5} step={0.01} unit="%" color="var(--accent-brand)" />
-            )}
-            {prefType === 'riporto' && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', padding: '8px 0' }}>
-                ℹ Il riporto porta lieviti vivi dal precedente impasto — nessun lievito aggiuntivo nel prefermento
-              </div>
-            )}
-            <PlannerSlider label="Temperatura prefermento" value={prefTemp} onChange={setPrefTemp}
-              min={4} max={26} step={0.5} unit="°C" />
-            <PlannerSlider label="Durata prefermento" value={prefDur} onChange={setPrefDur}
-              min={1} max={72} step={1} unit="h" color="var(--pref-biga)" />
-
-            {/* Info contributo yeast */}
-            {prefType !== 'riporto' && (
-              <Card elevated style={{ padding: '10px 14px', background: 'rgba(253,203,110,0.06)' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--accent-warning)' }}>
-                  Dose efficace totale: {effectiveDose.toFixed(3)}%
-                  {effectiveDose > (doseRef ?? 0.3) * 2 ? ' · lievito molto attivo 🚀' : ''}
-                </span>
-              </Card>
-            )}
-          </div>
-        )}
-      </Card>
-
       {/* ── Acqua di impastamento (DDT live) ── */}
       {plannerMode !== 'quality' && results.length > 0 && (() => {
         const waterG   = Math.round(totalFlourG * (hydration / 100));
-        const tPref    = hasPref ? prefTemp : undefined;
+        const tPref    = undefined;
         const ddtDef   = ddtForStyle(style);
         const wResult  = (computeWaterTempDDT as Function)({
           ddtTarget:       ddtDef,

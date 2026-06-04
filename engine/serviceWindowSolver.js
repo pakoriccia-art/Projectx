@@ -187,6 +187,21 @@ function computePuntataMaxH(style, ambientTempC) {
  * riusano la fase `proofing` (zero migrazione; l'integratore traccia tempDough
  * separato da ambientTempC, quindi la rampa di riscaldo è già modellata).
  */
+/**
+ * Stima la maturazione enzimatica % dopo puntataH ore a ambientTempC.
+ * Inverso logico di findHoursAtEnzMatPct — usato per feedback UI (PuntataAlert).
+ */
+export function estimateEnzMatPctAtH(puntataH, ambientTempC) {
+  const { muMax, lambda, A } = ENZYMATIC_CLOCK_PARAMS;
+  const subStepH = 0.05;
+  const steps    = Math.max(0, Math.round(puntataH / subStepH));
+  let enzAdu     = 0;
+  for (let i = 0; i < steps; i++) {
+    enzAdu += fArrhenius(ambientTempC) * subStepH;
+  }
+  return gompertz(enzAdu, muMax, lambda, A);
+}
+
 export function buildServiceWindowTimeline({ puntataH, puntataMaxH, staglioH, tcHours, temperingH, serviceDurationH, ambientTempC, fridgeTempC }) {
   const effectivePuntataH = puntataMaxH != null ? Math.min(puntataH, puntataMaxH) : puntataH;
   const extraH = puntataH - effectivePuntataH;

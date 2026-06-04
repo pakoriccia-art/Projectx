@@ -122,3 +122,6 @@ export interface ServiceWindowDefaults {
 // arrivano via `export *` dal modulo JS (non tipizzate, come le altre engine fn).
 // Usa `(solveServiceWindow as Function)(...)` e tipizza il risultato con
 // SolveServiceWindowResult al call-site, coerentemente con src/engine/index.ts.
+
+// Dichiarazione esplicita per funzioni con firma conosciuta (aggiunte in v2.4.5+)
+export declare function estimateEnzMatPctAtH(puntataH: number, ambientTempC: number): number;

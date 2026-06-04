@@ -17,6 +17,7 @@ import {
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 import { startSession } from '../../services/sessionService';
+import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand, type FlourEntry } from '../../data/flourDatabase';
 import { STYLE_CONSTRAINTS, hydrationRangeForStyle } from '../../data/styleConstraints';
 
@@ -306,10 +307,10 @@ function buildSession(draft: WizardDraft): Session {
   })() : 0;
   const _a = _proto === 'tc_appreto' ? _warmup : (draft.apprettoH ?? 4);
 
-  // Per tc_appreto: puntataH è back-calcolata (override del cursore) in modo che la curva
-  // di Gompertz cumula ADU(puntata)+ADU(staglio)+ADU(TC)+ADU(ramp) = ADU_85% esattamente
-  // alla fine del protocollo. Gli altri protocolli usano il valore del cursore.
+  // Per tc_appreto: puntataH viene back-calcolata automaticamente oppure usa l'override
+  // manuale dell'utente (draft.puntataH != null dopo che l'utente ha spostato il cursore).
   const _p = (_proto === 'tc_appreto' && !hasPrecomputedTimeline) ? (() => {
+    if (draft.puntataH != null) return draft.puntataH;  // override manuale
     const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
@@ -1044,6 +1045,29 @@ function Step6({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   );
 }
 
+// ─── PuntataAlert ─────────────────────────────────────────────────────────────
+function PuntataAlert({ puntataH, ambientTempC, style }: { puntataH: number; ambientTempC: number; style: string }) {
+  const matPct = estimateEnzMatPctAtH(puntataH, ambientTempC);
+  const profile = (getStyleProfile as Function)(style) as { puntataMatPct_target: number; puntataMatPct_range: [number, number] };
+  const [lo, hi] = profile.puntataMatPct_range ?? [profile.puntataMatPct_target - 5, profile.puntataMatPct_target + 5];
+  const over = matPct > hi;
+  const under = matPct < lo;
+  if (!over && !under) return null;
+  return (
+    <div style={{
+      background: over ? 'rgba(214,48,49,0.12)' : 'rgba(253,203,110,0.12)',
+      border: `1px solid ${over ? 'rgba(214,48,49,0.4)' : 'rgba(253,203,110,0.4)'}`,
+      borderRadius: 'var(--radius-sm)', padding: '8px 12px',
+      fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
+      color: over ? 'var(--state-critical)' : 'var(--accent-warning)',
+    }}>
+      {over
+        ? `⚠ Puntata eccessiva: maturazione al ${matPct.toFixed(0)}% (max ${hi}% per ${style}). Riduci le ore o abbassi la soglia.`
+        : `ℹ Puntata breve: maturazione al ${matPct.toFixed(0)}% (min ${lo}% per ${style}).`}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STEP 7 — Tempistiche
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1066,10 +1090,9 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22, tauMult);
   })() : 0;
 
-  // Puntata TA ottimale (solo tc_appreto): calcolata per raggiungere 85% esattamente
-  // al termine del protocollo. Usa muMax semplificato (solo dose, senza prefermento)
-  // per l'anteprima; il valore esatto con prefermento viene calcolato in buildSession.
-  const puntataHOptimalDisplay = proto === 'tc_appreto' ? (() => {
+  // Puntata TA ottimale calcolata (solo tc_appreto) — usata come default quando
+  // l'utente non ha ancora spostato il cursore (draft.puntataH == null).
+  const puntataHOptimalComputed = proto === 'tc_appreto' ? (() => {
     const aT2   = draft.agentType ?? 'fresh_yeast';
     const aP2   = (AGENT_GOMPERTZ as any)[aT2] as { Ea: number; lambda: number; muMax: number };
     const dRef2 = aT2 === 'fresh_yeast' ? 0.3 : aT2 === 'instant_dry_yeast' ? 0.1 : 1.0;
@@ -1089,6 +1112,10 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       maxH: puntataMaxD,
     });
   })() : puntata;
+  // Effettivo per il display (usa override manuale se l'utente ha mosso il cursore)
+  const puntataHOptimalDisplay = (proto === 'tc_appreto' && draft.puntataH != null)
+    ? draft.puntataH
+    : puntataHOptimalComputed;
 
   // Durata totale per protocollo
   const totalH =
@@ -1110,7 +1137,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           { value: 'tc_appreto',  label: 'TC Appretto', desc: 'Puntata TA → appretto in frigo' },
         ]}
         value={proto}
-        onChange={v => update({ apprettoProtocol: v as any })}
+        onChange={v => update({ apprettoProtocol: v as any, puntataH: undefined })}
       />
 
       {/* Temperatura frigo — visibile per tutti i protocolli TC */}
@@ -1161,22 +1188,26 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {/* ── TC Appretto: TA → frigo → riscaldo ── */}
       {proto === 'tc_appreto' && <>
         <FormSection title="🌡 Puntata a temperatura ambiente">
-          {/* Puntata TA: calcolata automaticamente per tc_appreto — non modificabile dall'utente */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 14px', background: 'rgba(255,140,50,0.08)',
-            borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255,140,50,0.22)',
-          }}>
-            <span style={{ ...S.label, color: 'var(--accent-brand)' }}>
-              ⏱ Puntata TA ottimale
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--accent-brand)' }}>
-              {puntataHOptimalDisplay.toFixed(1)}h
-            </span>
-          </div>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-            Calcolato: Gompertz inversa · ADU_target − TC − staglio − ramp termico
-          </span>
+          <SliderInput
+            label={`Puntata TA ${draft.puntataH == null ? '(ottimale calcolata)' : '(manuale)'}`}
+            value={puntataHOptimalDisplay}
+            onChange={v => update({ puntataH: v })}
+            min={0.5} max={24} step={0.5} unit="h"
+            color="var(--accent-brand)"
+          />
+          {draft.puntataH != null && (
+            <button
+              onClick={() => update({ puntataH: undefined })}
+              style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2 }}
+            >
+              Ripristina ottimale ({puntataHOptimalDisplay.toFixed(1)}h)
+            </button>
+          )}
+          <PuntataAlert
+            puntataH={puntataHOptimalDisplay}
+            ambientTempC={draft.tLaboratorio ?? 22}
+            style={draft.style ?? 'napoletana'}
+          />
           <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>

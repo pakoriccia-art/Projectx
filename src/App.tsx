@@ -9,7 +9,6 @@ import { WizardView }          from './components/wizard/WizardView';
 import { DashboardView }       from './components/dashboard/DashboardView';
 import { HistoryView }         from './components/history/HistoryView';
 import { RottaView }           from './components/rotta/RottaView';
-import { ReverseScalingView }      from './components/tools/ReverseScalingView';
 import { FermentationPlannerView } from './components/tools/FermentationPlannerView';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
@@ -178,23 +177,6 @@ function HomeView() {
           🧪 Pianifica fermentazione
         </button>
 
-        <button
-          onClick={() => dispatch({ type: 'NAV', view: 'tools' })}
-          style={{
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 'var(--radius-md)',
-            padding: '13px 20px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.9rem',
-            cursor: 'pointer',
-            width: '100%',
-          }}
-        >
-          🔢 Reverse Scaling
-        </button>
-
       </div>
 
       {/* Version badge */}
@@ -220,7 +202,7 @@ function AppRouter() {
     case 'dashboard': return <ErrorBoundary><DashboardView /></ErrorBoundary>;
     case 'rotta':     return <ErrorBoundary><RottaView /></ErrorBoundary>;
     case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
-    case 'tools':   return <ErrorBoundary><ReverseScalingView /></ErrorBoundary>;
+    case 'tools':   return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
     case 'planner': return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
     default:        return <HomeView />;
   }
