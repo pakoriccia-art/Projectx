@@ -10,6 +10,7 @@
  * anche se l'utente dovesse aggirare i controlli HTML.
  */
 import { z } from 'zod';
+import { DOUGH_LIMITS } from '../constants/limits';
 
 // ─── Enums KB §5.4 ────────────────────────────────────────────────────────────
 
@@ -102,8 +103,8 @@ const PrefermentoComponentSchema = z.object({
 export const WizardInputSchema = z.object({
   // Step 1
   style:            StyleEnum.optional(),
-  totalFlourGrams:  z.number().min(200, 'Farina minima: 200 g').max(13_000, 'Farina massima: 13.000 g'),
-  numPanetti:       z.number().int().min(1).max(100),
+  totalFlourGrams:  z.number().min(200, 'Farina minima: 200 g').max(DOUGH_LIMITS.MAX_FARINA_G, `Farina totale fuori range (max ${DOUGH_LIMITS.MAX_FARINA_G / 1000} kg)`),
+  numPanetti:       z.number().int().min(1).max(DOUGH_LIMITS.MAX_PANETTI, `Numero panetti fuori range (1–${DOUGH_LIMITS.MAX_PANETTI})`),
 
   // Step 2
   protocol:         ProtocolEnum.optional(),

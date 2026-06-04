@@ -230,7 +230,7 @@ function buildSession(draft: WizardDraft): Session {
   // ── Validazione Zod .strict() (guardia data-layer per tutti i campi wizard) ──
   const parsed = WizardInputSchema.safeParse(draft);
   if (!parsed.success) {
-    const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(' · ');
+    const msg = parsed.error.issues.map(i => i.message).join(' · ');
     throw new Error(msg);
   }
   const agent  = AGENT_GOMPERTZ as any;
@@ -1506,8 +1506,14 @@ export function WizardView() {
 
   const prev = () => {
     setBuildError(null);
-    if (step > 1) dispatch({ type: 'WIZARD_STEP', step: step - 1 });
-    else dispatch({ type: 'NAV', view: 'home' });
+    if (step === 8 && draft.navigationSource === 'planner') {
+      dispatch({ type: 'WIZARD_UPDATE', patch: { navigationSource: undefined } });
+      dispatch({ type: 'NAV', view: 'planner' });
+    } else if (step > 1) {
+      dispatch({ type: 'WIZARD_STEP', step: step - 1 });
+    } else {
+      dispatch({ type: 'NAV', view: 'home' });
+    }
   };
 
   const canProceed = (): boolean => {
@@ -1565,7 +1571,8 @@ export function WizardView() {
           {step < TOTAL_STEPS ? 'Continua →' : '🍕 Avvia sessione'}
         </Btn>
         <Btn variant="secondary" onClick={prev}>
-          {step === 1 ? '← Home' : '← Indietro'}
+          {step === 8 && draft.navigationSource === 'planner' ? '← Planner'
+            : step === 1 ? '← Home' : '← Indietro'}
         </Btn>
       </div>
     </div>

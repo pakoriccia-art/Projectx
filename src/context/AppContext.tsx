@@ -47,6 +47,8 @@ export interface WizardDraft {
   bubbleThresholdPct?: number;
   // Target maturazione: 85% default (ora di cottura), 90% per finestra servizio
   alertThreshold?: number;
+  // Navigazione: indica da dove è stato aperto il riepilogo (step 8)
+  navigationSource?: 'planner';
 }
 
 // ─── Real-time tick state ─────────────────────────────────────────────────────

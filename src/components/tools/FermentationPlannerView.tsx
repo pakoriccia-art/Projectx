@@ -28,6 +28,7 @@ import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../eng
 import { WaterTempResultCard } from './WaterTempView';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
 import { ddtForStyle } from '../../data/styleConstraints';
+import { DOUGH_LIMITS } from '../../constants/limits';
 
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
@@ -56,6 +57,21 @@ interface PlanResult {
   stars:     number;       // 1-5
   matAtTarget?: number;   // maturazione% stimata all'orario target (se impostato)
   warmupH?:  number;      // ore riscaldo TA finale (solo tc_appreto)
+}
+
+// ─── Validazione input planner ───────────────────────────────────────────────
+function validatePlannerInputs(totalFlourGrams: number, numPanetti: number, hydration: number): string[] {
+  const errors: string[] = [];
+  if (totalFlourGrams < 200 || totalFlourGrams > DOUGH_LIMITS.MAX_FARINA_G) {
+    errors.push(`Farina totale: ${totalFlourGrams}g fuori range (200–${DOUGH_LIMITS.MAX_FARINA_G}g)`);
+  }
+  if (numPanetti < DOUGH_LIMITS.MIN_PANETTI || numPanetti > DOUGH_LIMITS.MAX_PANETTI) {
+    errors.push(`Panetti: ${numPanetti} fuori range (${DOUGH_LIMITS.MIN_PANETTI}–${DOUGH_LIMITS.MAX_PANETTI})`);
+  }
+  if (hydration < DOUGH_LIMITS.MIN_HYDRATION || hydration > DOUGH_LIMITS.MAX_HYDRATION) {
+    errors.push(`Idratazione fuori range (${DOUGH_LIMITS.MIN_HYDRATION}–${DOUGH_LIMITS.MAX_HYDRATION}%)`);
+  }
+  return errors;
 }
 
 // ─── Costanti modello crescita lievito ───────────────────────────────────────
@@ -435,10 +451,10 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
 }
 
 // ─── Card singolo protocollo ──────────────────────────────────────────────────
-function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse }: {
+function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse, plannerErrors }: {
   result: PlanResult; aParams: { Ea: number; muMax: number; lambda: number };
   agentType: string; tAmb: number; fridgeT: number; initialAdu: number; muMax: number;
-  onUse: () => void;
+  onUse: () => void; plannerErrors?: string[];
 }) {
   const viabilityStyle: Record<Viability, { bg: string; color: string }> = {
     ok:    { bg: 'rgba(0,184,148,0.1)',   color: 'var(--state-optimal-hi)' },
@@ -514,14 +530,30 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
       )}
 
       {result.viability !== 'no' && (
-        <button onClick={onUse} style={{
-          background: 'var(--accent-brand)', color: '#0a0806',
-          border: 'none', borderRadius: 'var(--radius-sm)',
-          padding: '7px 14px', fontFamily: 'var(--font-mono)',
-          fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer',
-        }}>
-          Usa questo schema →
-        </button>
+        <>
+          {plannerErrors && plannerErrors.length > 0 && (
+            <div style={{
+              background: 'rgba(255,118,117,0.15)', border: '1px solid #ff7675',
+              borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+            }}>
+              {plannerErrors.map((err, i) => (
+                <p key={i} style={{ color: '#ff7675', fontSize: 13, margin: '2px 0', fontFamily: 'var(--font-mono)' }}>
+                  ⚠ {err}
+                </p>
+              ))}
+            </div>
+          )}
+          <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
+            background: 'var(--accent-brand)', color: '#0a0806',
+            border: 'none', borderRadius: 'var(--radius-sm)',
+            padding: '7px 14px', fontFamily: 'var(--font-mono)',
+            fontWeight: 700, fontSize: '0.78rem',
+            cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
+            opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
+          }}>
+            Usa questo schema →
+          </button>
+        </>
       )}
     </div>
   );
@@ -574,9 +606,9 @@ function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; valu
   );
 }
 
-function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, puntataKickoffH, onUse }: {
+function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbleThresholdPct, puntataKickoffH, onUse, plannerErrors }: {
   result: NowAnchoredAlarmResult; serviceStart: Date | null;
-  serviceDurationH: number; bubbleThresholdPct: number; puntataKickoffH: number; onUse: () => void;
+  serviceDurationH: number; bubbleThresholdPct: number; puntataKickoffH: number; onUse: () => void; plannerErrors?: string[];
 }) {
   const fmt = (d: Date) => d.toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const inf = result.infeasibility;
@@ -772,10 +804,24 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         );
       })()}
 
-      <button onClick={onUse} style={{
+      {plannerErrors && plannerErrors.length > 0 && (
+        <div style={{
+          background: 'rgba(255,118,117,0.15)', border: '1px solid #ff7675',
+          borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+        }}>
+          {plannerErrors.map((err, i) => (
+            <p key={i} style={{ color: '#ff7675', fontSize: 13, margin: '2px 0', fontFamily: 'var(--font-mono)' }}>
+              ⚠ {err}
+            </p>
+          ))}
+        </div>
+      )}
+      <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
         background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
         borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
-        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+        fontWeight: 700, fontSize: '0.8rem',
+        cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
+        opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
       }}>
         Usa questo schema →
       </button>
@@ -945,7 +991,7 @@ function QualityDotRow({ label, target, predicted, color }: { label: string; tar
   );
 }
 
-function QualityProfileResultCard({ result, onUse }: { result: QualityResult; onUse: () => void }) {
+function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: QualityResult; onUse: () => void; plannerErrors?: string[] }) {
   const prefLabels = { none: 'Diretto', biga: 'Biga', poolish: 'Poolish', riporto: 'Riporto' };
   return (
     <Card elevated>
@@ -1004,10 +1050,24 @@ function QualityProfileResultCard({ result, onUse }: { result: QualityResult; on
         <QualityDotRow label="Scioglievolezza" target={-1} predicted={result.predictedSci}   color="var(--state-approaching)" />
       </div>
 
-      <button onClick={onUse} style={{
+      {plannerErrors && plannerErrors.length > 0 && (
+        <div style={{
+          background: 'rgba(255,118,117,0.15)', border: '1px solid #ff7675',
+          borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+        }}>
+          {plannerErrors.map((err, i) => (
+            <p key={i} style={{ color: '#ff7675', fontSize: 13, margin: '2px 0', fontFamily: 'var(--font-mono)' }}>
+              ⚠ {err}
+            </p>
+          ))}
+        </div>
+      )}
+      <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
         background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
         borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
-        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+        fontWeight: 700, fontSize: '0.8rem',
+        cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
+        opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
       }}>
         Usa questo schema →
       </button>
@@ -1125,6 +1185,12 @@ export function FermentationPlannerView() {
   // Prefermento rimosso dal planner (v2.4.6) — sempre null per il solver di servizio
   const pref: PrefConfig | null = null;
 
+  // Validazione input planner (Bug #66B): errori mostrati nei card prima di "Usa questo schema"
+  const plannerErrors = useMemo(
+    () => validatePlannerInputs(totalFlourG, numPanetti, hydration),
+    [totalFlourG, numPanetti, hydration],
+  );
+
   // Parametri agente Gompertz
   const agent   = AGENT_GOMPERTZ as any;
   const aParams = agent[agentType] as { Ea: number; muMax: number; lambda: number };
@@ -1200,6 +1266,7 @@ export function FermentationPlannerView() {
       numPanetti,
       tLaboratorio:     tAmb,       // §2.7: T_lab al momento dell'impasto = T_amb planner
       kneadingMethod:   kneadingMethod,
+      navigationSource: 'planner' as const,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -1275,6 +1342,7 @@ export function FermentationPlannerView() {
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
       bubbleThresholdPct: r.resolvedBubbleThresholdPct ?? 92,
       alertThreshold:   r.resolvedTargetMaturationPct ?? 90,
+      navigationSource: 'planner' as const,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -1326,6 +1394,7 @@ export function FermentationPlannerView() {
       tLaboratorio: tAmb,
       kneadingMethod,
       alertThreshold: Math.round(r.mTarget * 100),  // soglia allarme = maturazione target dal solver
+      navigationSource: 'planner' as const,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
   };
@@ -1688,7 +1757,8 @@ export function FermentationPlannerView() {
           serviceDurationH={serviceDurationH}
           bubbleThresholdPct={serviceResult.resolvedBubbleThresholdPct ?? 92}
           puntataKickoffH={SERVICE_WINDOW_DEFAULTS.puntataKickoffH}
-          onUse={() => useServiceResult(serviceResult)} />
+          onUse={() => useServiceResult(serviceResult)}
+          plannerErrors={plannerErrors} />
       )}
 
       {/* ── Profilo Qualità: target sliders ── */}
@@ -1740,7 +1810,7 @@ export function FermentationPlannerView() {
       )}
 
       {plannerMode === 'quality' && qualityResult && (
-        <QualityProfileResultCard result={qualityResult} onUse={() => useQualityResult(qualityResult)} />
+        <QualityProfileResultCard result={qualityResult} onUse={() => useQualityResult(qualityResult)} plannerErrors={plannerErrors} />
       )}
 
       {/* ── Target cottura ── */}
@@ -1844,6 +1914,7 @@ export function FermentationPlannerView() {
                 initialAdu={initialAdu}
                 muMax={muMax}
                 onUse={() => useResult(r)}
+                plannerErrors={plannerErrors}
               />
             ))}
           </div>
