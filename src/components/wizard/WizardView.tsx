@@ -11,7 +11,7 @@ import {
 import {
   normalizeFlourGroup, computeCombinedInitialState,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
-  AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective,
+  AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective, getStyleProfile,
   KNEADING_METHODS_FRICTION, computeWaterTempDDT, type KneadingMethod,
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
@@ -168,6 +168,7 @@ function computeOptimalPuntataH(p: {
   panMassKg: number; hydrationPct: number;
   tauMultiplier: number; warmupH: number;
   initialAdu: number; tAmb?: number;
+  maxH?: number;  // cap stile-dipendente — se presente: Math.min(computed, maxH)
 }): number {
   const tAmb  = p.tAmb ?? 22;
   const kRef  = (kEffective as Function)(25, p.Ea, p.agentType) as number;
@@ -178,7 +179,21 @@ function computeOptimalPuntataH(p: {
   const rampAdu = computeRampAduWizard(p.panMassKg, p.hydrationPct, p.fridgeTempC, tAmb,
                                         p.warmupH, p.Ea, p.agentType, kRef, p.tauMultiplier);
   const needed = aduT - p.initialAdu - rAmb * p.staglioH - rFri * p.tcHours - rampAdu;
-  return rAmb > 1e-12 ? Math.max(0, needed / rAmb) : 0;
+  const raw = rAmb > 1e-12 ? Math.max(0, needed / rAmb) : 0;
+  return p.maxH != null ? Math.min(raw, p.maxH) : raw;
+}
+
+/** Ore massime di puntata TA per il profilo stile, nel modello Arrhenius wizard. */
+function puntataMaxHForStyle(
+  style: string, muMax: number, lambda: number,
+  Ea: number, agentType: string, initialAdu = 0, tAmb = 22,
+): number {
+  const profile = (getStyleProfile as Function)(style);
+  const kRef = (kEffective as Function)(25, Ea, agentType) as number;
+  if (kRef <= 1e-12) return Infinity;
+  const rAmb = ((kEffective as Function)(tAmb, Ea, agentType) as number) / kRef;
+  const aduTarget = invertGompertzWizard(profile.puntataMatPct_target, muMax, lambda);
+  return rAmb > 1e-12 ? Math.max(0, (aduTarget - initialAdu) / rAmb) : Infinity;
 }
 
 // ─── Calcolo tempo di riscaldo: da T frigo a 18°C (servizio) con legge di Newton ─
@@ -300,6 +315,9 @@ function buildSession(draft: WizardDraft): Session {
     const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
     // initialAdu include sia lievito madre che prefermento (biga/poolish)
     const initAdu2  = ((combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10) * 10;
+    const puntataMax2 = puntataMaxHForStyle(
+      draft.style ?? 'napoletana', muMax, aParams.lambda, aParams.Ea, aType, initAdu2,
+    );
     return computeOptimalPuntataH({
       muMax, lambda: aParams.lambda, agentType: aType, Ea: aParams.Ea,
       fridgeTempC: draft.fridgeTempC ?? 4,
@@ -307,6 +325,7 @@ function buildSession(draft: WizardDraft): Session {
       panMassKg: panMassKg2, hydrationPct: draft.hydration ?? 65,
       tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
       warmupH: _warmup, initialAdu: initAdu2,
+      maxH: puntataMax2,
     });
   })() : (draft.puntataH ?? 8);
 
@@ -1058,12 +1077,16 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     const totalDG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panKg2  = totalDG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
+    const puntataMaxD = puntataMaxHForStyle(
+      draft.style ?? 'napoletana', muMax2, aP2.lambda, aP2.Ea, aT2,
+    );
     return computeOptimalPuntataH({
       muMax: muMax2, lambda: aP2.lambda, agentType: aT2, Ea: aP2.Ea,
       fridgeTempC: fridgeT, tcHours: freddo, staglioH: staglio,
       panMassKg: panKg2, hydrationPct: draft.hydration ?? 65,
       tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
       warmupH: warmupHDisplay, initialAdu: 0,
+      maxH: puntataMaxD,
     });
   })() : puntata;
 
@@ -1232,12 +1255,16 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
     const aP8   = (AGENT_GOMPERTZ as any)[aT8] as { Ea: number; lambda: number; muMax: number };
     const dRef8 = aT8 === 'fresh_yeast' ? 0.3 : aT8 === 'instant_dry_yeast' ? 0.1 : 1.0;
     const muMax8 = aP8.muMax * Math.max(0.1, Math.min(2, (draft.agentDosePct ?? dRef8) / dRef8));
+    const puntataMax8 = puntataMaxHForStyle(
+      draft.style ?? 'napoletana', muMax8, aP8.lambda, aP8.Ea, aT8,
+    );
     return computeOptimalPuntataH({
       muMax: muMax8, lambda: aP8.lambda, agentType: aT8, Ea: aP8.Ea,
       fridgeTempC: draft.fridgeTempC ?? 4,
       tcHours: draft.tcHours ?? 12, staglioH: draft.staglioH ?? 0.5,
       panMassKg: panMassKgStep8, hydrationPct: hydration,
       tauMultiplier: tauMultStep8, warmupH: warmupHStep8, initialAdu: 0,
+      maxH: puntataMax8,
     });
   })() : (draft.puntataH ?? 8);
 
