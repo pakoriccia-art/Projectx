@@ -138,7 +138,9 @@ export interface KneadingMethodSpec {
  * da Calvel (±1°C) per sessioni standard. L'approccio a coefficiente fisso
  * è preferito all'interpolazione continua per la riproducibilità operativa.
  */
-export const KNEADING_METHODS_FRICTION: Record<KneadingMethod, KneadingMethodSpec> = {
+// Bug #93 v2.4.15: satisfies valida la struttura senza widening a Record<K,V>,
+// preservando l'inferenza letterale delle chiavi. Richiede TS >= 4.9.
+export const KNEADING_METHODS_FRICTION = {
   hand: {
     label:        'A mano',
     cFrictionLo:  1,
@@ -167,7 +169,7 @@ export const KNEADING_METHODS_FRICTION: Record<KneadingMethod, KneadingMethodSpe
     cFrictionMid: 7,
     notes: 'Azione delicata; preserva strutture proteiche. Tempi di impasto più lunghi (20–30 min).',
   },
-};
+} satisfies Record<KneadingMethod, KneadingMethodSpec>;
 
 /** Threshold sotto cui si attiva la modalità ghiaccio [°C]. */
 export const ICE_THRESHOLD_C = 3;
@@ -190,6 +192,12 @@ export interface WaterTempInput {
   waterTotalGrams:    number;
   /** Temperatura dell'acqua corrente disponibile [°C]. Default ICE_THRESHOLD_C. */
   waterAvailableTempC?: number;
+  /**
+   * Temperatura reale del ghiaccio [°C]. Default -18 (congelatore professionale).
+   * Passa 0 per ghiaccio tritato/scaglie già a 0°C (equivalente alla formula precedente).
+   * Bug #92 v2.4.15 — aggiunge il termine c_s × |T_ice| al bilancio entalpico.
+   */
+  iceTempC?: number;
 }
 
 /** Risultato del calcolo DDT — bilancio termico acqua di impastamento. */
@@ -313,12 +321,13 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
   const {
     ddtTarget,
     tempAmbient,
-    tempFlour         = tempAmbient,
+    tempFlour           = tempAmbient,
     tempPreferment,
     kneadingMethod,
-    cFrictionVariant  = 'mid',
+    cFrictionVariant    = 'mid',
     waterTotalGrams,
     waterAvailableTempC = ICE_THRESHOLD_C,
+    iceTempC            = -18,  // Bug #92: default congelatore professionale
   } = input;
 
   const spec     = KNEADING_METHODS_FRICTION[kneadingMethod] ?? KNEADING_METHODS_FRICTION.spiral;
@@ -348,19 +357,34 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
   }
 
   // ── Sostituzione ghiaccio ─────────────────────────────────────────────────
-  // M_ghiaccio = M_acqua × (T_avail - T_calc) / (80 + T_avail)
-  const tAvail    = Math.max(ICE_THRESHOLD_C, waterAvailableTempC);
-  const iceGrams  = Math.min(
+  // Bug #92 v2.4.15: bilancio entalpico corretto per ghiaccio alla sua T reale.
+  // ΔH_ice [cal/g] = c_s × |T_ice| + λ_f
+  //   c_s = 0.5 cal/(g·°C) — calore specifico ghiaccio solido
+  //   λ_f = 80 cal/g        — calore latente di fusione
+  // Con iceTempC=0°C: ΔH_ice = 80 → identico alla formula precedente (no regressione).
+  // Con iceTempC=-18°C: ΔH_ice = 9 + 80 = 89 → iceGrams ridotto di ~10%.
+  //
+  // M_ghiaccio = M_acqua × (T_avail − T_calc) / ΔH_ice
+  const C_S_ICE = 0.5;     // cal/(g·°C)
+  const LAMBDA_FUSION = 80; // cal/g
+  const tAvail   = Math.max(ICE_THRESHOLD_C, waterAvailableTempC);
+  const deltaH   = C_S_ICE * Math.abs(iceTempC) + LAMBDA_FUSION;
+  const iceGrams = Math.min(
     waterTotalGrams,
-    Math.max(0, waterTotalGrams * (tAvail - tWaterCalc) / (80 + tAvail)),
+    Math.max(0, waterTotalGrams * (tAvail - tWaterCalc) / deltaH),
   );
-  const liquidGrams = Math.max(0, waterTotalGrams - iceGrams);
+
+  // Bug #91 v2.4.15: liquidGrams per differenza → invariante massa garantita.
+  // Math.round(iceGrams) + Math.round(liquidGrams) può eccedere waterTotalGrams
+  // di 1g se entrambe le frazioni sono 0.5; ora liquidGrams = totale − roundedIce.
+  const roundedIce    = Math.min(waterTotalGrams, Math.round(iceGrams));
+  const roundedLiquid = waterTotalGrams - roundedIce;  // ≥ 0 per costruzione
 
   return {
     tWaterCalc,
     mode:            'ice',
-    iceGrams:        Math.round(iceGrams),
-    liquidGrams:     Math.round(liquidGrams),
+    iceGrams:        roundedIce,
+    liquidGrams:     roundedLiquid,
     tWaterEffective: tAvail,
     cFriction,
     factors,

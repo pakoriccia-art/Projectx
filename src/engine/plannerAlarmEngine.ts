@@ -9,7 +9,9 @@ export type AlarmType =
   | 'OK'
   | 'OK_MARGINE_STRETTO'
   | 'SOVRAMMATURAZIONE'
-  | 'SOTTOMATURAZIONE';
+  | 'SOTTOMATURAZIONE'
+  | 'COLLASSO_STRUTTURALE'   // v2.4.14 — W decay / LM bolle
+  | 'FINESTRA_TROPPO_CORTA'; // v2.4.15 Bug #88 — fallback cause sconosciute
 
 export interface NowAnchoredAlarmResult {
   feasible: boolean;
@@ -59,11 +61,19 @@ export interface NowAnchoredAlarmResult {
 }
 
 export interface DriftAlarmResult {
-  driftPct: number;
+  // ── Forma v3.1 (backward-compat DashboardView) ──────────────────────────────
+  driftPct:   number;
   driftAlarm: {
-    type: 'AHEAD' | 'BEHIND';
-    severity: 'warning' | 'critical';
-    message: string;
+    type:       'AHEAD' | 'BEHIND';
+    severity:   'warning' | 'critical';
+    message:    string;
     suggestion: string;
   } | null;
+  // ── Forma v4 / Bug #87 ───────────────────────────────────────────────────────
+  type:              'NONE' | 'AHEAD' | 'BEHIND';
+  drift:             number;
+  plannedMatPct:     number;
+  actualMatPct:      number;
+  suggestion?:       string;
+  requiresRebaseline: boolean; // true quando |drift| > 12% → suggerisce Aggiusta Rotta
 }

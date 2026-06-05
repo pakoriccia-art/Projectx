@@ -286,6 +286,45 @@ function bisectIncreasing(f, target, lo, hi, tol = 0.05, maxIter = 60) {
  * 'cannot_slow_enough': il chiamante propone opzioni esplicite all'utente
  * (anticipa servizio / riduci target / [ultima] ritarda inizio).
  */
+
+/**
+ * computePlannedMatPctAt — maturazione pianificata al tempo elapsedH dalla
+ * timeline corrente della sessione. Ricalcolata ad ogni chiamata: se la
+ * timeline cambia (Aggiusta Rotta, CONFIRM_PHASE_TRANSITION) il profilo
+ * pianificato si aggiorna automaticamente senza re-baseline esplicito.
+ *
+ * Bug #87 v2.4.15 — usato da computeDriftAlarm per eliminare il parametro
+ * plannedMatPct statico soggetto a desincronizzazione.
+ *
+ * @param {PhaseSegment[]} timeline  - session.timeline corrente
+ * @param {object}  initialState     - stato iniziale (enzAdu=0, tempDough, etc.)
+ * @param {number}  elapsedH         - ore trascorse dall'avvio sessione
+ * @param {object}  opts             - opzioni simulateTimeline (agentType, W0, …)
+ * @returns {number}                 - enzymaticMatPct pianificato a elapsedH
+ */
+export function computePlannedMatPctAt(timeline, initialState, elapsedH, opts) {
+  if (!timeline?.length || elapsedH <= 0) return 0;
+
+  let accH = 0;
+  const partialTimeline = [];
+
+  for (const seg of timeline) {
+    const remaining = elapsedH - accH;
+    if (remaining <= 0) break;
+    if (accH + seg.durationH >= elapsedH) {
+      partialTimeline.push({ ...seg, durationH: remaining });
+      break;
+    }
+    partialTimeline.push(seg);
+    accH += seg.durationH;
+  }
+
+  if (partialTimeline.length === 0) return 0;
+
+  const sim = simulateTimeline(partialTimeline, initialState, opts);
+  return sim.final.enzymaticMatPct;
+}
+
 export function solveNowAnchoredWindow(input) {
   const {
     now, serviceStart, serviceDurationH,
