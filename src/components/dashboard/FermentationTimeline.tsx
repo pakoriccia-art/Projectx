@@ -8,6 +8,7 @@ import { buildInitialTimeline } from '../../db/db';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
 
 export interface TimelinePhase {
+  phaseType:    string;
   label:        string;
   absoluteTime: Date;
   isCompleted:  boolean;
@@ -17,18 +18,11 @@ export interface TimelinePhase {
   hoursFromNow: number;
 }
 
-function labelFor(phaseType: string, isLastProofing: boolean): string {
-  switch (phaseType) {
-    case 'bulk_room':     return 'PUNTATA · TA';
-    case 'bulk_fridge':   return 'PUNTATA · TC';
-    case 'balled_room':   return 'STAGLIO';
-    case 'balled_fridge': return 'APPRETO · TC';
-    case 'proofing':      return isLastProofing ? 'LIEVITAZIONE' : 'TEMPERING';
-    case 'baking':        return 'COTTURA';
-    default:              return phaseType.toUpperCase();
-  }
-}
-
+/**
+ * Mappa un PhaseSegment → label timeline (Bug #76).
+ * L'ultimo proofing è la COTTURA; i proofing precedenti con durata > 0.1h
+ * sono TEMPERING. Nessuna fase 'LIEVITAZIONE' (non esiste in PhaseSegment[]).
+ */
 export function buildTimelinePhases(
   timeline: PhaseSegment[] | undefined,
   session: Session,
@@ -44,34 +38,39 @@ export function buildTimelinePhases(
     : Date.now();
   const nowMs = now.getTime();
 
-  // Ultimo segmento proofing → LIEVITAZIONE finale (gli altri proofing = TEMPERING)
   const lastProofingIdx = segs.reduce(
     (acc, s, i) => (s.phaseType === 'proofing' ? i : acc), -1);
 
-  const phases: TimelinePhase[] = segs.map((seg, i) => {
+  const phases: TimelinePhase[] = [];
+  segs.forEach((seg, i) => {
+    let label: string;
+    let isBake = false;
+    switch (seg.phaseType) {
+      case 'bulk_room':     label = 'PUNTATA · TA'; break;
+      case 'bulk_fridge':   label = 'PUNTATA · TC'; break;
+      case 'balled_room':   label = 'STAGLIO';      break;
+      case 'balled_fridge': label = 'APPRETO · TC'; break;
+      case 'baking':        label = 'COTTURA'; isBake = true; break;
+      case 'proofing': {
+        const dur = (seg.endElapsedH ?? seg.startElapsedH) - seg.startElapsedH;
+        if (i === lastProofingIdx) { label = 'COTTURA'; isBake = true; }
+        else if (dur > 0.1)        { label = 'TEMPERING'; }
+        else return; // proofing intermedio a durata nulla → non mostrare
+        break;
+      }
+      default: label = seg.phaseType.toUpperCase();
+    }
     const absMs = startMs + seg.startElapsedH * 3_600_000;
-    return {
-      label:        labelFor(seg.phaseType, i === lastProofingIdx),
+    phases.push({
+      phaseType:    seg.phaseType,
+      label,
       absoluteTime: new Date(absMs),
       isCompleted:  seg.status === 'completed',
       isCurrent:    seg.status === 'current',
       isFuture:     seg.status === 'planned',
-      isBake:       false,
+      isBake,
       hoursFromNow: (absMs - nowMs) / 3_600_000,
-    };
-  });
-
-  // Marker COTTURA finale alla fine dell'ultimo segmento
-  const last = segs[segs.length - 1];
-  const bakeMs = startMs + (last.endElapsedH ?? last.startElapsedH) * 3_600_000;
-  phases.push({
-    label:        'COTTURA',
-    absoluteTime: new Date(bakeMs),
-    isCompleted:  bakeMs < nowMs,
-    isCurrent:    false,
-    isFuture:     bakeMs >= nowMs,
-    isBake:       true,
-    hoursFromNow: (bakeMs - nowMs) / 3_600_000,
+    });
   });
 
   return phases;
@@ -89,17 +88,36 @@ function formatCountdown(h: number): string {
   return mm > 0 ? `${hh}h${mm.toString().padStart(2, '0')}` : `${hh}h`;
 }
 
-function TimelineMarker({ phase, currentSemaforoState }: {
+function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
   phase: TimelinePhase; currentSemaforoState: SemaforoState;
+  onTransition?: (phaseType: string) => void;
 }) {
   const dotColor = phase.isCurrent
     ? SEMAFORO_COLORS[currentSemaforoState]
     : phase.isCompleted ? '#374151' : '#4b5563';
 
   const showBadge = phase.isFuture && phase.hoursFromNow > 0 && phase.hoursFromNow <= 4;
+  // Tappabile: qualsiasi fase NON corrente (futura o passata → steering bidirezionale)
+  const canTransition = !phase.isCurrent && !!onTransition;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 48 }}>
+    <div
+      onClick={canTransition ? () => onTransition!(phase.phaseType) : undefined}
+      style={{
+        position: 'relative', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: 4, minWidth: 48,
+        cursor: canTransition ? 'pointer' : 'default',
+        opacity: phase.isCompleted ? 0.55 : 1,
+      }}
+    >
+      {/* Affordance tap (teal) sui marker tappabili */}
+      {canTransition && (
+        <div style={{
+          position: 'absolute', top: 14, right: 6,
+          width: 7, height: 7, borderRadius: '50%',
+          background: '#14b8a6', opacity: 0.85,
+        }} />
+      )}
       {showBadge ? (
         <div style={{
           background: '#f9731622', border: '1px solid #f97316', borderRadius: 4,
@@ -140,9 +158,10 @@ function TimelineMarker({ phase, currentSemaforoState }: {
 }
 
 export function FermentationTimeline({
-  session, now, currentSemaforoState,
+  session, now, currentSemaforoState, onPhaseTransition,
 }: {
   session: Session; now: Date; currentSemaforoState: SemaforoState;
+  onPhaseTransition?: (phaseType: string) => void;
 }) {
   const phases = buildTimelinePhases(session.thermalTimeline, session, now);
   if (phases.length === 0) return null;
@@ -152,7 +171,8 @@ export function FermentationTimeline({
       <div style={{ position: 'absolute', top: 40, left: 24, right: 24, height: 1, background: '#1f2937' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 4, minWidth: 'min-content' }}>
         {phases.map((phase, i) => (
-          <TimelineMarker key={i} phase={phase} currentSemaforoState={currentSemaforoState} />
+          <TimelineMarker key={i} phase={phase} currentSemaforoState={currentSemaforoState}
+            onTransition={onPhaseTransition} />
         ))}
       </div>
     </div>

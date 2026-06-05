@@ -119,7 +119,7 @@ function Collapsible({ title, defaultOpen = false, children }: {
 // ─── Component principale ──────────────────────────────────────────────────────
 export function DashboardV4() {
   const { state, dispatch } = useApp();
-  const { setTempAmbient } = useTickEngine();
+  const { setTempAmbient, setPhase } = useTickEngine();
   const [now, setNow] = useState(new Date());
   const [confirmEnd, setConfirmEnd] = useState(false);
 
@@ -170,6 +170,8 @@ export function DashboardV4() {
 
   const startedAt = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
   const elapsedH = Math.max(0, (now.getTime() - startedAt.getTime()) / 3_600_000);
+  // Ratio mostrato dal vivo (coincide con la posizione del dot Hill = elapsedH)
+  const liveRatio = tCritHours > 0 ? elapsedH / tCritHours : 0;
   const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date(session.targetBakeAt ?? Date.now() + 86_400_000);
   const remainingH = Math.max(0, (targetBake.getTime() - now.getTime()) / 3_600_000);
 
@@ -281,11 +283,11 @@ export function DashboardV4() {
             <div>
               <div style={{ color: '#4b5563', fontSize: 9 }}>t / t_crit</div>
               <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 16, fontWeight: 700, fontFamily: 'monospace' }}>
-                {(tRatio * 100).toFixed(0)}%
+                {(liveRatio * 100).toFixed(0)}%
               </div>
             </div>
           </div>
-          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} width={398} height={84} />
+          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} width={398} height={96} />
         </DarkCard>
 
         {/* Temperature + slider T_amb */}
@@ -343,7 +345,8 @@ export function DashboardV4() {
         {/* ── ZONA 3 — GRAFICO + TIMELINE ── */}
         <DarkCard style={{ padding: '12px 12px 4px' }}>
           <GompertzChart session={session} ts={ts} />
-          <FermentationTimeline session={session} now={now} currentSemaforoState={currentSemaforoState} />
+          <FermentationTimeline session={session} now={now} currentSemaforoState={currentSemaforoState}
+            onPhaseTransition={(p) => setPhase(p)} />
         </DarkCard>
 
         {/* ── PROFILO IMPASTO (collassabile) ── */}

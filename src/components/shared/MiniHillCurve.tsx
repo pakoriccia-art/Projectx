@@ -27,16 +27,16 @@ function hillW(W0: number, tCrit: number, t: number): number {
 }
 
 export function MiniHillCurve({
-  W0, tCrit, currentT, width = 300, height = 80,
+  W0, tCrit, currentT, width = 300, height = 92,
 }: {
   W0: number; tCrit: number; currentT: number; width?: number; height?: number;
 }) {
-  const padL = 30, padR = 8, padT = 6, padB = 14;
+  const padL = 30, padR = 8, padT = 6, padB = 28;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
-  // Dominio: 0 → tCrit·1.4 (mostra la zona di collasso oltre t_crit)
-  const tMax = Math.max(tCrit * 1.4, currentT * 1.1, 1);
+  // Dominio: 0 → tCrit·1.6 (mostra la zona di collasso oltre t_crit)
+  const tMax = Math.max(tCrit * 1.6, currentT * 1.1, 1);
   const x = (t: number) => padL + (t / tMax) * plotW;
   const y = (w: number) => padT + (1 - w / W0) * plotH;
 
@@ -73,6 +73,15 @@ export function MiniHillCurve({
     { w: W0 * 0.5,  label: `${Math.round(W0 * 0.5)}` },
   ];
 
+  // Label asse X in ore assolute (step 12h se t_crit lungo, altrimenti 6h)
+  const xStep = tCrit > 20 ? 12 : 6;
+  const xLabels: Array<{ t: number; px: number }> = [];
+  for (let t = 0; t <= tMax; t += xStep) {
+    xLabels.push({ t, px: x(t) });
+  }
+  const labelY = padT + plotH + 11;
+  const tCritLabel = `${Math.round(tCrit)}h`;
+
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
       {/* Zona collasso */}
@@ -97,11 +106,17 @@ export function MiniHillCurve({
         <polyline points={redPts.join(' ')} fill="none" stroke="#ef4444" strokeWidth={2} />
       )}
 
+      {/* Label asse X — ore assolute */}
+      {xLabels.map(({ t, px }) => (
+        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={8} fill="#4b5563"
+          fontFamily="monospace">{t}h</text>
+      ))}
+
       {/* Linea verticale t_crit */}
       <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
         stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />
-      <text x={collapseX} y={height - 3} textAnchor="middle" fontSize={8} fill="#ef4444"
-        fontFamily="monospace">t_crit</text>
+      <text x={collapseX} y={labelY + 10} textAnchor="middle" fontSize={8} fill="#ef4444"
+        fontFamily="monospace">t_crit {tCritLabel}</text>
 
       {/* Dot stato corrente */}
       <circle cx={dotX} cy={dotY} r={5} fill={dotColor} stroke="#0a0a0a" strokeWidth={1.5} />

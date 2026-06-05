@@ -20,12 +20,20 @@ const STATE_LABELS: Record<SemaforoState, string> = {
   CRITICAL:  'CRITICO',
 };
 
+// Versione estesa — per il banner alert (font più grande, spazio disponibile)
+export const STATE_LABELS_FULL: Record<SemaforoState, string> = {
+  TOO_EARLY: 'TROPPO PRESTO',
+  OK:        'OK',
+  WARNING:   'ATTENZIONE',
+  CRITICAL:  'CRITICO',
+};
+
 export function StateBadge({ state, color }: { state: SemaforoState; color: string }) {
   return (
     <span style={{
       color, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
       border: `1px solid ${color}`, borderRadius: 4, padding: '2px 6px',
-      fontFamily: 'monospace',
+      fontFamily: 'monospace', whiteSpace: 'nowrap',
     }}>
       {STATE_LABELS[state]}
     </span>
@@ -44,7 +52,7 @@ export function ProgressBar({ value, target, color }: { value: number; target?: 
       {target != null && target > 0 && target <= 100 && (
         <div style={{
           position: 'absolute', top: -2, bottom: -2, left: `${target}%`,
-          width: 2, background: '#14b8a6', borderRadius: 1,
+          width: 2, background: '#6b7280', borderRadius: 1,
         }} />
       )}
     </div>
