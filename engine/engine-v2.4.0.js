@@ -223,9 +223,40 @@ const ACID_PRODUCTION_PARAMS = {
   sourdough_wheat:   { kAcid: 0.020,  pHFloor: 4.5 },
 };
 
+// Cinetica LAB separata per LM (dual-pop Saccharomiceti + batteri lattici) — v2.4.14 §2.6
+// I LAB (μmax alto, Topt=32°C) producono la maggior parte dell'acido; cinetica
+// distinta dai Saccharomiceti (leavAdu). Autoinibizione progressiva sotto pH 4.8.
+const LAB_KINETICS = {
+  muMax:        0.45 * 0.6,  // matrixFactor=0.6 in matrice solida (§2.6)
+  Topt:         32,
+  Tmin:         5,
+  Tmax:         45,
+  Ea:           58,           // kJ/mol
+  kAcid:        0.030,        // drop pH per unità labAdu
+  pHFloor:      4.5,
+  pHInhibFloor: 3.5,          // LAB completamente inibiti
+  pHInhibStart: 4.8,          // inizio declino lineare
+};
+// Contributo acido residuo dei Saccharomiceti in LM (minore dei LAB)
+const SACC_ACID_CONTRIB = { kAcid: 0.003 };
+
 // ═══════════════════════════════════════════════════════════════
 // § D — CORE KINETICS (v2.0)
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Modello CTM di Rosso (1993) su parametri cardinali espliciti — §2.1
+ * Restituisce γ(T) ∈ [0, 1]. Helper riusabile (LAB dual-pop, §2.6).
+ */
+function _cardinalForParams(tempC, Tmin, Topt, Tmax) {
+  if (tempC <= Tmin || tempC >= Tmax) return 0;
+  const num = (tempC - Tmax) * Math.pow(tempC - Tmin, 2);
+  const den = (Topt - Tmin) * (
+    (Topt - Tmin) * (tempC - Topt)
+    - (Topt - Tmax) * (Topt + Tmin - 2 * tempC)
+  );
+  return safeDiv(num, den, 0);
+}
 
 /**
  * Modello CTM di Rosso (1993) — §2.1
@@ -235,15 +266,7 @@ const ACID_PRODUCTION_PARAMS = {
 function cardinalCorrection(tempC, agentType) {
   const p = CARDINAL_PARAMS[agentType];
   if (!p) return 0;
-  const { Tmin, Topt, Tmax } = p;
-  if (tempC <= Tmin || tempC >= Tmax) return 0;
-
-  const num = (tempC - Tmax) * Math.pow(tempC - Tmin, 2);
-  const den = (Topt - Tmin) * (
-    (Topt - Tmin) * (tempC - Topt)
-    - (Topt - Tmax) * (Topt + Tmin - 2 * tempC)
-  );
-  return safeDiv(num, den, 0);
+  return _cardinalForParams(tempC, p.Tmin, p.Topt, p.Tmax);
 }
 
 /**
@@ -716,11 +739,14 @@ function computeRinfrescoFraction(prefermenti) {
  *  effectiveAmylaseIndex, initialMaturationOffset [0,1], initialPH
  *  rinfrescoFraction, breakdown
  */
-function computeCombinedInitialState({ prefermenti, mainFlourGroup }) {
+function computeCombinedInitialState({ prefermenti, mainFlourGroup, waterHardnessPpm = 150 }) {
+  // Durezza acqua trasla W₀ operativo: ioni Ca²⁺/Mg²⁺ irrigidiscono il glutine
+  // iniziale (non solo rallentano il decay). ppm=150 → 1.0 (nessun effetto). — v2.4.14 §2.17.1
+  const fHardGluten = fHardnessGluten(waterHardnessPpm);
   if (!prefermenti || prefermenti.length === 0) {
     // Solo rinfresco
     return {
-      effectiveW_initial:      mainFlourGroup.effectiveW,
+      effectiveW_initial:      mainFlourGroup.effectiveW * fHardGluten,
       effectivePl_initial:     mainFlourGroup.effectivePl,
       effectiveProtein:        mainFlourGroup.effectiveProtein,
       effectiveAsh:            mainFlourGroup.effectiveAsh,
@@ -811,7 +837,7 @@ function computeCombinedInitialState({ prefermenti, mainFlourGroup }) {
   const initialPH = H_plus > 0 ? -Math.log10(H_plus) : 6.0;
 
   return {
-    effectiveW_initial:      effectiveW,
+    effectiveW_initial:      effectiveW * fHardGluten,
     effectivePl_initial:     effectivePl,
     effectiveProtein,
     effectiveAsh,
@@ -1194,6 +1220,24 @@ function thermalTimeConstantSphere(massKg, hydrationPct) {
   return (massKg * cp) / (H_AIR * A);  // secondi
 }
 
+/**
+ * Sceglie il modello geometrico termico corretto per la fase e applica la
+ * resistenza del contenitore — v2.4.14 §2.14.4. Astrazione unica per evitare
+ * divergenze tra simulateTimeline, tick loop e transizioni di fase.
+ *
+ * Assunzione: la geometria dipende dalla fase (bulk=cilindro, balled/proofing=sfera),
+ * non dalla configurazione fisica reale.
+ *
+ * @returns {number} τ_total in secondi
+ */
+function thermalTimeConstantForPhase(phase, massKg, hydration, containerPreset) {
+  const isBalled = phase === 'balled_room' || phase === 'balled_fridge' || phase === 'proofing';
+  const tauIntrinsic = isBalled
+    ? thermalTimeConstantSphere(massKg, hydration)
+    : thermalTimeConstant(massKg, hydration);
+  return applyContainerResistance(tauIntrinsic, containerPreset);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // § O — v2.4.0 MALTO DIASTATICO (§2.15)
 // ═══════════════════════════════════════════════════════════════
@@ -1284,7 +1328,9 @@ function volumeMilestoneCorrection(targetVolumeFactor, altitudeM) {
  */
 function fHardnessGluten(ppm) {
   const { refPpm, glutenKHard } = WATER_HARDNESS_PARAMS;
-  return 1.0 + glutenKHard * (ppm - refPpm);
+  // ppm=150 → 1.0 (reference); clamp [0.85, 1.25] — v2.4.14 §2.17.1
+  const factor = 1.0 + glutenKHard * (ppm - refPpm);
+  return Math.max(0.85, Math.min(1.25, factor));
 }
 
 /**
@@ -1378,11 +1424,37 @@ function estimatePHForLBF(initialPH, maturationPct) {
  * Calo lineare: ΔpH = kAcid × leavAdu, con floor biologico per agente.
  * Agenti non in tabella → restituisce initialPH invariato.
  */
-function computeCurrentPH(initialPH, leavAdu, agentType) {
+function computeCurrentPH(initialPH, leavAdu, agentType, labAdu = 0) {
+  const pH0 = initialPH ?? 5.8;
+  if (agentType === 'sourdough_wheat') {
+    // LM dual-pop: drop LAB (dominante) + drop Saccharomiceti (minore) — v2.4.14 §2.6
+    const dropLAB  = LAB_KINETICS.kAcid * Math.max(0, labAdu);
+    const dropSacc = SACC_ACID_CONTRIB.kAcid * Math.max(0, leavAdu);
+    return Math.max(LAB_KINETICS.pHFloor, pH0 - dropLAB - dropSacc);
+  }
+  // LBF/IDY: invariato dalla v2.4.11 (lineare su leavAdu)
   const params = ACID_PRODUCTION_PARAMS[agentType];
-  if (!params || leavAdu <= 0) return initialPH ?? 5.8;
-  const drop = params.kAcid * leavAdu;
-  return Math.max(params.pHFloor, (initialPH ?? 5.8) - drop);
+  if (!params || leavAdu <= 0) return pH0;
+  return Math.max(params.pHFloor, pH0 - params.kAcid * leavAdu);
+}
+
+/**
+ * computeLabAdu — accumula l'ADU dei batteri lattici separatamente dai
+ * Saccharomiceti, per LM. Da chiamare per sub-step SOLO se sourdough_wheat. — v2.4.14 §2.6
+ * CTM(Topt=32) × Arrhenius(Ea=58) × autoinibizione pH (declino lineare 4.8→3.5).
+ */
+function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
+  const labCTM = _cardinalForParams(tempC, LAB_KINETICS.Tmin, LAB_KINETICS.Topt, LAB_KINETICS.Tmax);
+  const labArr = safeExp((-LAB_KINETICS.Ea * 1000 / R_GAS) * (1 / (tempC + 273.15) - 1 / T_REF_K));
+  let phInhib = 1.0;
+  if (currentPH <= LAB_KINETICS.pHInhibFloor) {
+    phInhib = 0.0;
+  } else if (currentPH < LAB_KINETICS.pHInhibStart) {
+    phInhib = (currentPH - LAB_KINETICS.pHInhibFloor) /
+              (LAB_KINETICS.pHInhibStart - LAB_KINETICS.pHInhibFloor);
+  }
+  const labRate = LAB_KINETICS.muMax * labCTM * labArr * phInhib;
+  return (prevLabAdu ?? 0) + labRate * subStepH;
 }
 
 /**
@@ -1488,6 +1560,9 @@ const _constants = {
   ENZYMATIC_CLOCK_PARAMS,
   // v2.4.11
   ACID_PRODUCTION_PARAMS,
+  // v2.4.14
+  LAB_KINETICS,
+  SACC_ACID_CONTRIB,
 };
 
 // § S Style Profile Parameters (v2.4.4)
@@ -1937,6 +2012,9 @@ if (typeof module !== 'undefined' && module.exports) {
     computeInverseProgram,
     // v2.4.11
     computeCurrentPH,
+    // v2.4.14
+    computeLabAdu,
+    thermalTimeConstantForPhase,
 
     // § S Style Profile Parameters (v2.4.4)
     STYLE_PROFILES,
@@ -1980,6 +2058,8 @@ export {
   computeReverseScaling,
   estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
   computeCurrentPH,
+  computeLabAdu, thermalTimeConstantForPhase,
+  LAB_KINETICS, SACC_ACID_CONTRIB,
   STYLE_PROFILES, getStyleProfile, computeStyleAwareAlertLevel,
   checkPuntataTarget, checkWMinimoStesura,
 };

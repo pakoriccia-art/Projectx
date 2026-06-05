@@ -42,6 +42,7 @@ export const ALARM_TYPE = Object.freeze({
   OK_MARGINE_STRETTO: 'OK_MARGINE_STRETTO',  // mantenuto per compat. (non più usato dal solver)
   SOVRAMMATURAZIONE: 'SOVRAMMATURAZIONE',
   SOTTOMATURAZIONE:  'SOTTOMATURAZIONE',
+  COLLASSO_STRUTTURALE: 'COLLASSO_STRUTTURALE',  // v2.4.14 — LM oltre soglia bolle non gestibile
 });
 
 /**
@@ -129,6 +130,12 @@ export function computeNowAnchoredAlarms(input) {
   if (!result.feasible && (reason === 'window_too_short_maturation' || reason === 'window_too_short' || reason === 'cannot_temper')) {
     suggestions.push(...(result.infeasibility?.mitigations ?? []));
     return { ...result, alarmType: ALARM_TYPE.SOTTOMATURAZIONE, suggestions, now };
+  }
+
+  // ── COLLASSO STRUTTURALE: LM oltre soglia bolle, dose non scalabile (Bug #82b) ─
+  if (!result.feasible && reason === 'bubble_threshold_lm_unscalable') {
+    suggestions.push(...(result.infeasibility?.mitigations ?? []));
+    return { ...result, alarmType: ALARM_TYPE.COLLASSO_STRUTTURALE, suggestions, now };
   }
 
   // ── W collapse ───────────────────────────────────────────────────────────────

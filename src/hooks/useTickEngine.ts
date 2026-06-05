@@ -11,10 +11,9 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
 import {
-  kEffective, gompertz, computeCurrentPH,
+  kEffective, gompertz, computeCurrentPH, computeLabAdu,
   computeTCrit, computeWHill, doughCoreTemp,
-  thermalTimeConstant, thermalTimeConstantSphere,
-  applyContainerResistance, currentDoughMassKg,
+  thermalTimeConstantForPhase, currentDoughMassKg,
   fSaltYeast, fSaltProtease,
   fHardnessProtease,
   amylaseCorrectedRate,
@@ -74,6 +73,7 @@ export function useTickEngine() {
     // Legge tickState dal ref → sempre il valore più recente
     const ts       = tsRef.current;
     const prevAdu  = ts?.cumulativeAdu  ?? 0;
+    const prevLabAdu = (ts as any)?.labAdu ?? 0;   // v2.4.14 §2.6 — solo LM
     // Al primo tick ts è null: usa tLaboratorio della sessione come T iniziale impasto/ambiente.
     // I tick successivi leggono da ts (aggiornato ad ogni TICK dispatch).
     const prevTDough = ts?.tempDough    ?? session.tLaboratorio ?? 22;
@@ -96,12 +96,11 @@ export function useTickEngine() {
     // Lag lievitazione ridotto dalla biga (cinetica più rapida, non livello iniziale)
     const leavLambda   = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
 
-    // ── Temperatura impasto ────────────────────────────────────────────────────
+    // ── Temperatura impasto (geometria unificata v2.4.14 §2.14.4) ──────────────
     const massKg  = (currentDoughMassKg as Function)(session, phase);
-    const tauBase = (phase === 'bulk_room' || phase === 'bulk_fridge')
-      ? (thermalTimeConstant as Function)(massKg, session.hydration)
-      : (thermalTimeConstantSphere as Function)(massKg, session.hydration);
-    const tauTotal = (applyContainerResistance as Function)(tauBase, session.containerPreset);
+    const tauTotal = (thermalTimeConstantForPhase as Function)(
+      phase, massKg, session.hydration, session.containerPreset,
+    );
     const tDough   = (doughCoreTemp as Function)(prevTDough, tAmbient, deltaSec, tauTotal);
 
     // ── Salt + water hardness (v2.4) ──────────────────────────────────────────
@@ -116,7 +115,7 @@ export function useTickEngine() {
     // pH prodotto dalla fermentazione (leavAdu), non dall'orologio enzimatico.
     // Usa prevAdu per evitare dipendenza circolare: prevAdu→currentPH→corrRate→newAdu
     const currentPH = (computeCurrentPH as Function)(
-      session.initialPH ?? 5.8, prevAdu, session.agentType,
+      session.initialPH ?? 5.8, prevAdu, session.agentType, prevLabAdu,
     ) as number;
 
     // ── kEffective + amylase correction ───────────────────────────────────────
@@ -152,9 +151,14 @@ export function useTickEngine() {
       newEnzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100,
     ) as number;
 
-    // ── pH end-of-tick (da newAdu) — v2.4.11 §2.6.1 ───────────────────────────
+    // ── labAdu end-of-tick (dual-pop LAB, solo LM) — v2.4.14 §2.6 ──────────────
+    const newLabAdu = session.agentType === 'sourdough_wheat'
+      ? (computeLabAdu as Function)(prevLabAdu, currentPH, tDough, deltaH) as number
+      : 0;
+
+    // ── pH end-of-tick (da newAdu + newLabAdu) — v2.4.11 §2.6.1 / v2.4.14 §2.6 ──
     const newPH = (computeCurrentPH as Function)(
-      session.initialPH ?? 5.8, newAdu, session.agentType,
+      session.initialPH ?? 5.8, newAdu, session.agentType, newLabAdu,
     ) as number;
 
     // ── W corrente Hill — damage integral ─────────────────────────────────────
@@ -192,6 +196,14 @@ export function useTickEngine() {
     }
 
     const tickPatch = {
+      cumulativeAdu:    newAdu,
+      maturationPct:    enzymaticMatPct,  // ← orologio enzimatico (two-clock)
+      leaveningPct,                        // ← Gompertz lievito
+      enzymaticAdu:     newEnzAdu,
+      enzymaticMatPct,
+      labAdu:           newLabAdu,         // ← v2.4.14 §2.6 — dual-pop LAB (LM)
+      tempDough:        tDough,
+      tempAmbient:      tAmbient,
       estimatedPH:      newPH,
       W_current:        W_curr,
       wDamage,

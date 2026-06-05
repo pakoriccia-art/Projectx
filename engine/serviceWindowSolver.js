@@ -19,9 +19,10 @@
 
 import {
   kEffective, gompertz, findAduAt, fArrhenius, ENZYMATIC_CLOCK_PARAMS,
-  doughCoreTemp, thermalTimeConstant, thermalTimeConstantSphere, applyContainerResistance,
+  doughCoreTemp, thermalTimeConstantSphere, applyContainerResistance,
+  thermalTimeConstantForPhase,
   computeTCrit, computeWHill, structuralState,
-  fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH,
+  fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH, computeLabAdu,
   getStyleProfile,
 } from './engine-v2.4.0.js';
 
@@ -83,15 +84,18 @@ export function simulateTimeline(segments, initial, opts) {
   const saltProtease = fSaltProtease(salt);
   const hardProt     = waterHardnessPpm != null ? fHardnessProtease(waterHardnessPpm) : 1.0;
 
+  const isLM = agentType === 'sourdough_wheat';
+
   let tempDough = initial.tempDough;
   let leavAdu   = initial.leavAdu ?? 0;
   let enzAdu    = initial.enzAdu ?? 0;
+  let labAdu    = initial.labAdu ?? 0;   // v2.4.14 §2.6 — accumulato solo per LM
   let wDamage   = initial.wDamage ?? 0;
   let elapsedH  = initial.elapsedH ?? 0;
 
   const samples = [];
   const snapshot = (ambientTempC) => ({
-    elapsedH, tempDough, ambientTempC, leavAdu, enzAdu,
+    elapsedH, tempDough, ambientTempC, leavAdu, enzAdu, labAdu,
     leaveningPct:    gompertz(leavAdu, muMaxScaled, leavLambda, agentAsymptote),
     enzymaticMatPct: gompertz(enzAdu, enzMuMax, enzLambda, 100),
     W_current:       computeWHill(W0, 1.0, wDamage, 5),
@@ -103,23 +107,24 @@ export function simulateTimeline(segments, initial, opts) {
     if (!(seg.durationH > 0)) continue;
     const isBulk  = seg.phaseType === 'bulk_room' || seg.phaseType === 'bulk_fridge';
     const massKg  = isBulk ? totalMassKg : ballMassKg;
-    const tauBase = isBulk ? thermalTimeConstant(massKg, hydration)
-                           : thermalTimeConstantSphere(massKg, hydration);
-    const tau     = applyContainerResistance(tauBase, containerPreset);
+    // v2.4.14 §2.14.4 — astrazione geometrica unificata
+    const tau     = thermalTimeConstantForPhase(seg.phaseType, massKg, hydration, containerPreset);
     const nSteps  = Math.max(1, Math.round(seg.durationH / subStepH));
     const stepH   = seg.durationH / nSteps;
     const stepSec = stepH * 3600;
 
     for (let i = 0; i < nSteps; i++) {
       tempDough = doughCoreTemp(tempDough, seg.ambientTempC, stepSec, tau);
-      // Lievitazione (orologio lievito, cardinale)
+      // Lievitazione (orologio lievito, cardinale) — v2.4.14: guard 1e-6 + clamp [0,10]
       const kT     = kEffective(tempDough, agentEaKj, agentType);
-      const kRatio = kRef > 1e-12 ? kT / kRef : 0;
+      const kRatio = kRef > 1e-6 ? Math.min(10, Math.max(0, kT / kRef)) : 0;
       leavAdu += kRatio * saltYeast * stepH;
       // Maturazione (orologio enzimatico, fArrhenius senza CTM)
       enzAdu  += fArrhenius(tempDough) * stepH;
+      // pH: dual-pop LAB/Sacc per LM, lineare su leavAdu per LBF/IDY — v2.4.14 §2.6
+      const pH = computeCurrentPH(initialPH, leavAdu, agentType, labAdu);
+      if (isLM) labAdu = computeLabAdu(labAdu, pH, tempDough, stepH);
       // Danno W (integrale monotono di proteolisi)
-      const pH = computeCurrentPH(initialPH, leavAdu, agentType);
       const tCrit    = computeTCrit(W0, tempDough, pH, hydration) / (saltProtease * hardProt);
       wDamage += tCrit > 1e-3 ? stepH / tCrit : 0;
       elapsedH += stepH;
@@ -219,7 +224,7 @@ export function buildServiceWindowTimeline({ puntataH, puntataMaxH, staglioH, tc
     const startH = h;
     h += s.durationH;
     return {
-      id:            `svc-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      id:            `svc-${i}`,
       phaseType:     s.phaseType,
       startElapsedH: parseFloat(startH.toFixed(4)),
       endElapsedH:   parseFloat(h.toFixed(4)),
@@ -518,6 +523,25 @@ export function solveNowAnchoredWindow(input) {
     { ...baseOpts, muMaxScaled: muForDose });
   const end = finalSim.final;
 
+  // ── Bug #82b: LM oltre soglia bolle = infeasible (dose LM non scalabile qui) ──
+  if (agentType === 'sourdough_wheat' && bubbleCapped) {
+    return {
+      feasible: false, mixStart, mixStartIsNow: true,
+      resolvedTargetMaturationPct: targetMaturationPct,
+      resolvedBubbleThresholdPct: bubbleThresholdPct,
+      leaveningAtServiceEnd: parseFloat(end.leaveningPct.toFixed(1)),
+      infeasibility: {
+        reason: 'bubble_threshold_lm_unscalable',
+        maxSafeServiceWindowH: 0,
+        mitigations: [
+          'Riduci la durata totale della fermentazione (totalH)',
+          'Anticipa l\'inizio del servizio',
+          `Abbassa la soglia bolle per questo stile (attuale ${bubbleThresholdPct}%)`,
+        ],
+      },
+    };
+  }
+
   // Stato a serviceStart (prima del segmento servizio) per finestra sicura
   const preServiceSegs = [
     { phaseType: 'bulk_room',     durationH: effectivePuntataH_base, ambientTempC },
@@ -760,6 +784,27 @@ export function solveServiceWindow(input) {
     }
   } else {
     bubbleCapped = leaveningAtEnd(agentDosePct) > bubbleThresholdPct;  // sourdough: dose non scalabile
+  }
+
+  // ── Bug #82b: LM oltre soglia bolle = infeasible (non più feasible silenzioso) ──
+  // Il LM non riduce abbastanza le bolle nemmeno alla dose minima: schedule non
+  // producibile (panetti collassati per eccesso di gas). v2.4.14 §2.5
+  if (agentType === 'sourdough_wheat' && bubbleCapped) {
+    const leaveningFinal = leaveningAtEnd(dose);
+    return {
+      feasible: false,
+      infeasibility: {
+        reason: 'bubble_threshold_lm_unscalable',
+        maxSafeServiceWindowH: 0,
+        mitigations: [
+          'Riduci la durata totale della fermentazione (totalH)',
+          'Anticipa l\'inizio del servizio',
+          `Abbassa la soglia bolle per questo stile (attuale ${bubbleThresholdPct}%)`,
+        ],
+      },
+      leaveningAtServiceEnd: parseFloat(leaveningFinal.toFixed(1)),
+      resolvedBubbleThresholdPct: bubbleThresholdPct,
+    };
   }
 
   // ── Simulazione finale + readout vincoli ────────────────────────────────────

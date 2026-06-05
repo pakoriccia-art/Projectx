@@ -123,11 +123,12 @@ export function DashboardV4() {
     const leaveningPct = ts?.leaveningPct ?? 0;
     const ambientTempC = ts?.tempAmbient ?? session.tLaboratorio ?? 22;
     const T_dough = ts?.tempDough ?? ambientTempC;
-    // pH da leavAdu (orologio fermentazione) — v2.4.11 §2.6.1
+    // pH da leavAdu (+ labAdu dual-pop per LM) — v2.4.11 §2.6.1 / v2.4.14 §2.6
     const pH = computeCurrentPH(
       session.initialPH ?? 5.8,
       ts?.cumulativeAdu ?? 0,
       session.agentType,
+      (ts as any)?.labAdu ?? 0,
     ) as number;
 
     const wRes = computeDashboardEffectiveW(
