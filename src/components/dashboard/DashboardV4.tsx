@@ -8,28 +8,30 @@
  *  - T_amb modificata via setTempAmbient() (aggiorna anche la ThermalTimeline)
  *  - W strutturale da computeDashboardEffectiveW (tRatio/tCritHours per la curva Hill)
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine } from '../../hooks/useTickEngine';
 import {
   getStyleProfile, computeStyleAwareAlertLevel, computeDashboardEffectiveW,
   computeCurrentPH,
 } from '../../engine';
+import type { DashboardWResult, AlertLevelResult } from '../../engine';
 import { GompertzChart, QualityProfileCard } from './DashboardView';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
 import { FermentationTimeline } from './FermentationTimeline';
-import { SemaforoCard, SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
+import { SemaforoCard, SEMAFORO_COLORS, CollapseModal, type SemaforoState } from './SemaforoCard';
+import { LiveHeader } from './LiveHeader';
 
 // ─── Stato semaforo da alertLevel / tRatio ────────────────────────────────────
 function matSemaforoFromLevel(level: string, matPct: number, threshold: number): SemaforoState {
-  if (level === 'STRUCTURAL_CRITICAL' || level === 'STRUCTURAL_COLLAPSED') return 'CRITICAL';
+  if (level === 'STRUCTURAL_COLLAPSED') return 'COLLAPSED';
+  if (level === 'STRUCTURAL_CRITICAL')  return 'CRITICAL';
   if (level === 'SWEET_SPOT') return 'OK';
   const ratio = threshold > 0 ? matPct / threshold : 0;
   if (level === 'APPROACHING' || level === 'STRUCTURAL_WARNING') {
     if (level === 'APPROACHING' && ratio < 0.3) return 'TOO_EARLY';
     return 'WARNING';
   }
-  // level === 'OK'
   return ratio < 0.3 ? 'TOO_EARLY' : 'OK';
 }
 
@@ -42,33 +44,18 @@ function matStateIndependent(matPct: number, threshold: number): SemaforoState {
 }
 
 function wStateFromRatio(tRatio: number): SemaforoState {
-  if (tRatio < 0.3)  return 'TOO_EARLY';
-  if (tRatio < 0.65) return 'OK';
-  if (tRatio < 0.85) return 'WARNING';
-  return 'CRITICAL';
+  if (tRatio < 0.30)  return 'TOO_EARLY';
+  if (tRatio < 0.75)  return 'OK';
+  if (tRatio < 0.85)  return 'WARNING';
+  if (tRatio < 1.05)  return 'CRITICAL';
+  return 'COLLAPSED';
 }
 
-const SEVERITY: Record<SemaforoState, number> = { TOO_EARLY: 0, OK: 1, WARNING: 2, CRITICAL: 3 };
+const SEVERITY: Record<SemaforoState, number> = {
+  TOO_EARLY: 0, OK: 1, WARNING: 2, CRITICAL: 3, COLLAPSED: 4,
+};
 function moreSevere(a: SemaforoState, b: SemaforoState): SemaforoState {
   return SEVERITY[a] >= SEVERITY[b] ? a : b;
-}
-
-// ─── Banner alert (mappa livello → presentazione) ─────────────────────────────
-const BANNER_STYLE: Record<string, { bg: string; border: string; color: string }> = {
-  COLLAPSE: { bg: '#450a0a', border: '#7f1d1d', color: '#fca5a5' },
-  CRITICAL: { bg: '#1f0a0a', border: '#ef4444', color: '#ef4444' },
-  ADVISORY: { bg: '#1c1605', border: '#eab308', color: '#eab308' },
-  INFO:     { bg: '#06201c', border: '#14b8a6', color: '#5eead4' },
-};
-
-function bannerKindFor(level: string): keyof typeof BANNER_STYLE | null {
-  switch (level) {
-    case 'STRUCTURAL_COLLAPSED': return 'COLLAPSE';
-    case 'STRUCTURAL_CRITICAL':  return 'CRITICAL';
-    case 'STRUCTURAL_WARNING':   return 'ADVISORY';
-    case 'SWEET_SPOT':           return 'INFO';
-    default:                     return null;
-  }
 }
 
 // ─── Card generica dark ───────────────────────────────────────────────────────
@@ -121,13 +108,9 @@ function Collapsible({ title, defaultOpen = false, children }: {
 export function DashboardV4() {
   const { state, dispatch } = useApp();
   const { setTempAmbient, setPhase } = useTickEngine();
-  const [now, setNow] = useState(new Date());
   const [confirmEnd, setConfirmEnd] = useState(false);
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  // Permette all'utente di ignorare il modal COLLAPSED e continuare a monitorare
+  const [collapseAcknowledged, setCollapseAcknowledged] = useState(false);
 
   const session = state.activeSession;
   const ts = state.tickState;
@@ -141,22 +124,19 @@ export function DashboardV4() {
     const ambientTempC = ts?.tempAmbient ?? session.tLaboratorio ?? 22;
     const T_dough = ts?.tempDough ?? ambientTempC;
     // pH da leavAdu (orologio fermentazione) — v2.4.11 §2.6.1
-    const pH = (computeCurrentPH as Function)(
+    const pH = computeCurrentPH(
       session.initialPH ?? 5.8,
       ts?.cumulativeAdu ?? 0,
       session.agentType,
     ) as number;
 
-    const wRes = (computeDashboardEffectiveW as Function)(
-      session, ts?.cumulativeAdu ?? 0, T_dough, pH,
-    ) as {
-      W_current: number; W_initial: number; decayPct: number;
-      tRatio: number; tCritHours: number; structuralStatus: string;
-    };
+    const wRes = computeDashboardEffectiveW(
+      session as any, ts?.cumulativeAdu ?? 0, T_dough, pH as number,
+    ) as DashboardWResult;
 
-    const alertRes = (computeStyleAwareAlertLevel as Function)(
-      session, enzymaticMatPct, wRes.W_current, wRes.W_initial, leaveningPct,
-    ) as { level: string; message: string };
+    const alertRes = computeStyleAwareAlertLevel(
+      session as any, enzymaticMatPct, wRes.W_current, wRes.W_initial, leaveningPct,
+    ) as AlertLevelResult;
 
     return { styleProfile, enzymaticMatPct, leaveningPct, ambientTempC, T_dough, pH, wRes, alertRes };
   }, [session, ts]);
@@ -174,19 +154,15 @@ export function DashboardV4() {
   const threshold = styleProfile.alertThreshold ?? 85;
   const primarySignal: string = styleProfile.primarySignal ?? 'maturation';
 
+  // elapsedH computato da Date.now() — aggiornato ad ogni re-render (triggerd da tickState)
   const startedAt = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
-  const elapsedH = Math.max(0, (now.getTime() - startedAt.getTime()) / 3_600_000);
-  // Ratio mostrato dal vivo (coincide con la posizione del dot Hill = elapsedH)
-  const liveRatio = tCritHours > 0 ? elapsedH / tCritHours : 0;
   const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date(session.targetBakeAt ?? Date.now() + 86_400_000);
-  const remainingH = Math.max(0, (targetBake.getTime() - now.getTime()) / 3_600_000);
+  const elapsedH   = Math.max(0, (Date.now() - startedAt.getTime()) / 3_600_000);
+  const remainingH = Math.max(0, (targetBake.getTime() - Date.now()) / 3_600_000);
+  // Ratio mostrato dal vivo (coincide con la posizione del dot Hill = elapsedH)
+  const liveRatio  = tCritHours > 0 ? elapsedH / tCritHours : 0;
 
   const phase = ts?.phase ?? 'bulk_room';
-  const phaseLabel: Record<string, string> = {
-    bulk_room: 'Puntata TA', bulk_fridge: 'Puntata TC',
-    balled_room: 'Staglio', balled_fridge: 'Appretto TC',
-    proofing: 'Lievitazione', baking: 'Cottura',
-  };
 
   // Stati semaforo
   const matState = matSemaforoFromLevel(alertRes.level, enzymaticMatPct, threshold);
@@ -197,29 +173,29 @@ export function DashboardV4() {
     : primarySignal === 'dual'     ? moreSevere(matIndep, wState)
     : matState;
 
-  const banner = bannerKindFor(alertRes.level);
+  const showCollapseModal = alertRes.level === 'STRUCTURAL_COLLAPSED' && !collapseAcknowledged;
 
   return (
     <div style={{ minHeight: '100dvh', background: '#0a0a0a', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
 
-      {/* ── HEADER FISSO ── */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 100, background: '#0a0a0a', borderBottom: '1px solid #1f2937', padding: '12px 18px' }}>
-        <div style={{ color: '#f9fafb', fontSize: 13, fontWeight: 700, fontFamily: 'monospace' }}>
-          PizzaMatrix · {session.style?.toUpperCase()} · {session.totalFlourGrams}g
-        </div>
-        <div style={{ color: '#6b7280', fontSize: 10, marginTop: 3, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
-          {now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })} · {phaseLabel[phase] ?? phase} · +{elapsedH.toFixed(1)}h · {remainingH > 0 ? `${remainingH.toFixed(1)}h rimaste` : '🍕 cottura'}
-        </div>
-      </header>
+      {/* ── HEADER FISSO con timer isolato (1s) ── */}
+      <LiveHeader
+        style={session.style ?? ''}
+        totalFlourGrams={session.totalFlourGrams ?? 0}
+        startedAt={startedAt}
+        targetBakeAt={targetBake}
+        currentPhase={phase}
+        alertLevel={alertRes.level}
+        alertMessage={alertRes.message}
+      />
 
-      {/* ── BANNER ALERT ── */}
-      {banner && (
-        <div style={{
-          background: BANNER_STYLE[banner].bg, borderBottom: `1px solid ${BANNER_STYLE[banner].border}`,
-          padding: '10px 18px', color: BANNER_STYLE[banner].color, fontSize: 12, fontFamily: 'monospace',
-        }}>
-          {banner === 'COLLAPSE' ? '⛔' : banner === 'CRITICAL' ? '⚠' : banner === 'ADVISORY' ? '⚠' : 'ℹ'} {alertRes.message}
-        </div>
+      {/* ── MODAL COLLASSO (non dismissibile — solo "Termina" o "Continua") ── */}
+      {showCollapseModal && (
+        <CollapseModal
+          message={alertRes.message}
+          onEnd={() => dispatch({ type: 'SESSION_END' })}
+          onContinue={() => setCollapseAcknowledged(true)}
+        />
       )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 14px 0' }}>
@@ -357,7 +333,7 @@ export function DashboardV4() {
             key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
             session={session} ts={ts}
           />
-          <FermentationTimeline session={session} now={now} currentSemaforoState={currentSemaforoState}
+          <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
             onPhaseTransition={(p) => setPhase(p)} />
         </DarkCard>
 

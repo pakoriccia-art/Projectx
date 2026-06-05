@@ -224,6 +224,35 @@ export interface WaterTempResult {
 // computeCurrentPH — auto-exported via `export *` from engine JS.
 // Signature: (initialPH: number | undefined, leavAdu: number, agentType: string) => number
 
+// ─── Alert Level Result — ritornato da computeStyleAwareAlertLevel ────────────
+
+export type AlertLevel =
+  | 'OK'
+  | 'APPROACHING'
+  | 'SWEET_SPOT'
+  | 'STRUCTURAL_WARNING'
+  | 'STRUCTURAL_CRITICAL'
+  | 'STRUCTURAL_COLLAPSED';
+
+export interface AlertLevelResult {
+  level:          AlertLevel;
+  bindingSignal?: 'maturation' | 'structural' | 'bubble' | 'dual';
+  message:        string;
+}
+
+// ─── Style Profile — ritornato da getStyleProfile ─────────────────────────────
+export type PizzaStyle = 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';
+
+export interface StyleProfile {
+  alertThreshold:         number;
+  alertThreshold_range:   [number, number];
+  bubbleThresholdPct:     number;
+  primarySignal:          'maturation' | 'structural' | 'dual';
+  W_minimo_stesura:       number;
+  puntataMatPct_target:   number;
+  [key: string]: unknown;
+}
+
 // ─── KB §15.4 — Indice estensibilità ─────────────────────────────────────────
 
 export interface ExtensibilityIndexInput {

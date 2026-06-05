@@ -26,6 +26,26 @@ const TICK_INTERVAL_MS    = 10_000;  // 10 secondi reali
 const SIM_MINUTES_PER_TICK = 6;      // 1s reale = 6 min simulati (per demo)
 const USE_SIM_TIME         = false;   // true = accelerato per demo
 
+// Soglie minime di variazione per triggerare un re-render (performance mobile)
+const TICK_SIGNIFICANCE = {
+  enzymaticMatPct: 0.05,  // %
+  leaveningPct:    0.05,  // %
+  tempDough:       0.05,  // °C
+  W_current:       0.1,   // unità W
+};
+
+function hasSignificantChange(prev: Record<string, unknown> | null | undefined, next: {
+  enzymaticMatPct: number; leaveningPct: number; tempDough: number; W_current: number;
+}): boolean {
+  if (!prev) return true;  // primo tick — sempre significativo
+  return (
+    Math.abs(next.enzymaticMatPct - ((prev.enzymaticMatPct as number) ?? 0)) >= TICK_SIGNIFICANCE.enzymaticMatPct ||
+    Math.abs(next.leaveningPct    - ((prev.leaveningPct    as number) ?? 0)) >= TICK_SIGNIFICANCE.leaveningPct    ||
+    Math.abs(next.tempDough       - ((prev.tempDough       as number) ?? 0)) >= TICK_SIGNIFICANCE.tempDough       ||
+    Math.abs(next.W_current       - ((prev.W_current       as number) ?? 0)) >= TICK_SIGNIFICANCE.W_current
+  );
+}
+
 export function useTickEngine() {
   const { state, dispatch } = useApp();
 
@@ -171,24 +191,22 @@ export function useTickEngine() {
       }});
     }
 
-    dispatch({
-      type: 'TICK',
-      patch: {
-        cumulativeAdu:    newAdu,
-        maturationPct:    enzymaticMatPct,  // ← ora = orologio enzimatico (two-clock)
-        leaveningPct,                        // ← Gompertz lievito (ex maturationPct)
-        enzymaticAdu:     newEnzAdu,
-        enzymaticMatPct,
-        tempDough:        tDough,
-        tempAmbient:      tAmbient,
-        estimatedPH:      newPH,
-        W_current:        W_curr,
-        wDamage,
-        elapsedH:         elapsedH + deltaH,
-        phase,
-        lastTickAt:       now,
-      } as any,
-    });
+    const tickPatch = {
+      estimatedPH:      newPH,
+      W_current:        W_curr,
+      wDamage,
+      elapsedH:         elapsedH + deltaH,
+      phase,
+      lastTickAt:       now,
+    };
+
+    // Dispatch solo su variazione significativa — evita re-render inutili su mobile
+    const prevTs = state.tickState as Record<string, unknown> | null | undefined;
+    if (hasSignificantChange(prevTs, {
+      enzymaticMatPct, leaveningPct, tempDough: tDough, W_current: W_curr,
+    })) {
+      dispatch({ type: 'TICK', patch: tickPatch as any });
+    }
   }, [dispatch]); // dispatch è stabile → tick non cambia mai → setInterval ok
 
   // ── Avvia / ferma il loop quando cambia la sessione ───────────────────────

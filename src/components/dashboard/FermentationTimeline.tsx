@@ -3,7 +3,7 @@
  * Timeline orizzontale delle fasi, derivata da session.thermalTimeline (fonte di verità).
  * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
  */
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
@@ -159,15 +159,23 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
 }
 
 export function FermentationTimeline({
-  session, now, currentSemaforoState, onPhaseTransition,
+  session, currentSemaforoState, onPhaseTransition,
 }: {
-  session: Session; now: Date; currentSemaforoState: SemaforoState;
+  session: Session; currentSemaforoState: SemaforoState;
   onPhaseTransition?: (phaseType: string) => void;
 }) {
+  // now è locale — non causa re-render del parent ogni secondo
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   const phases = useMemo(
     () => buildTimelinePhases(session.thermalTimeline, session, now),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [session.thermalTimeline, session.id, now.getTime()],
+    // Re-calcola ogni minuto (countdown badge) + su cambio timeline o sessione
+    [session.thermalTimeline, session.id, Math.floor(now.getTime() / 60_000)],
   );
 
   if (phases.length === 0) return null;
