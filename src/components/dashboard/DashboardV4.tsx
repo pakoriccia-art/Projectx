@@ -279,7 +279,7 @@ export function DashboardV4() {
               -{decayPct.toFixed(1)}%
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 18, marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 18, marginBottom: 4 }}>
             <div>
               <div style={{ color: '#4b5563', fontSize: 9 }}>W₀ → W</div>
               <div style={{ color: '#9ca3af', fontSize: 16, fontWeight: 700, fontFamily: 'monospace' }}>
@@ -293,7 +293,10 @@ export function DashboardV4() {
               </div>
             </div>
           </div>
-          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} width={398} height={96} />
+          <div style={{ color: '#4b5563', fontSize: 9, marginBottom: 6, letterSpacing: '0.06em', fontFamily: 'monospace' }}>
+            t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
+          </div>
+          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} width={398} height={92} />
         </DarkCard>
 
         {/* Temperature + slider T_amb */}
@@ -350,7 +353,10 @@ export function DashboardV4() {
 
         {/* ── ZONA 3 — GRAFICO + TIMELINE ── */}
         <DarkCard style={{ padding: '12px 12px 4px' }}>
-          <GompertzChart session={session} ts={ts} />
+          <GompertzChart
+            key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
+            session={session} ts={ts}
+          />
           <FermentationTimeline session={session} now={now} currentSemaforoState={currentSemaforoState}
             onPhaseTransition={(p) => setPhase(p)} />
         </DarkCard>

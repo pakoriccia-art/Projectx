@@ -73,14 +73,20 @@ export function MiniHillCurve({
     { w: W0 * 0.5,  label: `${Math.round(W0 * 0.5)}` },
   ];
 
-  // Label asse X in ore assolute (step 12h se t_crit lungo, altrimenti 6h)
-  const xStep = tCrit > 20 ? 12 : 6;
-  const xLabels: Array<{ t: number; px: number }> = [];
-  for (let t = 0; t <= tMax; t += xStep) {
-    xLabels.push({ t, px: x(t) });
+  // Label asse X in ore assolute — passo dinamico in base a tMax
+  function computeXStep(tMax: number): number {
+    if (tMax <= 24)  return 6;
+    if (tMax <= 72)  return 12;
+    if (tMax <= 150) return 24;
+    if (tMax <= 300) return 48;
+    return 72;
   }
-  const labelY = padT + plotH + 11;
-  const tCritLabel = `${Math.round(tCrit)}h`;
+  const xStep = computeXStep(tMax);
+  const xLabels: Array<{ t: number; label: string; px: number }> = [];
+  for (let t = 0; t <= tMax; t += xStep) {
+    xLabels.push({ t, label: t === 0 ? '0' : `${t}h`, px: x(t) });
+  }
+  const labelY = padT + plotH + 14;
 
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
@@ -106,17 +112,18 @@ export function MiniHillCurve({
         <polyline points={redPts.join(' ')} fill="none" stroke="#ef4444" strokeWidth={2} />
       )}
 
-      {/* Label asse X — ore assolute */}
-      {xLabels.map(({ t, px }) => (
+      {/* Label asse X — passo dinamico */}
+      {xLabels.map(({ t, label, px }) => (
         <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={8} fill="#4b5563"
-          fontFamily="monospace">{t}h</text>
+          fontFamily="monospace">{label}</text>
       ))}
 
       {/* Linea verticale t_crit */}
       <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
         stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />
-      <text x={collapseX} y={labelY + 10} textAnchor="middle" fontSize={8} fill="#ef4444"
-        fontFamily="monospace">t_crit {tCritLabel}</text>
+      {/* Label t_crit — stessa riga asse X, colore rosso per distinguersi */}
+      <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ef4444"
+        fontFamily="monospace">{Math.round(tCrit)}h</text>
 
       {/* Dot stato corrente */}
       <circle cx={dotX} cy={dotY} r={5} fill={dotColor} stroke="#0a0a0a" strokeWidth={1.5} />
