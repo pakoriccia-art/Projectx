@@ -3,6 +3,7 @@
  * Timeline orizzontale delle fasi, derivata da session.thermalTimeline (fonte di verità).
  * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
  */
+import { useMemo } from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
@@ -163,16 +164,37 @@ export function FermentationTimeline({
   session: Session; now: Date; currentSemaforoState: SemaforoState;
   onPhaseTransition?: (phaseType: string) => void;
 }) {
-  const phases = buildTimelinePhases(session.thermalTimeline, session, now);
+  const phases = useMemo(
+    () => buildTimelinePhases(session.thermalTimeline, session, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.thermalTimeline, session.id, now.getTime()],
+  );
+
   if (phases.length === 0) return null;
+
+  // Deduplica fasi con lo stesso phaseType (può accadere dopo transizione backward):
+  // mostra la versione 'current' se presente, altrimenti la prima occorrenza.
+  const deduped = phases.reduce<TimelinePhase[]>((acc, phase) => {
+    const existing = acc.findIndex(p => p.phaseType === phase.phaseType && p.label === phase.label);
+    if (existing === -1) {
+      acc.push(phase);
+    } else if (phase.isCurrent) {
+      acc[existing] = phase;
+    }
+    return acc;
+  }, []);
 
   return (
     <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
       <div style={{ position: 'absolute', top: 40, left: 24, right: 24, height: 1, background: '#1f2937' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 4, minWidth: 'min-content' }}>
-        {phases.map((phase, i) => (
-          <TimelineMarker key={i} phase={phase} currentSemaforoState={currentSemaforoState}
-            onTransition={onPhaseTransition} />
+        {deduped.map((phase, i) => (
+          <TimelineMarker
+            key={`${phase.phaseType}-${phase.label}-${phase.absoluteTime.getTime()}-${i}`}
+            phase={phase}
+            currentSemaforoState={currentSemaforoState}
+            onTransition={onPhaseTransition}
+          />
         ))}
       </div>
     </div>

@@ -21,7 +21,7 @@ import {
   kEffective, gompertz, findAduAt, fArrhenius, ENZYMATIC_CLOCK_PARAMS,
   doughCoreTemp, thermalTimeConstant, thermalTimeConstantSphere, applyContainerResistance,
   computeTCrit, computeWHill, structuralState,
-  fSaltYeast, fSaltProtease, fHardnessProtease, estimatePHForLBF,
+  fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH,
   getStyleProfile,
 } from './engine-v2.4.0.js';
 
@@ -119,8 +119,7 @@ export function simulateTimeline(segments, initial, opts) {
       // Maturazione (orologio enzimatico, fArrhenius senza CTM)
       enzAdu  += fArrhenius(tempDough) * stepH;
       // Danno W (integrale monotono di proteolisi)
-      const matForPH = gompertz(leavAdu, muMaxScaled, leavLambda, agentAsymptote);
-      const pH       = estimatePHForLBF(initialPH, matForPH);
+      const pH = computeCurrentPH(initialPH, leavAdu, agentType);
       const tCrit    = computeTCrit(W0, tempDough, pH, hydration) / (saltProtease * hardProt);
       wDamage += tCrit > 1e-3 ? stepH / tCrit : 0;
       elapsedH += stepH;

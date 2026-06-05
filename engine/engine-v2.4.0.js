@@ -215,6 +215,14 @@ const WATER_HARDNESS_PARAMS = {
   proteaseKHard: 0.0004,
 };
 
+// pH drop per unità di leavAdu — v2.4.11 §2.6.1
+// kAcid calibrato su dati fermentativi: LBF ≈ 0.0035 pH/ADU, LM ≈ 0.020 pH/ADU
+const ACID_PRODUCTION_PARAMS = {
+  fresh_yeast:       { kAcid: 0.0035, pHFloor: 5.0 },
+  instant_dry_yeast: { kAcid: 0.0035, pHFloor: 5.0 },
+  sourdough_wheat:   { kAcid: 0.020,  pHFloor: 4.5 },
+};
+
 // ═══════════════════════════════════════════════════════════════
 // § D — CORE KINETICS (v2.0)
 // ═══════════════════════════════════════════════════════════════
@@ -1042,9 +1050,9 @@ function _buildWBreakdown(session) {
  * W corrente per la dashboard — §3 (v2.3.2)
  * Spec interfaccia: DashboardWResult
  */
-function computeDashboardEffectiveW(session, currentAdu, currentTempC) {
+function computeDashboardEffectiveW(session, currentAdu, currentTempC, currentPH) {
   const W_initial   = session.effectiveW_initial;
-  const pH_current  = _estimateCurrentPH(session, currentAdu);
+  const pH_current  = currentPH != null ? currentPH : _estimateCurrentPH(session, currentAdu);
   const H           = session.hydration;
   const elapsedH    = session.startedAt
     ? (Date.now() - new Date(session.startedAt).getTime()) / 3_600_000
@@ -1365,6 +1373,19 @@ function estimatePHForLBF(initialPH, maturationPct) {
 }
 
 /**
+ * pH biochimicamente corretto da leavAdu — v2.4.11 §2.6.1
+ * Il pH è prodotto dalla fermentazione (lievito/LAB), non dall'orologio enzimatico.
+ * Calo lineare: ΔpH = kAcid × leavAdu, con floor biologico per agente.
+ * Agenti non in tabella → restituisce initialPH invariato.
+ */
+function computeCurrentPH(initialPH, leavAdu, agentType) {
+  const params = ACID_PRODUCTION_PARAMS[agentType];
+  if (!params || leavAdu <= 0) return initialPH ?? 5.8;
+  const drop = params.kAcid * leavAdu;
+  return Math.max(params.pHFloor, (initialPH ?? 5.8) - drop);
+}
+
+/**
  * Indice di estensibilità combinato — KB §15.4
  * Combina alveografia (W, P/L), stabilità farinografica e avanzamento maturazione.
  * Pesi: W=30%, P/L=20%, stabilità=30%, maturazione=20%
@@ -1465,6 +1486,8 @@ const _constants = {
   ALTITUDE_PARAMS,
   WATER_HARDNESS_PARAMS,
   ENZYMATIC_CLOCK_PARAMS,
+  // v2.4.11
+  ACID_PRODUCTION_PARAMS,
 };
 
 // § S Style Profile Parameters (v2.4.4)
@@ -1912,6 +1935,8 @@ if (typeof module !== 'undefined' && module.exports) {
     estimatePHForLBF,
     computeExtensibilityIndex,
     computeInverseProgram,
+    // v2.4.11
+    computeCurrentPH,
 
     // § S Style Profile Parameters (v2.4.4)
     STYLE_PROFILES,
@@ -1932,6 +1957,7 @@ export {
   FRICTION_BASE_FACTORS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
   ALTITUDE_PARAMS, WATER_HARDNESS_PARAMS, ENZYMATIC_CLOCK_PARAMS,
+  ACID_PRODUCTION_PARAMS,
 
   // Functions
   safeExp, safeDiv, safeClamp,
@@ -1953,6 +1979,7 @@ export {
   fHardnessGluten, fHardnessProtease,
   computeReverseScaling,
   estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
+  computeCurrentPH,
   STYLE_PROFILES, getStyleProfile, computeStyleAwareAlertLevel,
   checkPuntataTarget, checkWMinimoStesura,
 };

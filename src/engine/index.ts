@@ -220,6 +220,10 @@ export interface WaterTempResult {
 // estimatePHForLBF — auto-exported via `export *` from engine JS.
 // Signature: (initialPH: number | undefined, maturationPct: number) => number
 
+// ─── v2.4.11 §2.6.1 — pH biochimicamente corretto da leavAdu ─────────────────
+// computeCurrentPH — auto-exported via `export *` from engine JS.
+// Signature: (initialPH: number | undefined, leavAdu: number, agentType: string) => number
+
 // ─── KB §15.4 — Indice estensibilità ─────────────────────────────────────────
 
 export interface ExtensibilityIndexInput {

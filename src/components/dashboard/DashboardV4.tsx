@@ -13,6 +13,7 @@ import { useApp } from '../../context/AppContext';
 import { useTickEngine } from '../../hooks/useTickEngine';
 import {
   getStyleProfile, computeStyleAwareAlertLevel, computeDashboardEffectiveW,
+  computeCurrentPH,
 } from '../../engine';
 import { GompertzChart, QualityProfileCard } from './DashboardView';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
@@ -139,10 +140,15 @@ export function DashboardV4() {
     const leaveningPct = ts?.leaveningPct ?? 0;
     const ambientTempC = ts?.tempAmbient ?? session.tLaboratorio ?? 22;
     const T_dough = ts?.tempDough ?? ambientTempC;
-    const pH = ts?.estimatedPH ?? session.initialPH ?? 5.8;
+    // pH da leavAdu (orologio fermentazione) — v2.4.11 §2.6.1
+    const pH = (computeCurrentPH as Function)(
+      session.initialPH ?? 5.8,
+      ts?.cumulativeAdu ?? 0,
+      session.agentType,
+    ) as number;
 
     const wRes = (computeDashboardEffectiveW as Function)(
-      session, ts?.cumulativeAdu ?? 0, T_dough,
+      session, ts?.cumulativeAdu ?? 0, T_dough, pH,
     ) as {
       W_current: number; W_initial: number; decayPct: number;
       tRatio: number; tCritHours: number; structuralStatus: string;

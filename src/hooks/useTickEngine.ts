@@ -11,7 +11,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
 import {
-  kEffective, gompertz, estimatePHForLBF,
+  kEffective, gompertz, computeCurrentPH,
   computeTCrit, computeWHill, doughCoreTemp,
   thermalTimeConstant, thermalTimeConstantSphere,
   applyContainerResistance, currentDoughMassKg,
@@ -92,15 +92,11 @@ export function useTickEngine() {
       ? (fHardnessProtease as Function)(session.waterHardnessPpm)
       : 1.0;
 
-    // ── pH corrente (da prevAdu, senza circolarità) — KB §12.2 step 5 ──────────
-    // Usa estimatePHForLBF (KB §2.6) con la maturazione del tick precedente.
-    // Questo evita la dipendenza circolare: prevAdu → prevMatPct → currentPH → corrRate → newAdu
-    const prevMatPct = (gompertz as Function)(
-      prevAdu,
-      session.agentMuMax, leavLambda, session.agentAsymptote ?? 100,
-    ) as number;
-    const currentPH = (estimatePHForLBF as Function)(
-      session.initialPH ?? 5.8, prevMatPct,
+    // ── pH corrente (da prevAdu, senza circolarità) — v2.4.11 §2.6.1 ──────────
+    // pH prodotto dalla fermentazione (leavAdu), non dall'orologio enzimatico.
+    // Usa prevAdu per evitare dipendenza circolare: prevAdu→currentPH→corrRate→newAdu
+    const currentPH = (computeCurrentPH as Function)(
+      session.initialPH ?? 5.8, prevAdu, session.agentType,
     ) as number;
 
     // ── kEffective + amylase correction ───────────────────────────────────────
@@ -136,9 +132,9 @@ export function useTickEngine() {
       newEnzAdu, ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100,
     ) as number;
 
-    // ── pH stimato end-of-tick (stored for next tick) — KB §12.2 step 7 ───────
-    const newPH = (estimatePHForLBF as Function)(
-      session.initialPH ?? 5.8, matPct,
+    // ── pH end-of-tick (da newAdu) — v2.4.11 §2.6.1 ───────────────────────────
+    const newPH = (computeCurrentPH as Function)(
+      session.initialPH ?? 5.8, newAdu, session.agentType,
     ) as number;
 
     // ── W corrente Hill — damage integral ─────────────────────────────────────
