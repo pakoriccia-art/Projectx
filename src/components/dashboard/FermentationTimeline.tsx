@@ -68,7 +68,9 @@ export function buildTimelinePhases(
       absoluteTime: new Date(absMs),
       isCompleted:  seg.status === 'completed',
       isCurrent:    seg.status === 'current',
-      isFuture:     seg.status === 'planned',
+      // Bug #94: usa margine 5min per evitare che la fase corrente risulti "futura"
+      // di pochi secondi. Solo fasi con start > now + 5min sono tappabili.
+      isFuture:     (absMs - nowMs) > 5 * 60 * 1000,
       isBake,
       hoursFromNow: (absMs - nowMs) / 3_600_000,
     });
@@ -98,8 +100,9 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
     : phase.isCompleted ? '#374151' : '#4b5563';
 
   const showBadge = phase.isFuture && phase.hoursFromNow > 0 && phase.hoursFromNow <= 4;
-  // Tappabile: qualsiasi fase NON corrente (futura o passata → steering bidirezionale)
-  const canTransition = !phase.isCurrent && !!onTransition;
+  // Bug #94: SOLO fasi future sono tappabili — mai passate, mai corrente.
+  // isFuture usa margine 5min → nessun edge case con la fase corrente appena iniziata.
+  const canTransition = phase.isFuture === true && !!onTransition;
 
   return (
     <div

@@ -3,6 +3,9 @@
  * Curva di decadimento strutturale W(t) = W0 / (1 + (t/tCrit)^n) renderizzata in SVG.
  * Standalone, riusabile. Verde fino a t < tCrit·0.82, rossa oltre (zona collasso).
  * Dot di stato (grigio/verde/giallo/rosso) alla posizione corrente.
+ *
+ * v2.4.16 Bug #95: range X adattivo a sessionDurationH per sessioni brevi con t_crit lungo.
+ * t_crit fuori range mostrato con "→Xh" invece di linea verticale.
  */
 const HILL_EXPONENT = 5;
 const COLLAPSE_FRACTION = 0.82;
@@ -27,16 +30,34 @@ function hillW(W0: number, tCrit: number, t: number): number {
 }
 
 export function MiniHillCurve({
-  W0, tCrit, currentT, width = 300, height = 92,
+  W0, tCrit, currentT, sessionDurationH, width = 300, height = 92,
 }: {
-  W0: number; tCrit: number; currentT: number; width?: number; height?: number;
+  W0: number; tCrit: number; currentT: number;
+  /** Durata totale pianificata [h] = targetBakeAt − mixStartAt. Limita il range X
+   *  a qualcosa di significativo per la sessione. null → fallback a tCrit × 1.6. */
+  sessionDurationH?: number | null;
+  width?: number; height?: number;
 }) {
   const padL = 30, padR = 8, padT = 6, padB = 28;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
-  // Dominio: 0 → tCrit·1.6 (mostra la zona di collasso oltre t_crit)
-  const tMax = Math.max(tCrit * 1.6, currentT * 1.1, 1);
+  // Bug #95: range X adattivo.
+  // tMaxFromCrit = tCrit × 1.6 (mostra la zona di collasso oltre t_crit)
+  // tMaxFromSession = max(24, sessionDurationH × 1.5) (almeno 24h di contesto)
+  // tMax = min(tMaxFromCrit, max(tMaxFromSession, tCrit × 0.5))
+  // Con sessionDurationH=null: tMax = tCrit × 1.6 (comportamento precedente invariato)
+  const tMaxFromCrit = Math.max(tCrit * 1.6, currentT * 1.1, 1);
+  const tMaxFromSession = sessionDurationH != null
+    ? Math.max(24, sessionDurationH * 1.5)
+    : null;
+  const tMax = tMaxFromSession != null
+    ? Math.min(tMaxFromCrit, Math.max(tMaxFromSession, tCrit * 0.5))
+    : tMaxFromCrit;
+
+  // t_crit mostrato solo se cade nel range visibile
+  const showTCritMarker = tCrit <= tMax;
+
   const x = (t: number) => padL + (t / tMax) * plotW;
   const y = (w: number) => padT + (1 - w / W0) * plotH;
 
@@ -64,8 +85,7 @@ export function MiniHillCurve({
   const dotX      = x(Math.min(currentT, tMax));
   const dotY      = y(hillW(W0, tCrit, Math.min(currentT, tMax)));
 
-  // Zona collasso (t ≥ tCrit) — sfondo rosso trasparente
-  const collapseX = x(tCrit);
+  const collapseX = showTCritMarker ? x(tCrit) : null;
 
   const yLabels = [
     { w: W0,        label: `${Math.round(W0)}` },
@@ -73,12 +93,12 @@ export function MiniHillCurve({
     { w: W0 * 0.5,  label: `${Math.round(W0 * 0.5)}` },
   ];
 
-  // Label asse X in ore assolute — passo dinamico in base a tMax
-  function computeXStep(tMax: number): number {
-    if (tMax <= 24)  return 6;
-    if (tMax <= 72)  return 12;
-    if (tMax <= 150) return 24;
-    if (tMax <= 300) return 48;
+  function computeXStep(tMaxVal: number): number {
+    if (tMaxVal <= 12)  return 3;
+    if (tMaxVal <= 24)  return 6;
+    if (tMaxVal <= 48)  return 12;
+    if (tMaxVal <= 96)  return 24;
+    if (tMaxVal <= 200) return 48;
     return 72;
   }
   const xStep = computeXStep(tMax);
@@ -90,9 +110,11 @@ export function MiniHillCurve({
 
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
-      {/* Zona collasso */}
-      <rect x={collapseX} y={padT} width={Math.max(0, width - padR - collapseX)} height={plotH}
-        fill="#ef4444" opacity={0.08} />
+      {/* Zona collasso — solo se t_crit nel range */}
+      {showTCritMarker && collapseX != null && (
+        <rect x={collapseX} y={padT} width={Math.max(0, width - padR - collapseX)} height={plotH}
+          fill="#ef4444" opacity={0.08} />
+      )}
 
       {/* Asse Y — label W */}
       {yLabels.map(({ w, label }) => (
@@ -118,12 +140,21 @@ export function MiniHillCurve({
           fontFamily="monospace">{label}</text>
       ))}
 
-      {/* Linea verticale t_crit */}
-      <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
-        stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />
-      {/* Label t_crit — stessa riga asse X, colore rosso per distinguersi */}
-      <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ef4444"
-        fontFamily="monospace">{Math.round(tCrit)}h</text>
+      {/* t_crit nel range: linea verticale + label */}
+      {showTCritMarker && collapseX != null && (
+        <>
+          <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
+            stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />
+          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ef4444"
+            fontFamily="monospace">{Math.round(tCrit)}h</text>
+        </>
+      )}
+
+      {/* t_crit fuori range: freccia → con valore a destra */}
+      {!showTCritMarker && (
+        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={8} fill="#ef4444"
+          fontFamily="monospace">→{Math.round(tCrit)}h</text>
+      )}
 
       {/* Dot stato corrente */}
       <circle cx={dotX} cy={dotY} r={5} fill={dotColor} stroke="#0a0a0a" strokeWidth={1.5} />

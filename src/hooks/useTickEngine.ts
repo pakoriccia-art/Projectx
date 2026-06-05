@@ -277,6 +277,18 @@ export function useTickEngine() {
   const setPhase = useCallback((p: string) => {
     const session = sessionRef.current;
     if (!session) return;
+
+    // Bug #94 Fix B: blocca transizioni a fasi passate o corrente.
+    // Solo fasi con indice strettamente maggiore della fase attuale sono consentite.
+    const PHASE_ORDER = ['bulk_room', 'bulk_fridge', 'balled_room', 'balled_fridge', 'proofing'];
+    const currentPhase = tsRef.current?.phase ?? 'bulk_room';
+    const currentIdx   = PHASE_ORDER.indexOf(currentPhase);
+    const targetIdx    = PHASE_ORDER.indexOf(p);
+    if (targetIdx <= currentIdx) {
+      console.warn(`[PizzaMatrix] Transizione ignorata: ${p} non è successiva a ${currentPhase}`);
+      return;
+    }
+
     const isCold = p === 'bulk_fridge' || p === 'balled_fridge';
     const ambientTempC = isCold ? (session.fridgeTempC ?? 4) : (session.tLaboratorio ?? 22);
     const nowElapsedH  = session.startedAt

@@ -160,6 +160,10 @@ export function DashboardV4() {
   const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date(session.targetBakeAt ?? Date.now() + 86_400_000);
   const elapsedH   = Math.max(0, (Date.now() - startedAt.getTime()) / 3_600_000);
   const remainingH = Math.max(0, (targetBake.getTime() - Date.now()) / 3_600_000);
+  // Bug #95: durata pianificata totale per il range adattivo di MiniHillCurve
+  const sessionDurationH = session.startedAt != null && session.targetBakeAt != null
+    ? (targetBake.getTime() - startedAt.getTime()) / 3_600_000
+    : null;
   // Ratio mostrato dal vivo (coincide con la posizione del dot Hill = elapsedH)
   const liveRatio  = tCritHours > 0 ? elapsedH / tCritHours : 0;
 
@@ -273,7 +277,7 @@ export function DashboardV4() {
           <div style={{ color: '#4b5563', fontSize: 9, marginBottom: 6, letterSpacing: '0.06em', fontFamily: 'monospace' }}>
             t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
           </div>
-          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} width={398} height={92} />
+          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={398} height={92} />
         </DarkCard>
 
         {/* Temperature + slider T_amb */}
