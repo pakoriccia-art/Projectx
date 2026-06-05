@@ -522,7 +522,7 @@ function QualityOverlayDot({
   );
 }
 
-function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
+export function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
   const pl      = session.effectivePl_initial ?? 0.65;
   const hyd     = session.hydration ?? 65;
   const W       = session.effectiveW_initial ?? 280;
@@ -818,7 +818,7 @@ function AlertFeed({ alerts, onClear }: { alerts: any[]; onClear: () => void }) 
 // Scrollabile orizzontalmente: ~13px/h, larghezza proporzionale a maxH.
 const PX_PER_HOUR = 13;
 
-function GompertzChart({ session, ts }: { session: any; ts: any }) {
+export function GompertzChart({ session, ts }: { session: any; ts: any }) {
   const proto = session.apprettoProtocol ?? 'ta';
   const tAmb  = ts?.tempAmbient ?? 22;  // tempAmbient risponde subito, tempDough ha inerzia
 

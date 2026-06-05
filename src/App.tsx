@@ -6,7 +6,7 @@
 import { Component, type ReactNode } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { WizardView }          from './components/wizard/WizardView';
-import { DashboardView }       from './components/dashboard/DashboardView';
+import { DashboardV4 }         from './components/dashboard/DashboardV4';
 import { HistoryView }         from './components/history/HistoryView';
 import { RottaView }           from './components/rotta/RottaView';
 import { FermentationPlannerView } from './components/tools/FermentationPlannerView';
@@ -199,7 +199,7 @@ function AppRouter() {
   const { state } = useApp();
   switch (state.view) {
     case 'wizard':    return <ErrorBoundary><WizardView /></ErrorBoundary>;
-    case 'dashboard': return <ErrorBoundary><DashboardView /></ErrorBoundary>;
+    case 'dashboard': return <ErrorBoundary><DashboardV4 /></ErrorBoundary>;
     case 'rotta':     return <ErrorBoundary><RottaView /></ErrorBoundary>;
     case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
     case 'tools':   return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
