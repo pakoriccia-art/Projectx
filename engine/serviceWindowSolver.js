@@ -691,6 +691,11 @@ export function solveServiceWindow(input) {
     { phaseType: 'proofing', durationH: temperingH,       ambientTempC },
     { phaseType: 'proofing', durationH: serviceDurationH, ambientTempC },
   ];
+  // Bug #81b — verifica comportamento esistente: simulateTimeline propaga già tempDough
+  // tra i segmenti all'interno della stessa chiamata (variabile outer, Newton continuo).
+  // L'inizializzazione a fridgeTempC è conservativa: valida quando tcHours ≥ 3τ (impasto
+  // equilibrato al frigo). Per tcHours brevi sottostima leggermente enzAdu_tail, allocando
+  // più tempo upstream del necessario — errore sicuro, non riscriviamo. (#81b documentato)
   const tailSim = simulateTimeline(tailSegs,
     { tempDough: fridgeTempC, leavAdu: 0, enzAdu: 0, wDamage: 0 },
     { ...baseOpts, muMaxScaled: muMaxScaledFor(agentDosePct, agentMuMax, doseRef) });
@@ -750,13 +755,25 @@ export function solveServiceWindow(input) {
 
   // v2.4.5 Fix 1D: cap puntata allo stile (puntataMatPct_target) e sposta il
   // residuo in TC. La bisezione sopra ha distribuito le ore SENZA vincolo stile;
-  // qui cappiamo la puntata a TA e spostiamo l'eccesso in frigo. Il totalUpstreamH
-  // resta invariato (Invariante #7); la maturazione a fine servizio può scendere
-  // leggermente sotto target (tempo spostato a temperatura più bassa).
+  // qui cappiamo la puntata a TA.
   const puntataMaxH = input.style ? computePuntataMaxH(input.style, ambientTempC) : null;
   const effectivePuntataH = puntataMaxH != null ? Math.min(puntataH, puntataMaxH) : puntataH;
   const extraPuntataH = puntataH - effectivePuntataH;
-  const effectiveTcH = Math.max(0, tcHours + extraPuntataH);
+
+  // Bug #80b: il cap ha spostato ore TA→TC. L'attività Arrhenius a fridgeTempC è più
+  // bassa di quella a ambientTempC, quindi il semplice shift 1:1 (tcHours+extraPuntataH)
+  // non compensa la maturazione enzimatica persa. Rebisezioniamo tcHours con la puntata
+  // cappata così il target di maturazione viene mantenuto. totalUpstreamH può crescere
+  // (override Invariante #7 accettato dall'utente).
+  let effectiveTcH;
+  if (extraPuntataH > 0.01) {
+    const incrCapped0 = upstreamEnzIncrement(effectivePuntataH, 0);
+    effectiveTcH = incrCapped0 >= enzAdu_upstreamNeeded
+      ? 0
+      : bisectIncreasing(tc => upstreamEnzIncrement(effectivePuntataH, tc), enzAdu_upstreamNeeded, 0, 240, 0.05);
+  } else {
+    effectiveTcH = Math.max(0, tcHours + extraPuntataH);
+  }
 
   // ── C3: bisezione dose per la soglia bolle (schedule fisso, puntata cappata) ──
   const fullSegs = [
