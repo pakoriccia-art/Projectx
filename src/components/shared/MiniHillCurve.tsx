@@ -48,7 +48,9 @@ export function MiniHillCurve({
   // tMax = min(tMaxFromCrit, max(tMaxFromSession, tCrit × 0.5))
   // Con sessionDurationH=null: tMax = tCrit × 1.6 (comportamento precedente invariato)
   const tMaxFromCrit = Math.max(tCrit * 1.6, currentT * 1.1, 1);
-  const tMaxFromSession = sessionDurationH != null
+  // #5: richiedi un valore finito (una data sessione malformata → NaN passerebbe `!= null`
+  // e propagherebbe NaN in tMax → coordinate SVG NaN → grafico vuoto).
+  const tMaxFromSession = (sessionDurationH != null && Number.isFinite(sessionDurationH))
     ? Math.max(24, sessionDurationH * 1.5)
     : null;
   const tMax = tMaxFromSession != null
@@ -85,7 +87,9 @@ export function MiniHillCurve({
   const dotX      = x(Math.min(currentT, tMax));
   const dotY      = y(hillW(W0, tCrit, Math.min(currentT, tMax)));
 
-  const collapseX = showTCritMarker ? x(tCrit) : null;
+  // #8: x(tCrit) è sempre un numero; lo usiamo solo quando showTCritMarker è true,
+  // così evitiamo il tipo number|null e le guardie ridondanti `collapseX != null`.
+  const collapseX = x(tCrit);
 
   const yLabels = [
     { w: W0,        label: `${Math.round(W0)}` },
@@ -111,7 +115,7 @@ export function MiniHillCurve({
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
       {/* Zona collasso — solo se t_crit nel range */}
-      {showTCritMarker && collapseX != null && (
+      {showTCritMarker && (
         <rect x={collapseX} y={padT} width={Math.max(0, width - padR - collapseX)} height={plotH}
           fill="#ef4444" opacity={0.08} />
       )}
@@ -141,7 +145,7 @@ export function MiniHillCurve({
       ))}
 
       {/* t_crit nel range: linea verticale + label */}
-      {showTCritMarker && collapseX != null && (
+      {showTCritMarker && (
         <>
           <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
             stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />

@@ -19,6 +19,7 @@ import {
   amylaseCorrectedRate,
   HILL_W_DECAY,
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
+  PHASE_ORDER,
 } from '../engine';
 
 const TICK_INTERVAL_MS    = 10_000;  // 10 secondi reali
@@ -274,19 +275,22 @@ export function useTickEngine() {
    * Fisica: senza auto-switch tAmbient, kRatio rimane a 0.711 invece di 0.006
    * → ADU in TC sbaglia di ~12% nelle prime 4h (per closed_box).
    */
-  const setPhase = useCallback((p: string) => {
+  const setPhase = useCallback((p: string, opts?: { enforceForward?: boolean }) => {
     const session = sessionRef.current;
     if (!session) return;
 
-    // Bug #94 Fix B: blocca transizioni a fasi passate o corrente.
-    // Solo fasi con indice strettamente maggiore della fase attuale sono consentite.
-    const PHASE_ORDER = ['bulk_room', 'bulk_fridge', 'balled_room', 'balled_fridge', 'proofing'];
-    const currentPhase = tsRef.current?.phase ?? 'bulk_room';
-    const currentIdx   = PHASE_ORDER.indexOf(currentPhase);
-    const targetIdx    = PHASE_ORDER.indexOf(p);
-    if (targetIdx <= currentIdx) {
-      console.warn(`[PizzaMatrix] Transizione ignorata: ${p} non è successiva a ${currentPhase}`);
-      return;
+    // Bug #94 Fix B (v2.4.16): guard forward-only OPT-IN. Solo la timeline v4 passa
+    // enforceForward:true → blocca i tap su fasi passate/corrente. Il PhaseStepper di
+    // v3.1 chiama setPhase(p) senza opts → navigazione libera invariata (non regredisce).
+    // PHASE_ORDER è la lista canonica condivisa (include 'baking', vedi src/engine).
+    if (opts?.enforceForward) {
+      const currentPhase = tsRef.current?.phase ?? 'bulk_room';
+      const currentIdx   = PHASE_ORDER.indexOf(currentPhase as any);
+      const targetIdx    = PHASE_ORDER.indexOf(p as any);
+      if (currentIdx >= 0 && targetIdx <= currentIdx) {
+        console.warn(`[PizzaMatrix] Transizione ignorata: ${p} non è successiva a ${currentPhase}`);
+        return;
+      }
     }
 
     const isCold = p === 'bulk_fridge' || p === 'balled_fridge';

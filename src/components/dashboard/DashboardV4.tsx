@@ -339,7 +339,7 @@ export function DashboardV4() {
             session={session} ts={ts}
           />
           <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
-            onPhaseTransition={(p) => setPhase(p)} />
+            onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
         </DarkCard>
 
         {/* ── PROFILO IMPASTO (collassabile) ── */}

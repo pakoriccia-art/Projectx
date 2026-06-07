@@ -15,6 +15,16 @@ export type MaltAlertLevel = 'OK' | 'ADVISORY' | 'CRITICAL' | 'BLOCKED';
 export type DoughPhase = 'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking';
 export type PrefermType = 'poolish' | 'biga' | 'autolysis';
 
+/**
+ * Ordine canonico delle fasi (monotòno nel tempo), 'baking' terminale.
+ * Sorgente condivisa per validare le transizioni forward-only della timeline v4
+ * (v2.4.16 Bug #94). Da NON usare per vincolare il PhaseStepper di v3.1, che
+ * resta a navigazione libera.
+ */
+export const PHASE_ORDER: readonly DoughPhase[] = [
+  'bulk_room', 'bulk_fridge', 'balled_room', 'balled_fridge', 'proofing', 'baking',
+];
+
 export interface DashboardWResult {
   W_current:        number;
   W_initial:        number;
@@ -361,8 +371,11 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
   // ΔH_ice [cal/g] = c_s × |T_ice| + λ_f
   //   c_s = 0.5 cal/(g·°C) — calore specifico ghiaccio solido
   //   λ_f = 80 cal/g        — calore latente di fusione
-  // Con iceTempC=0°C: ΔH_ice = 80 → identico alla formula precedente (no regressione).
-  // Con iceTempC=-18°C: ΔH_ice = 9 + 80 = 89 → iceGrams ridotto di ~10%.
+  // NB: la formula precedente usava il denominatore (80 + tAvail), che includeva il
+  // riscaldamento dell'acqua di fusione fino a tAvail. Qui quel termine è trascurato
+  // (acqua di fusione ≈0°C) e sostituito dal pre-riscaldamento del ghiaccio solido:
+  //   iceTempC=0°C  → ΔH_ice = 80  (≈ vecchia formula con tAvail→0, non identica)
+  //   iceTempC=-18°C→ ΔH_ice = 89  → iceGrams ~10% in meno (default congelatore)
   //
   // M_ghiaccio = M_acqua × (T_avail − T_calc) / ΔH_ice
   const C_S_ICE = 0.5;     // cal/(g·°C)

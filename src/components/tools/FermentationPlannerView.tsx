@@ -654,13 +654,16 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
     return (
       <Card style={{ border: '1px solid rgba(214,48,49,0.3)', background: 'rgba(214,48,49,0.05)' }}>
         <div style={{ ...S.label, marginBottom: 10, color: 'var(--state-critical)' }}>
-          {result.alarmType === 'SOTTOMATURAZIONE' ? '↓ SOTTOMATURAZIONE — Finestra troppo corta' : '✗ Finestra non realizzabile'}
+          {result.alarmType === 'SOTTOMATURAZIONE'     ? '↓ SOTTOMATURAZIONE — Finestra troppo corta'
+           : result.alarmType === 'COLLASSO_STRUTTURALE' ? '⚠ COLLASSO STRUTTURALE'
+           : '✗ Finestra non realizzabile'}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
           {inf?.reason === 'cannot_temper' && 'A questa temperatura ambiente le palline non raggiungono 18°C.'}
           {inf?.reason === 'window_too_short' && 'Tempo insufficiente per puntata + appretto + tempering + servizio.'}
           {inf?.reason === 'window_too_short_maturation' && `La maturazione a fine servizio sarebbe solo ${inf.maturationAtMax?.toFixed(0) ?? '—'}% (target 90%).`}
           {inf?.reason === 'w_collapse' && 'La struttura del glutine collasserebbe prima della fine del servizio.'}
+          {inf?.reason === 'bubble_threshold_lm_unscalable' && 'Lievito madre: la lievitazione supera la soglia bolle e la dose non è scalabile abbastanza.'}
         </div>
         {result.suggestions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

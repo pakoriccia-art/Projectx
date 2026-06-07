@@ -69,9 +69,7 @@ export interface DriftAlarmResult {
     message:    string;
     suggestion: string;
   } | null;
-  // ── Forma v4 / Bug #87 ───────────────────────────────────────────────────────
-  type:              'NONE' | 'AHEAD' | 'BEHIND';
-  drift:             number;
+  // ── Campi v4 / Bug #87 (additivi; type/severity restano in driftAlarm) ──────
   plannedMatPct:     number;
   actualMatPct:      number;
   suggestion?:       string;

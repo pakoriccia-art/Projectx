@@ -60,11 +60,13 @@ export const ALARM_TYPE = Object.freeze({
  */
 export function computeNowAnchoredAlarms(input) {
   // Bug #89: normalizza now indipendentemente dal tipo in ingresso (Date | number | ISO string)
-  const nowMs = input.now instanceof Date
+  // Bug #10 (v2.4.17): se il parsing produce NaN (stringa ISO malformata), fallback a Date.now()
+  const rawNowMs = input.now instanceof Date
     ? input.now.getTime()
     : typeof input.now === 'string'
       ? new Date(input.now).getTime()
       : (input.now ?? Date.now());
+  const nowMs = Number.isFinite(rawNowMs) ? rawNowMs : Date.now();
   const now = new Date(nowMs);
 
   // Bug #90: rest pattern — zero ridondanza, zero rischio typo nel re-pack
@@ -142,7 +144,7 @@ export function computeNowAnchoredAlarms(input) {
  *
  * Restituisce forma duale:
  *   { driftPct, driftAlarm }  ← v3.1 DashboardView (invariata)
- *   { type, drift, plannedMatPct, actualMatPct, suggestion, requiresRebaseline }  ← v4
+ *   { plannedMatPct, actualMatPct, suggestion, requiresRebaseline }  ← v4 (additivi)
  *
  * @param params.elapsedH      - ore trascorse dall'avvio sessione
  * @param params.actualMatPct  - maturazione reale % dal tick loop
@@ -167,7 +169,7 @@ export function computeDriftAlarm({ elapsedH, actualMatPct, plannedMatPct, timel
   if (Math.abs(driftPct) <= 5) {
     return {
       driftPct, driftAlarm: null,
-      type: 'NONE', drift: driftPct, plannedMatPct: planned, actualMatPct, requiresRebaseline: false,
+      plannedMatPct: planned, actualMatPct, requiresRebaseline: false,
     };
   }
 
@@ -196,12 +198,10 @@ export function computeDriftAlarm({ elapsedH, actualMatPct, plannedMatPct, timel
   };
 
   return {
-    // Forma vecchia (v3.1 compat)
+    // Forma vecchia (v3.1 compat) — type/severity vivono in driftAlarm
     driftPct,
     driftAlarm,
-    // Forma nuova (v4 / Bug #87)
-    type:              driftAlarm.type,
-    drift:             driftPct,
+    // Campi v4 aggiuntivi (Bug #87) — non duplicano driftPct/driftAlarm.type
     plannedMatPct:     planned,
     actualMatPct,
     suggestion,

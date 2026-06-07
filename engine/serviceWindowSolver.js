@@ -305,18 +305,31 @@ function bisectIncreasing(f, target, lo, hi, tol = 0.05, maxIter = 60) {
 export function computePlannedMatPctAt(timeline, initialState, elapsedH, opts) {
   if (!timeline?.length || elapsedH <= 0) return 0;
 
+  // I PhaseSegment di session.thermalTimeline espongono startElapsedH/endElapsedH,
+  // NON durationH (che è il campo atteso da simulateTimeline). Deriva la durata in
+  // modo robusto da entrambe le forme; segmento corrente aperto (endElapsedH null)
+  // → estendi fino a elapsedH così il troncamento avviene lì.
+  const segDurH = (seg) => {
+    if (Number.isFinite(seg.durationH)) return seg.durationH;
+    if (seg.endElapsedH != null && seg.startElapsedH != null) {
+      return Math.max(0, seg.endElapsedH - seg.startElapsedH);
+    }
+    return Infinity;
+  };
+
   let accH = 0;
   const partialTimeline = [];
 
   for (const seg of timeline) {
     const remaining = elapsedH - accH;
     if (remaining <= 0) break;
-    if (accH + seg.durationH >= elapsedH) {
+    const dur = segDurH(seg);
+    if (accH + dur >= elapsedH) {
       partialTimeline.push({ ...seg, durationH: remaining });
       break;
     }
-    partialTimeline.push(seg);
-    accH += seg.durationH;
+    partialTimeline.push({ ...seg, durationH: dur });
+    accH += dur;
   }
 
   if (partialTimeline.length === 0) return 0;
