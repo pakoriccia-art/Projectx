@@ -10,11 +10,12 @@
 const HILL_EXPONENT = 5;
 const COLLAPSE_FRACTION = 0.82;
 
+// Palette stati allineata alla skin "Banco" (calda, coerente coi token app)
 const DOT_COLORS = {
-  TOO_EARLY: '#6b7280',
-  OK:        '#22c55e',
-  WARNING:   '#eab308',
-  CRITICAL:  '#ef4444',
+  TOO_EARLY: '#9a8a64',
+  OK:        '#3ddc97',
+  WARNING:   '#ffd166',
+  CRITICAL:  '#ff7675',
 } as const;
 
 function dotState(tRatio: number): keyof typeof DOT_COLORS {
@@ -112,56 +113,83 @@ export function MiniHillCurve({
   }
   const labelY = padT + plotH + 14;
 
+  // Area di riempimento sotto la curva (verde→rosso continuo) per dare profondità
+  const baseY = padT + plotH;
+  const areaD = (greenPts.length + redPts.length) > 1
+    ? `M ${padL},${baseY} L ${[...greenPts, ...redPts].join(' L ')} L ${x(tMax).toFixed(1)},${baseY} Z`
+    : '';
+  const uid = `${Math.round(W0)}-${Math.round(tCrit)}`;
+
   return (
     <svg width={width} height={height} style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id={`pm4w-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#3ddc97" />
+          <stop offset="0.62" stopColor="#9be8c0" />
+          <stop offset="0.80" stopColor="#ffd166" />
+          <stop offset="1" stopColor="#ff7675" />
+        </linearGradient>
+        <linearGradient id={`pm4a-${uid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="rgba(255,140,50,0.14)" />
+          <stop offset="1" stopColor="rgba(255,140,50,0)" />
+        </linearGradient>
+        <filter id={`pm4g-${uid}`} x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur stdDeviation="2.2" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+
       {/* Zona collasso — solo se t_crit nel range */}
       {showTCritMarker && (
         <rect x={collapseX} y={padT} width={Math.max(0, width - padR - collapseX)} height={plotH}
-          fill="#ef4444" opacity={0.08} />
+          fill="#ff7675" opacity={0.06} />
       )}
 
-      {/* Asse Y — label W */}
+      {/* Asse Y — label W (hairline calda) */}
       {yLabels.map(({ w, label }) => (
         <g key={label}>
-          <line x1={padL} x2={width - padR} y1={y(w)} y2={y(w)} stroke="#1f2937" strokeWidth={0.5} />
-          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={8} fill="#4b5563"
-            fontFamily="monospace">{label}</text>
+          <line x1={padL} x2={width - padR} y1={y(w)} y2={y(w)} stroke="#241a0e" strokeWidth={0.5} />
+          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={8} fill="#6a5836"
+            fontFamily="'JetBrains Mono', monospace">{label}</text>
         </g>
       ))}
 
-      {/* Curva verde (struttura sana) */}
+      {/* Riempimento area + curva con bagliore (gradiente verde→brace→rosso) */}
+      {areaD && <path d={areaD} fill={`url(#pm4a-${uid})`} />}
       {greenPts.length > 1 && (
-        <polyline points={greenPts.join(' ')} fill="none" stroke="#22c55e" strokeWidth={2} />
+        <polyline points={greenPts.join(' ')} fill="none" stroke="#3ddc97" strokeWidth={2.2}
+          strokeLinecap="round" filter={`url(#pm4g-${uid})`} />
       )}
-      {/* Curva rossa (oltre il punto di collasso) */}
       {redPts.length > 1 && (
-        <polyline points={redPts.join(' ')} fill="none" stroke="#ef4444" strokeWidth={2} />
+        <polyline points={redPts.join(' ')} fill="none" stroke={`url(#pm4w-${uid})`} strokeWidth={2.2}
+          strokeLinecap="round" filter={`url(#pm4g-${uid})`} />
       )}
 
       {/* Label asse X — passo dinamico */}
       {xLabels.map(({ t, label, px }) => (
-        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={8} fill="#4b5563"
-          fontFamily="monospace">{label}</text>
+        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={8} fill="#6a5836"
+          fontFamily="'JetBrains Mono', monospace">{label}</text>
       ))}
 
       {/* t_crit nel range: linea verticale + label */}
       {showTCritMarker && (
         <>
           <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
-            stroke="#ef4444" strokeWidth={1} strokeDasharray="3 2" opacity={0.7} />
-          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ef4444"
-            fontFamily="monospace">{Math.round(tCrit)}h</text>
+            stroke="#ff7675" strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
+          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ff7675"
+            fontFamily="'JetBrains Mono', monospace">{Math.round(tCrit)}h</text>
         </>
       )}
 
       {/* t_crit fuori range: freccia → con valore a destra */}
       {!showTCritMarker && (
-        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={8} fill="#ef4444"
-          fontFamily="monospace">→{Math.round(tCrit)}h</text>
+        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={8} fill="#ff7675"
+          fontFamily="'JetBrains Mono', monospace">→{Math.round(tCrit)}h</text>
       )}
 
-      {/* Dot stato corrente */}
-      <circle cx={dotX} cy={dotY} r={5} fill={dotColor} stroke="#0a0a0a" strokeWidth={1.5} />
+      {/* Dot stato corrente con alone pulsante */}
+      <circle className="pm4-halo" cx={dotX} cy={dotY} r={9} fill="none" stroke={dotColor} strokeWidth={1} opacity={0.35} />
+      <circle cx={dotX} cy={dotY} r={5} fill={dotColor} stroke="#0a0806" strokeWidth={1.5}
+        style={{ filter: `drop-shadow(0 0 6px ${dotColor})` }} />
     </svg>
   );
 }

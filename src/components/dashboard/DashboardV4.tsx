@@ -58,11 +58,25 @@ function moreSevere(a: SemaforoState, b: SemaforoState): SemaforoState {
   return SEVERITY[a] >= SEVERITY[b] ? a : b;
 }
 
-// ─── Card generica dark ───────────────────────────────────────────────────────
+// ─── Pannello strumento (milled, warm) — sostituisce le vecchie DarkCard grigie ──
 function DarkCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: '#111111', border: '1px solid #1f2937', borderRadius: 10, padding: '14px 16px', ...style }}>
+    <div className="pm4-panel" style={{ padding: '13px 14px 14px', ...style }}>
       {children}
+    </div>
+  );
+}
+
+// Etichetta-canale incisa: "NN · NOME ————————— [right]"
+function ChannelLabel({ idx, name, tick, right }: {
+  idx: string; name: string; tick?: string; right?: React.ReactNode;
+}) {
+  return (
+    <div className="pm4-chan">
+      <span className="pm4-chan-idx">{idx}</span>
+      <span className="pm4-chan-name">{name}</span>
+      <span className="pm4-chan-rule" />
+      {right ?? (tick ? <span className="pm4-chan-tick">{tick}</span> : null)}
     </div>
   );
 }
@@ -70,36 +84,36 @@ function DarkCard({ children, style }: { children: React.ReactNode; style?: Reac
 function SecondaryRow({ pH, leaveningPct, W, matPct }: {
   pH?: number; leaveningPct?: number; W?: number; matPct?: number;
 }) {
-  const items: Array<{ label: string; value: string; color: string }> = [];
-  if (matPct != null)      items.push({ label: 'MATURAZ.', value: `${matPct.toFixed(1)}%`, color: '#eab308' });
-  if (leaveningPct != null) items.push({ label: 'LIEVITAZ.', value: `${leaveningPct.toFixed(1)}%`, color: '#f97316' });
-  if (pH != null)          items.push({ label: 'pH',       value: pH.toFixed(2),         color: '#60a5fa' });
-  if (W != null)           items.push({ label: 'W',        value: `${Math.round(W)}`,    color: '#9ca3af' });
+  const items: Array<{ label: string; value: React.ReactNode; color: string }> = [];
+  if (matPct != null)       items.push({ label: 'MATUR.',  value: <>{matPct.toFixed(1)}<small>%</small></>,      color: 'var(--accent-brand)' });
+  if (leaveningPct != null) items.push({ label: 'LIEVIT.', value: <>{leaveningPct.toFixed(1)}<small>%</small></>, color: 'var(--pm4-green)' });
+  if (pH != null)           items.push({ label: 'pH',      value: pH.toFixed(2),                                   color: 'var(--accent-warning)' });
+  if (W != null)            items.push({ label: 'W',       value: `${Math.round(W)}`,                              color: 'var(--pm4-flour)' });
   return (
-    <div style={{ display: 'flex', gap: 18, marginTop: 8 }}>
+    <div className="pm4-cells" style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}>
       {items.map(it => (
-        <div key={it.label}>
-          <div style={{ color: '#4b5563', fontSize: 9, letterSpacing: '0.08em' }}>{it.label}</div>
-          <div style={{ color: it.color, fontSize: 16, fontWeight: 700, fontFamily: 'monospace' }}>{it.value}</div>
+        <div className="pm4-cell" key={it.label}>
+          <div className="pm4-cell-k">{it.label}</div>
+          <div className="pm4-cell-v" style={{ color: it.color }}>{it.value}</div>
         </div>
       ))}
     </div>
   );
 }
 
-// ─── Sezione collassabile ─────────────────────────────────────────────────────
+// ─── Sezione collassabile (warm) ──────────────────────────────────────────────
 function Collapsible({ title, defaultOpen = false, children }: {
   title: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ background: '#111111', border: '1px solid #1f2937', borderRadius: 10 }}>
+    <div className="pm4-panel" style={{ padding: 0 }}>
       <div onClick={() => setOpen(o => !o)}
-        style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', cursor: 'pointer', alignItems: 'center' }}>
-        <span style={{ color: '#6b7280', fontSize: 10, letterSpacing: '0.12em' }}>{title}</span>
-        <span style={{ color: '#4b5563', fontSize: 11 }}>{open ? '▲' : '▼'}</span>
+        style={{ padding: '13px 14px', display: 'flex', justifyContent: 'space-between', cursor: 'pointer', alignItems: 'center' }}>
+        <span style={{ color: 'var(--pm4-tan)', fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{title}</span>
+        <span style={{ color: 'var(--pm4-ember)', fontSize: 11 }}>{open ? '▲' : '▼'}</span>
       </div>
-      {open && <div style={{ padding: '0 16px 14px' }}>{children}</div>}
+      {open && <div style={{ padding: '0 14px 14px' }}>{children}</div>}
     </div>
   );
 }
@@ -181,7 +195,7 @@ export function DashboardV4() {
   const showCollapseModal = alertRes.level === 'STRUCTURAL_COLLAPSED' && !collapseAcknowledged;
 
   return (
-    <div style={{ minHeight: '100dvh', background: '#0a0a0a', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
+    <div className="pm4-root" style={{ minHeight: '100dvh', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
 
       {/* ── HEADER FISSO con timer isolato (1s) ── */}
       <LiveHeader
@@ -203,9 +217,10 @@ export function DashboardV4() {
         />
       )}
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 14px 0' }}>
+      <div className="pm4-stack" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 14px 0' }}>
 
         {/* ── ZONA 1 — SEMAFORO ── */}
+        <ChannelLabel idx="01" name="Stato · 2-clock" />
         {primarySignal === 'maturation' && (
           <>
             <SemaforoCard label="MATURAZIONE ENZIMATICA" value={`${enzymaticMatPct.toFixed(1)}%`}
@@ -233,72 +248,73 @@ export function DashboardV4() {
         )}
 
         {/* Sweet Spot */}
-        <DarkCard style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#6b7280', fontSize: 10, letterSpacing: '0.12em' }}>SWEET SPOT</span>
-            <span style={{ color: '#14b8a6', fontSize: 9, border: '1px solid #14b8a6', borderRadius: 4, padding: '2px 6px', fontFamily: 'monospace' }}>
+        <DarkCard>
+          <ChannelLabel idx="·" name="Sweet spot" right={
+            <span className="pm4-chan-tick" style={{ color: 'var(--pm4-green)', border: '1px solid rgba(61,220,151,0.4)', borderRadius: 5, padding: '2px 7px' }}>
               target {threshold}%
             </span>
-          </div>
-          <div style={{ display: 'flex', gap: 24, marginTop: 8 }}>
+          } />
+          <div style={{ display: 'flex', gap: 28 }}>
             <div>
-              <div style={{ color: '#4b5563', fontSize: 9, letterSpacing: '0.06em' }}>AL TARGET COTTURA</div>
-              <div style={{ color: '#f97316', fontSize: 22, fontWeight: 700, fontFamily: 'monospace' }}>{remainingH.toFixed(1)}h</div>
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>Al target cottura</div>
+              <div className="pm4-glow-ember" style={{ color: 'var(--pm4-ember)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>
+                {remainingH.toFixed(1)}<span style={{ fontSize: 12, color: 'var(--pm4-umber)' }}>h</span>
+              </div>
             </div>
             <div>
-              <div style={{ color: '#4b5563', fontSize: 9, letterSpacing: '0.06em' }}>MATURAZIONE TARGET</div>
-              <div style={{ color: '#eab308', fontSize: 22, fontWeight: 700, fontFamily: 'monospace' }}>{threshold}%</div>
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>Maturazione target</div>
+              <div style={{ color: 'var(--pm4-ember-lo)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+                {threshold}<span style={{ fontSize: 12, color: 'var(--pm4-umber)' }}>%</span>
+              </div>
             </div>
           </div>
         </DarkCard>
 
         {/* ── ZONA 2 — STRUTTURA ── */}
         <DarkCard>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ color: '#6b7280', fontSize: 10, letterSpacing: '0.12em' }}>STRUTTURA · DECADIMENTO W</span>
-            <span style={{ color: SEMAFORO_COLORS[wState], fontSize: 10, fontFamily: 'monospace' }}>
-              -{decayPct.toFixed(1)}%
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 18, marginBottom: 4 }}>
+          <ChannelLabel idx="02" name="Struttura · decad. W" right={
+            <span className="pm4-chan-tick" style={{ color: SEMAFORO_COLORS[wState], fontWeight: 700 }}>−{decayPct.toFixed(1)}%</span>
+          } />
+          <div style={{ display: 'flex', gap: 24, marginBottom: 6 }}>
             <div>
-              <div style={{ color: '#4b5563', fontSize: 9 }}>W₀ → W</div>
-              <div style={{ color: '#9ca3af', fontSize: 16, fontWeight: 700, fontFamily: 'monospace' }}>
-                {Math.round(W_initial)} → {Math.round(W_current)}
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>W₀ → W</div>
+              <div style={{ color: 'var(--pm4-flour)', fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                {Math.round(W_initial)} <span style={{ color: 'var(--pm4-umber)' }}>→</span> {Math.round(W_current)}
               </div>
             </div>
             <div>
-              <div style={{ color: '#4b5563', fontSize: 9 }}>t / t_crit</div>
-              <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 16, fontWeight: 700, fontFamily: 'monospace' }}>
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>t / t_crit</div>
+              <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, textShadow: `0 0 14px ${SEMAFORO_COLORS[wState]}55` }}>
                 {(liveRatio * 100).toFixed(0)}%
               </div>
             </div>
           </div>
-          <div style={{ color: '#4b5563', fontSize: 9, marginBottom: 6, letterSpacing: '0.06em', fontFamily: 'monospace' }}>
+          <div style={{ color: 'var(--pm4-umber)', fontSize: 9, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
             t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
           </div>
-          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={398} height={92} />
+          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
         </DarkCard>
 
         {/* Temperature + slider T_amb */}
         <DarkCard>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#6b7280', fontSize: 10, letterSpacing: '0.12em' }}>TEMPERATURE</span>
-            <span style={{ color: '#14b8a6', fontSize: 9 }}>Modifica T_amb</span>
+          <ChannelLabel idx="03" name="Termica · cuore impasto" tick="Newton τ" />
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, margin: '2px 0 13px' }}>
+            <div>
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T impasto</div>
+              <div className="pm4-glow-ember" style={{ color: 'var(--pm4-ember)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{T_dough.toFixed(1)}°</div>
+            </div>
+            <span style={{ color: 'var(--pm4-umber)', fontSize: 16, paddingBottom: 4 }}>→</span>
+            <div>
+              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T ambiente</div>
+              <div style={{ color: 'var(--state-cold)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{ambientTempC.toFixed(1)}°</div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 24, margin: '10px 0' }}>
-            <div>
-              <div style={{ color: '#4b5563', fontSize: 9 }}>T IMPASTO</div>
-              <div style={{ color: '#60a5fa', fontSize: 22, fontWeight: 700, fontFamily: 'monospace' }}>{T_dough.toFixed(1)}°C</div>
-            </div>
-            <div>
-              <div style={{ color: '#4b5563', fontSize: 9 }}>T AMBIENTE</div>
-              <div style={{ color: '#9ca3af', fontSize: 22, fontWeight: 700, fontFamily: 'monospace' }}>{ambientTempC.toFixed(1)}°C</div>
-            </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, color: 'var(--pm4-faint)', letterSpacing: '0.08em', marginBottom: 7, fontFamily: 'var(--font-mono)' }}>
+            <span>16°</span><span>T ambiente di servizio</span><span>32°</span>
           </div>
           <input type="range" min={16} max={32} step={0.5} value={ambientTempC}
             onChange={e => setTempAmbient(Number(e.target.value))}
-            style={{ width: '100%', accentColor: '#60a5fa' }} />
+            style={{ width: '100%', height: 4, borderRadius: 3, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
         </DarkCard>
 
         {/* Prefermenti (condizionale) */}
@@ -306,9 +322,9 @@ export function DashboardV4() {
           <Collapsible title={`PREFERMENTI · ${session.prefermenti.length}`}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {session.prefermenti.map((p: any, i: number) => (
-                <div key={p.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'monospace', fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>{(p.type ?? 'pref').toUpperCase()}</span>
-                  <span style={{ color: '#6b7280' }}>
+                <div key={p.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                  <span style={{ color: 'var(--pm4-ember-lo)', letterSpacing: '0.06em' }}>{(p.type ?? 'pref').toUpperCase()}</span>
+                  <span style={{ color: 'var(--pm4-tan)' }}>
                     {p.flourFraction ?? 0}% farina · {p.hydration ?? '—'}% idr · {p.durationH ?? '—'}h
                   </span>
                 </div>
@@ -319,21 +335,19 @@ export function DashboardV4() {
 
         {/* Container thermal (condizionale — fase fredda) */}
         {(phase === 'balled_fridge' || phase === 'bulk_fridge') && (
-          <DarkCard style={{ padding: '12px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: '#6b7280', fontSize: 10, letterSpacing: '0.12em' }}>CONTAINER · FRIGO</span>
-              <span style={{ color: '#60a5fa', fontSize: 11, fontFamily: 'monospace' }}>
-                {(session.fridgeTempC ?? 4).toFixed(0)}°C
-              </span>
-            </div>
-            <div style={{ color: '#6b7280', fontSize: 11, fontFamily: 'monospace', marginTop: 6 }}>
+          <DarkCard>
+            <ChannelLabel idx="·" name="Container · frigo" right={
+              <span className="pm4-chan-tick" style={{ color: 'var(--state-cold)', fontWeight: 700 }}>{(session.fridgeTempC ?? 4).toFixed(0)}°C</span>
+            } />
+            <div style={{ color: 'var(--pm4-tan)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
               {(session.containerPreset ?? 'closed_box').replace(/_/g, ' ')} · inerzia termica attiva
             </div>
           </DarkCard>
         )}
 
         {/* ── ZONA 3 — GRAFICO + TIMELINE ── */}
-        <DarkCard style={{ padding: '12px 12px 4px' }}>
+        <DarkCard style={{ padding: '13px 12px 4px' }}>
+          <ChannelLabel idx="04" name="Curve & cronologia" />
           <GompertzChart
             key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
             session={session} ts={ts}
@@ -351,31 +365,37 @@ export function DashboardV4() {
       </div>
 
       {/* ── FOOTER FISSO ── */}
-      <footer style={{ position: 'sticky', bottom: 0, background: '#0a0a0a', borderTop: '1px solid #1f2937', padding: '12px 18px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+      <footer style={{
+        position: 'sticky', bottom: 0, zIndex: 20,
+        background: 'linear-gradient(0deg, rgba(10,8,6,0.98), rgba(10,8,6,0.72))',
+        backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+        borderTop: '1px solid var(--pm4-line)', padding: '13px 16px',
+        paddingBottom: 'max(13px, env(safe-area-inset-bottom))',
+      }}>
         {confirmEnd ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ color: '#fca5a5', fontSize: 12, fontFamily: 'monospace' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <div style={{ color: '#ff9c9a', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
               ⚠ Terminare la sessione? I dati NON saranno salvati.
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 9 }}>
               <button onClick={() => dispatch({ type: 'SESSION_END' })}
-                style={{ flex: 1, background: '#7f1d1d', color: '#f9fafb', border: 'none', borderRadius: 8, padding: 12, fontSize: 13, cursor: 'pointer' }}>
+                className="pm4-btn pm4-btn-warm" style={BTN_DANGER}>
                 ■ Conferma
               </button>
               <button onClick={() => setConfirmEnd(false)}
-                style={{ flex: 1, background: '#1f2937', color: '#f9fafb', border: 'none', borderRadius: 8, padding: 12, fontSize: 13, cursor: 'pointer' }}>
+                className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
                 ← Annulla
               </button>
             </div>
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 9 }}>
             <button onClick={() => dispatch({ type: 'NAV', view: 'rotta' })}
-              style={{ flex: 1, background: '#1f2937', color: '#f9fafb', border: 'none', borderRadius: 8, padding: 12, fontSize: 13, cursor: 'pointer' }}>
+              className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
               ⚙ Aggiusta Rotta
             </button>
             <button onClick={() => setConfirmEnd(true)}
-              style={{ flex: 1, background: '#7f1d1d', color: '#f9fafb', border: 'none', borderRadius: 8, padding: 12, fontSize: 13, cursor: 'pointer' }}>
+              className="pm4-btn pm4-btn-warm" style={BTN_DANGER}>
               ■ Termina sessione
             </button>
           </div>
@@ -385,10 +405,23 @@ export function DashboardV4() {
   );
 }
 
-// Wrapper card per la SecondaryRow (sfondo dark coerente)
+// Stili pulsanti footer (warm)
+const BTN_GHOST: React.CSSProperties = {
+  flex: 1, background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
+  border: '1px solid var(--pm4-line-strong)', borderRadius: 9, padding: 13,
+  fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', cursor: 'pointer',
+};
+const BTN_DANGER: React.CSSProperties = {
+  flex: 1, background: 'linear-gradient(180deg, #e0463f, #b3231d)', color: '#fff',
+  border: 'none', borderRadius: 9, padding: 13,
+  fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', cursor: 'pointer',
+  boxShadow: '0 6px 18px -8px rgba(214,48,49,0.6)',
+};
+
+// Wrapper pannello per la SecondaryRow (pannello strumento sottile)
 function SecondaryRowCard({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: '#0d0d0d', border: '1px solid #1f2937', borderRadius: 10, padding: '8px 16px' }}>
+    <div className="pm4-panel" style={{ padding: '9px 8px' }}>
       {children}
     </div>
   );

@@ -4,6 +4,7 @@
  * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
  */
 import { useMemo, useState, useEffect } from 'react';
+import type React from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
@@ -95,38 +96,49 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
   phase: TimelinePhase; currentSemaforoState: SemaforoState;
   onTransition?: (phaseType: string) => void;
 }) {
-  const dotColor = phase.isCurrent
-    ? SEMAFORO_COLORS[currentSemaforoState]
-    : phase.isCompleted ? '#374151' : '#4b5563';
+  const dotColor = phase.isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : '#2a8f74';
 
   const showBadge = phase.isFuture && phase.hoursFromNow > 0 && phase.hoursFromNow <= 4;
   // Bug #94: SOLO fasi future sono tappabili — mai passate, mai corrente.
   // isFuture usa margine 5min → nessun edge case con la fase corrente appena iniziata.
   const canTransition = phase.isFuture === true && !!onTransition;
 
+  const pipBase: React.CSSProperties = {
+    width: phase.isCurrent ? 15 : 11,
+    height: phase.isCurrent ? 15 : 11,
+    borderRadius: phase.isBake ? 2 : '50%',
+    transform: phase.isBake ? 'rotate(45deg)' : 'none',
+  };
+  const pipStyle: React.CSSProperties = phase.isCurrent
+    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
+    : phase.isCompleted
+      ? { ...pipBase, background: '#2a8f74' }
+      : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
+
   return (
     <div
       onClick={canTransition ? () => onTransition!(phase.phaseType) : undefined}
+      className={canTransition ? 'pm4-tap' : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 4, minWidth: 48,
+        alignItems: 'center', gap: 5, minWidth: 48,
         cursor: canTransition ? 'pointer' : 'default',
-        opacity: phase.isCompleted ? 0.55 : 1,
+        opacity: phase.isCompleted ? 0.6 : 1,
       }}
     >
       {/* Affordance tap (teal) sui marker tappabili */}
       {canTransition && (
         <div style={{
-          position: 'absolute', top: 14, right: 6,
-          width: 7, height: 7, borderRadius: '50%',
-          background: '#14b8a6', opacity: 0.85,
+          position: 'absolute', top: 16, right: 6,
+          width: 6, height: 6, borderRadius: '50%',
+          background: '#14b8a6', boxShadow: '0 0 6px #14b8a6',
         }} />
       )}
       {showBadge ? (
         <div style={{
-          background: '#f9731622', border: '1px solid #f97316', borderRadius: 4,
-          padding: '1px 4px', color: '#f97316', fontSize: 8, letterSpacing: '0.04em',
-          marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'monospace',
+          background: 'rgba(255,209,102,0.12)', border: '1px solid rgba(255,209,102,0.4)', borderRadius: 5,
+          padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 8, letterSpacing: '0.04em',
+          marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)',
         }}>
           tra {formatCountdown(phase.hoursFromNow)}
         </div>
@@ -134,26 +146,19 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
         <div style={{ height: 18 }} />
       )}
 
-      <div style={{
-        width: phase.isCurrent ? 14 : 10,
-        height: phase.isCurrent ? 14 : 10,
-        borderRadius: phase.isBake ? 2 : '50%',
-        background: dotColor,
-        boxShadow: phase.isCurrent ? `0 0 8px ${dotColor}88` : 'none',
-        transform: phase.isBake ? 'rotate(45deg)' : 'none',
-      }} />
+      <div className={phase.isCurrent ? 'pm4-pip-cur' : (canTransition ? 'pm4-pip-tap' : undefined)} style={pipStyle} />
 
       <div style={{
-        color: phase.isCurrent ? '#f9fafb' : '#6b7280',
-        fontSize: 8, textAlign: 'center', letterSpacing: '0.05em',
-        lineHeight: 1.2, fontFamily: 'monospace', maxWidth: 56,
+        color: phase.isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
+        fontSize: 8, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
+        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 56,
       }}>
         {phase.label}
       </div>
 
       <div style={{
-        color: phase.isCompleted ? '#374151' : '#9ca3af',
-        fontSize: 9, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums',
+        color: phase.isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
+        fontSize: 9, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
         {formatAbsoluteTime(phase.absoluteTime)}
       </div>
@@ -197,7 +202,8 @@ export function FermentationTimeline({
 
   return (
     <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
-      <div style={{ position: 'absolute', top: 40, left: 24, right: 24, height: 1, background: '#1f2937' }} />
+      <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
+        background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
       <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 4, minWidth: 'min-content' }}>
         {deduped.map((phase, i) => (
           <TimelineMarker
