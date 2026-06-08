@@ -13,6 +13,10 @@
  *  v2.3.2 — denaturation factor amylase, f_pH_amylase nel tick, pH combining logaritmico
  *  v2.4.0 — sale (inibizione osmotica), blend W non-lineare, inerzia bifase,
  *            malto diastatico, altitudine, durezza acqua, reverse scaling
+ *  v2.4.17 — Fix #96: parità solver↔tick sul sale: fSaltYeast su leavAdu in
+ *             computeDeltaAdu e tick loop; fSaltProtease su t_crit nel damage
+ *             integral tick e computeDashboardEffectiveW. enzAdu invariante (§2.0).
+ *             Costanti/funzioni già in engine come fonte unica. Test SALT_TICK_PARITY.
  *
  * Spec di riferimento: PIZZAMATRIX_KB21.md v2.4.0-pre
  * Letteratura: Rosso 1993 (CTM), Zwietering 1990 (Gompertz),
@@ -1120,6 +1124,10 @@ function computeWEffectiveExp(W0, kprot, hours) { return W0 * Math.exp(-kprot * 
 
 // ═══════════════════════════════════════════════════════════════
 // § L — v2.4.0 SALT INHIBITION (§2.14.2)
+// IMPLEMENTATO v2.4.17: solver + tick real-time, parità garantita.
+// fSaltYeast: leavAdu (computeDeltaAdu + tick loop).
+// fSaltProtease: t_crit (computeDashboardEffectiveW + damage integral tick).
+// enzAdu invariante — non modulato dal sale (invariante §2.0 Two-Clock).
 // ═══════════════════════════════════════════════════════════════
 
 /**

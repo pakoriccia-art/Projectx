@@ -1,7 +1,6 @@
 /**
  * PizzaMatrix Engine v2.4.0 — Stress Test Suite
- * 105 test cases, 15 sezioni.
- * Esegui con: node engine/stress-tests.js
+ * 16 sezioni. Esegui con: node engine/stress-tests.js
  */
 import * as e from './engine-v2.4.0.js';
 import { solveNowAnchoredWindow, buildServiceWindowTimeline } from './serviceWindowSolver.js';
@@ -1323,6 +1322,78 @@ const _solverBase = (() => {
   assert(Math.abs(totalH - (2 + 0.5 + 19 + 1 + 2)) < 0.01,
     'ST-SOLVER-08c totalH invariato = 24.5',
     `got ${totalH}`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ST-SALT — SALT_TICK_PARITY §2.14.2 (v2.4.17)
+// ─────────────────────────────────────────────────────────────
+console.log('\n§ ST-SALT — Sale tick parity (§2.14.2 v2.4.17)');
+
+// Tabella fattori §2.14.2
+assert(e.fSaltYeast(0)   === 1.00, 'ST-SALT-01 fSaltYeast(0) = 1.000');
+assert(approx(e.fSaltYeast(2),   0.80, 0.001), 'ST-SALT-02 fSaltYeast(2%) = 0.800');
+assert(approx(e.fSaltYeast(3),   0.70, 0.001), 'ST-SALT-03 fSaltYeast(3%) = 0.700');
+assert(e.fSaltYeast(10)  === 0.60, 'ST-SALT-04 fSaltYeast(10%): floor=0.60');
+assert(e.fSaltProtease(0) === 1.00, 'ST-SALT-05 fSaltProtease(0) = 1.000');
+assert(approx(e.fSaltProtease(2), 0.84, 0.001), 'ST-SALT-06 fSaltProtease(2%) = 0.840');
+assert(approx(e.fSaltProtease(3), 0.76, 0.001), 'ST-SALT-07 fSaltProtease(3%) = 0.760');
+assert(e.fSaltProtease(10) === 0.70, 'ST-SALT-08 fSaltProtease(10%): floor=0.70');
+
+// INVARIANTE §2.0: salt NON tocca enzAdu — solo fArrhenius * deltaH
+// Verifica tramite computeDeltaAdu: kRatio * saltFact * deltaH
+// Il ramo enzimatico usa fArrhenius(T) * deltaH senza saltFact
+{
+  const base = { tempAmbient: 22, tempDoughLast: 22, eaKj: 65, agentType: 'fresh_yeast',
+    amylaseIndex: 1, elapsedH: 0, currentPH: 5.8, deltaTSeconds: 3600 };
+  const d0 = e.computeDeltaAdu({ ...base, saltPct: 0 });
+  const d3 = e.computeDeltaAdu({ ...base, saltPct: 3 });
+
+  // enzAdu step (orologio enzimatico) non dipende da salt — invariante
+  const enzStep = e.fArrhenius(22) * (3600 / 3600); // × 1h
+  const enzStep3 = e.fArrhenius(22) * (3600 / 3600);
+  assert(approx(enzStep, enzStep3, 1e-9),
+    'ST-SALT-09 enzAdu step invariante: salt 0 vs 3 identici');
+
+  // leavAdu step: salt=3 rallenta rispetto a salt=0
+  assert(d3 < d0, 'ST-SALT-10 leavAdu tick: salt=3 < salt=0 (inibizione)');
+
+  // Il rapporto deve essere esattamente fSaltYeast(3) = 0.70
+  assert(approx(d3 / d0, e.fSaltYeast(3), 1e-6),
+    'ST-SALT-11 leavAdu ratio tick: d(salt=3)/d(salt=0) = fSaltYeast(3)',
+    `got ${(d3/d0).toFixed(6)}, expected ${e.fSaltYeast(3)}`);
+
+  // Parità solver↔tick per salt=2: ratio deve essere fSaltYeast(2) = 0.80
+  const d2 = e.computeDeltaAdu({ ...base, saltPct: 2 });
+  assert(approx(d2 / d0, e.fSaltYeast(2), 1e-6),
+    'ST-SALT-12 parità solver↔tick salt=2: d2/d0 = fSaltYeast(2)',
+    `got ${(d2/d0).toFixed(6)}, expected ${e.fSaltYeast(2)}`);
+}
+
+// W path: fSaltProtease su t_crit — W decade più lentamente con sale
+{
+  const W0 = 280, T = 22, pH = 5.8, H = 65;
+  const tCritBase = e.computeTCrit(W0, T, pH, H);
+  const tCritSalt0 = tCritBase / e.fSaltProtease(0);  // /1.0 → uguale
+  const tCritSalt2 = tCritBase / e.fSaltProtease(2);  // /0.84 → più alto
+  assert(tCritSalt2 > tCritSalt0,
+    'ST-SALT-13 t_crit sale=2 > t_crit sale=0 (proteolisi rallentata)');
+
+  // A t=30h: W con sale decade meno
+  const W_salt0 = e.computeWHill(W0, tCritSalt0, 30);
+  const W_salt2 = e.computeWHill(W0, tCritSalt2, 30);
+  assert(W_salt2 > W_salt0,
+    'ST-SALT-14 W(t=30h, salt=2) > W(t=30h, salt=0) — struttura regge di più',
+    `W_salt0=${W_salt0.toFixed(1)}, W_salt2=${W_salt2.toFixed(1)}`);
+}
+
+// Anti-regressione: salt=0 (esplicito) ≡ omesso (default) → nessun cambiamento di comportamento
+{
+  const base = { tempAmbient: 22, tempDoughLast: 22, eaKj: 65, agentType: 'fresh_yeast',
+    amylaseIndex: 1, elapsedH: 4, currentPH: 5.6, deltaTSeconds: 1800 };
+  const dExplicit = e.computeDeltaAdu({ ...base, saltPct: 0 });
+  const dDefault  = e.computeDeltaAdu({ ...base });
+  assert(approx(dExplicit, dDefault, 1e-12),
+    'ST-SALT-15 anti-regressione: saltPct=0 ≡ saltPct omesso (nessuna variazione)');
 }
 
 // ─────────────────────────────────────────────────────────────
