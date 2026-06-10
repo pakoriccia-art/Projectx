@@ -184,6 +184,15 @@ export interface ProcessLogEntry {
   estimatedPH?: number;
   wEffective: number;
 
+  // v2.4.19 — accumulatori grezzi two-clock (§2.0). Provengono dallo SimulationState
+  // corrente, MAI ricombinati o derivati l'uno dall'altro. Opzionali e non indicizzati:
+  // nessun bump di versione Dexie. I record storici privi di questi campi restano
+  // `undefined` (anti-fabbricazione): non vengono mai inventati in migrazione.
+  enzAdu?: number;             // ADU enzimatico (Ea=47, indipendente da dose/sale)
+  leavAdu?: number;            // ADU lievitazione (Gompertz)
+  labAdu?: number;             // ADU LAB dual-pop (solo LM)
+  currentPH?: number;          // pH end-of-tick (computeCurrentPH a monte)
+
   syncedAt: Date | null;
 }
 

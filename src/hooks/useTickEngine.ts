@@ -8,8 +8,9 @@
  * così setInterval chiama sempre tick() con dati freschi.
  */
 import { useEffect, useRef, useCallback } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, type TickState } from '../context/AppContext';
 import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
+import { logProcessEntry, PROCESS_LOG_INTERVAL_MIN } from '../services/processLog';
 import {
   kEffective, gompertz, computeCurrentPH, computeLabAdu,
   computeTCrit, computeWHill, doughCoreTemp,
@@ -51,6 +52,12 @@ export function useTickEngine() {
 
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTickRef  = useRef<number>(Date.now());
+
+  // ── ProcessLog two-clock (v2.4.19): traccia l'ultimo punto registrato ───────
+  // La scrittura avviene a intervalli di PROCESS_LOG_INTERVAL_MIN (tempo trascorso),
+  // non per sub-step, per non saturare IndexedDB.
+  const lastLogElapsedRef = useRef<number>(0);
+  const lastLogCumAduRef  = useRef<number>(0);
 
   // ── Refs sempre freschi: il setInterval li legge senza stale closure ────────
   const sessionRef   = useRef(state.activeSession);
@@ -220,6 +227,26 @@ export function useTickEngine() {
     })) {
       dispatch({ type: 'TICK', patch: tickPatch as any });
     }
+
+    // ── ProcessLog two-clock (v2.4.19) — osservatore passivo, fire-and-forget ──
+    // Scrive una entry ogni volta che elapsedH supera un confine di intervallo
+    // (PROCESS_LOG_INTERVAL_MIN). Indipendente dalla soglia di re-render: lo
+    // storico va popolato anche quando la UI non si aggiorna.
+    if (session.id != null) {
+      const intervalH   = PROCESS_LOG_INTERVAL_MIN / 60;
+      const newElapsedH = elapsedH + deltaH;
+      if (Math.floor(newElapsedH / intervalH) > Math.floor(lastLogElapsedRef.current / intervalH)) {
+        const deltaTSeconds = Math.max(0, (newElapsedH - lastLogElapsedRef.current) * 3600);
+        logProcessEntry({
+          session,
+          ts: tickPatch as unknown as TickState,
+          prevCumulativeAdu: lastLogCumAduRef.current,
+          deltaTSeconds,
+        });
+        lastLogElapsedRef.current = newElapsedH;
+        lastLogCumAduRef.current  = tickPatch.enzymaticAdu;
+      }
+    }
   }, [dispatch]); // dispatch è stabile → tick non cambia mai → setInterval ok
 
   // ── Avvia / ferma il loop quando cambia la sessione ───────────────────────
@@ -230,6 +257,9 @@ export function useTickEngine() {
       return;
     }
     lastTickRef.current = Date.now();
+    // Reset tracker ProcessLog all'avvio/cambio sessione (v2.4.19)
+    lastLogElapsedRef.current = state.tickState?.elapsedH ?? 0;
+    lastLogCumAduRef.current  = state.tickState?.enzymaticAdu ?? 0;
     // Primo tick immediato per popolare tickState
     tick();
     intervalRef.current = setInterval(tick, TICK_INTERVAL_MS);

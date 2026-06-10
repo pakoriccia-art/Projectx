@@ -61,6 +61,8 @@ export interface TickState {
   /** ADU enzimatico cumulativo (integrale fArrhenius×deltaH) */
   enzymaticAdu:     number;
   enzymaticMatPct:  number;   // alias di maturationPct per leggibilità call-site
+  /** ADU LAB dual-pop (solo LM/sourdough) — v2.4.14 §2.6; 0 per lieviti commerciali */
+  labAdu?:          number;
   tempDough:        number;
   tempAmbient:      number;
   estimatedPH:      number;
