@@ -121,7 +121,7 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
       className={canTransition ? 'pm4-tap' : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 5, minWidth: 48,
+        alignItems: 'center', gap: 5, minWidth: 56,
         cursor: canTransition ? 'pointer' : 'default',
         opacity: phase.isCompleted ? 0.6 : 1,
       }}
@@ -151,7 +151,7 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
       <div style={{
         color: phase.isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
         fontSize: 8, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
-        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 56,
+        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 52,
       }}>
         {phase.label}
       </div>
@@ -200,20 +200,32 @@ export function FermentationTimeline({
     return acc;
   }, []);
 
+  // R7: con molte fasi la timeline scrolla in orizzontale; mostra un fade a destra
+  // come affordance di scroll (euristica: ≥6 marker superano il viewport ~430px).
+  const scrollable = deduped.length >= 6;
+
   return (
-    <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
-      <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
-        background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 4, minWidth: 'min-content' }}>
-        {deduped.map((phase, i) => (
-          <TimelineMarker
-            key={`${phase.phaseType}-${phase.label}-${phase.absoluteTime.getTime()}-${i}`}
-            phase={phase}
-            currentSemaforoState={currentSemaforoState}
-            onTransition={onPhaseTransition}
-          />
-        ))}
+    <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
+        <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
+          background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
+          {deduped.map((phase, i) => (
+            <TimelineMarker
+              key={`${phase.phaseType}-${phase.label}-${phase.absoluteTime.getTime()}-${i}`}
+              phase={phase}
+              currentSemaforoState={currentSemaforoState}
+              onTransition={onPhaseTransition}
+            />
+          ))}
+        </div>
       </div>
+      {scrollable && (
+        <div aria-hidden style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none',
+          background: 'linear-gradient(90deg, transparent, var(--pm4-panel-lo))',
+        }} />
+      )}
     </div>
   );
 }

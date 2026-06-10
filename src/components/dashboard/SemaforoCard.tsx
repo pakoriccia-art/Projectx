@@ -39,8 +39,8 @@ export function StateBadge({ state, color, pulsing = false }: {
     <span
       className={pulsing ? 'pm4-glow-crit' : undefined}
       style={{
-        color, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em',
-        border: `1px solid ${color}66`, background: `${color}1f`,
+        color, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+        border: `1px solid ${color}80`, background: `${color}2a`,
         borderRadius: 5, padding: '3px 8px',
         fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
       }}
@@ -145,6 +145,13 @@ export function CollapseModal({
         textAlign: 'center', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em',
       }}>
         COLLASSO STRUTTURALE
+      </div>
+      {/* R2: distingue questa causa (proteolisi/glutine) dalla sbollatura da sovra-lievitazione */}
+      <div style={{
+        color: 'var(--pm4-umber)', fontSize: 10, textAlign: 'center',
+        fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', marginTop: -8,
+      }}>
+        degrado del glutine · proteolisi
       </div>
       <div style={{ color: 'var(--pm4-tan)', fontSize: 13, textAlign: 'center', lineHeight: 1.6, maxWidth: 320 }}>
         {message}

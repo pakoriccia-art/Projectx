@@ -8,7 +8,7 @@
  *  - T_amb modificata via setTempAmbient() (aggiorna anche la ThermalTimeline)
  *  - W strutturale da computeDashboardEffectiveW (tRatio/tCritHours per la curva Hill)
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine } from '../../hooks/useTickEngine';
 import {
@@ -127,18 +127,18 @@ function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | nul
   let label: string;
   let color = 'var(--pm4-umber)';
   if (!info || info.reachesPeak === false) {
-    label = 'sotto-proof · nessun collasso previsto';
+    label = 'sotto-proof · nessuna sbollatura prevista';
   } else if (info.collapseTime == null || info.marginH == null) {
-    label = `picco oltre la finestra · struttura stabile a ${ambientTempC.toFixed(0)}°C`;
+    label = `picco oltre la finestra · stabile a ${ambientTempC.toFixed(0)}°C`;
     color = 'var(--pm4-green)';
   } else {
     const m = info.marginH;
     color = m < 1 ? '#ff7675' : m < 3 ? '#ffd166' : 'var(--pm4-tan)';
-    label = `collasso +${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
+    label = `sbollatura +${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
   }
   return (
     <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>sovra-lievit.</span>
+      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>sbollatura</span>
       <span style={{ color, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.02em' }}>
         {label}
       </span>
@@ -156,6 +156,17 @@ export function DashboardV4() {
 
   const session = state.activeSession;
   const ts = state.tickState;
+
+  // R4: l'ack del collasso è persistito per-sessione (sessionStorage) così il
+  // modal NON riappare dopo navigazione/remount per chi è già consapevole.
+  useEffect(() => {
+    if (!session) return;
+    setCollapseAcknowledged(sessionStorage.getItem(`pm-collapseAck:${session.id}`) === '1');
+  }, [session?.id]);
+  const ackCollapse = () => {
+    setCollapseAcknowledged(true);
+    if (session) sessionStorage.setItem(`pm-collapseAck:${session.id}`, '1');
+  };
 
   // Dati derivati (memoizzati su tick) — hook chiamato sempre, anche senza sessione
   const derived = useMemo(() => {
@@ -188,6 +199,13 @@ export function DashboardV4() {
   // SEPARATO dal decadimento proteolitico Hill (pavimento di stesura): qui si
   // modella la sbollatura post-picco (overshoot leavAdu vs tolleranza-W). Legge
   // una trajectory simulata; non tocca enzAdu (Two-Clock §2.0).
+  //
+  // R1 (perf): la proiezione è una sim 48h pesante. NON deve girare a ogni tick.
+  // Throttle su chiave a granularità grossa: ricalcola solo quando cambia fase,
+  // leavAdu (±0.1 ADU) o T ambiente (±0.5°C) — invarianti su scala secondi.
+  const collapseKey = (session && ts)
+    ? `${session.id}|${ts.phase}|${Math.round((ts.cumulativeAdu ?? 0) * 10)}|${Math.round((ts.tempAmbient ?? 0) * 2)}`
+    : null;
   const collapseInfo = useMemo<CollapseETAResult | null>(() => {
     if (!session || !ts) return null;
     try {
@@ -214,6 +232,7 @@ export function DashboardV4() {
         salt: session.salt ?? 2, totalFlourGrams: session.totalFlourGrams ?? 1000,
         numPanetti: session.numPanetti ?? 6, containerPreset: session.containerPreset ?? 'closed_box',
         initialPH: session.initialPH ?? 5.8,
+        subStepH: 0.1,   // R1: passo più grosso per la proiezione advisory (≈480 step vs 960)
       };
       // Orizzonte "se mantieni a questa temperatura": cattura picco + collasso al caldo;
       // in frigo il collasso cade oltre la finestra → "stabile".
@@ -229,7 +248,8 @@ export function DashboardV4() {
     } catch {
       return null;
     }
-  }, [session, ts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseKey]);
 
   if (!session || !derived) {
     return (
@@ -288,7 +308,7 @@ export function DashboardV4() {
         <CollapseModal
           message={alertRes.message}
           onEnd={() => dispatch({ type: 'SESSION_END' })}
-          onContinue={() => setCollapseAcknowledged(true)}
+          onContinue={ackCollapse}
         />
       )}
 

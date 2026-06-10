@@ -76,7 +76,8 @@ export function LiveHeader({
       </div>
 
       {/* meta: stile · farina · trascorso · alla cottura · fase */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginTop: 11 }}>
+      {/* R8: wrap + rowGap così su viewport stretti la pill-fase non viene troncata */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 13, rowGap: 8, marginTop: 11 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', color: 'var(--pm4-flour)' }}>
           {(style || '—').charAt(0).toUpperCase() + (style || '').slice(1)}
         </span>
@@ -85,7 +86,7 @@ export function LiveHeader({
         <div><div style={K}>Trascorso</div><div style={V}>+{elapsedH.toFixed(1)}h</div></div>
         <div><div style={K}>Alla cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
         <span style={{
-          marginLeft: 'auto', fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+          marginLeft: 'auto', flexShrink: 0, fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
           fontFamily: 'var(--font-mono)',
           color: isCold ? 'var(--state-cold)' : 'var(--pm4-ember-lo)',
           border: `1px solid ${isCold ? 'rgba(116,185,255,0.35)' : 'rgba(255,209,102,0.3)'}`,
