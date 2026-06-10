@@ -16,6 +16,8 @@ import {
   computeCurrentPH,
 } from '../../engine';
 import type { DashboardWResult, AlertLevelResult } from '../../engine';
+import { simulateTimeline } from '../../engine/serviceWindowSolver';
+import { makeLeavAduRateAt, computeCollapseETA, type CollapseETAResult } from '../../engine/collapse';
 import { GompertzChart, QualityProfileCard } from './DashboardView';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
 import { FermentationTimeline } from './FermentationTimeline';
@@ -118,6 +120,32 @@ function Collapsible({ title, defaultOpen = false, children }: {
   );
 }
 
+// ─── Readout collasso da sovra-lievitazione (v2.4.23) ─────────────────────────
+// Segnale STRUTTURALE distinto dal decadimento Hill (proteolisi): mostra l'ETA
+// di sbollatura post-picco proiettata alla temperatura corrente.
+function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | null; ambientTempC: number }) {
+  let label: string;
+  let color = 'var(--pm4-umber)';
+  if (!info || info.reachesPeak === false) {
+    label = 'sotto-proof · nessun collasso previsto';
+  } else if (info.collapseTime == null || info.marginH == null) {
+    label = `picco oltre la finestra · struttura stabile a ${ambientTempC.toFixed(0)}°C`;
+    color = 'var(--pm4-green)';
+  } else {
+    const m = info.marginH;
+    color = m < 1 ? '#ff7675' : m < 3 ? '#ffd166' : 'var(--pm4-tan)';
+    label = `collasso +${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
+  }
+  return (
+    <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>sovra-lievit.</span>
+      <span style={{ color, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.02em' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 // ─── Component principale ──────────────────────────────────────────────────────
 export function DashboardV4() {
   const { state, dispatch } = useApp();
@@ -154,6 +182,53 @@ export function DashboardV4() {
     ) as AlertLevelResult;
 
     return { styleProfile, enzymaticMatPct, leaveningPct, ambientTempC, T_dough, pH, wRes, alertRes };
+  }, [session, ts]);
+
+  // ── Collasso da sovra-lievitazione (v2.4.23) — proiezione forward a T corrente ──
+  // SEPARATO dal decadimento proteolitico Hill (pavimento di stesura): qui si
+  // modella la sbollatura post-picco (overshoot leavAdu vs tolleranza-W). Legge
+  // una trajectory simulata; non tocca enzAdu (Two-Clock §2.0).
+  const collapseInfo = useMemo<CollapseETAResult | null>(() => {
+    if (!session || !ts) return null;
+    try {
+      const styleProfile = getStyleProfile(session.style);
+      const bubbleThresholdPct =
+        (session as any).bubbleThresholdPct ?? styleProfile.bubbleThresholdPct ?? 92;
+      const ambientTempC = ts.tempAmbient ?? session.tLaboratorio ?? 22;
+      const startedMs = (session.startedAt instanceof Date
+        ? session.startedAt : new Date(session.startedAt ?? Date.now())).getTime();
+      const curElapsedH = Math.max(0, (Date.now() - startedMs) / 3_600_000);
+
+      const initial = {
+        tempDough: ts.tempDough ?? ambientTempC,
+        leavAdu:   ts.cumulativeAdu ?? 0,   // orologio lievitazione
+        enzAdu:    ts.enzymaticAdu ?? 0,    // letto solo per continuità sim; non usato dal modello collasso
+        wDamage:   ts.wDamage ?? 0,
+        elapsedH:  curElapsedH,
+      };
+      const opts = {
+        agentEaKj: session.agentEaKj, agentType: session.agentType,
+        muMaxScaled: session.agentMuMax, leavLambda: session.agentLambda,
+        agentAsymptote: session.agentAsymptote ?? 100,
+        W0: session.effectiveW_initial ?? 280, hydration: session.hydration ?? 65,
+        salt: session.salt ?? 2, totalFlourGrams: session.totalFlourGrams ?? 1000,
+        numPanetti: session.numPanetti ?? 6, containerPreset: session.containerPreset ?? 'closed_box',
+        initialPH: session.initialPH ?? 5.8,
+      };
+      // Orizzonte "se mantieni a questa temperatura": cattura picco + collasso al caldo;
+      // in frigo il collasso cade oltre la finestra → "stabile".
+      const HORIZON_H = 48;
+      const segments = [{ phaseType: 'proofing', durationH: HORIZON_H, ambientTempC }];
+      const sim = (simulateTimeline as Function)(segments, initial, opts);
+      const leavAduRateAt = makeLeavAduRateAt({
+        agentEaKj: session.agentEaKj, agentType: session.agentType, salt: session.salt ?? 0,
+      });
+      return computeCollapseETA({
+        trajectory: sim.samples, bubbleThresholdPct, leavAduRateAt,
+      }) as CollapseETAResult;
+    } catch {
+      return null;
+    }
   }, [session, ts]);
 
   if (!session || !derived) {
@@ -293,6 +368,8 @@ export function DashboardV4() {
             t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
           </div>
           <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
+          {/* ── Sovra-lievitazione: collasso post-picco (separato dal Hill proteolitico) ── */}
+          <CollapseReadout info={collapseInfo} ambientTempC={ambientTempC} />
         </DarkCard>
 
         {/* Temperature + slider T_amb */}
