@@ -153,6 +153,11 @@ export function DashboardV4() {
   const [confirmEnd, setConfirmEnd] = useState(false);
   // Permette all'utente di ignorare il modal COLLAPSED e continuare a monitorare
   const [collapseAcknowledged, setCollapseAcknowledged] = useState(false);
+  // R5: Monitor = Zona01 + sweet spot + timeline; Analisi = tutto. Persiste in localStorage.
+  const [dashMode, setDashMode] = useState<'monitor' | 'analisi'>(() => {
+    try { return (localStorage.getItem('pm-dashMode') ?? 'analisi') as 'monitor' | 'analisi'; }
+    catch { return 'analisi'; }
+  });
 
   const session = state.activeSession;
   const ts = state.tickState;
@@ -314,12 +319,31 @@ export function DashboardV4() {
 
       <div className="pm4-stack" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 14px 0' }}>
 
+        {/* ── MODE TOGGLE — Monitor · Analisi (R5) ── */}
+        <div role="group" aria-label="Modalità dashboard"
+          style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--pm4-line-strong)' }}>
+          {(['monitor', 'analisi'] as const).map((m) => (
+            <button key={m}
+              onClick={() => { setDashMode(m); try { localStorage.setItem('pm-dashMode', m); } catch {} }}
+              aria-pressed={dashMode === m}
+              style={{
+                flex: 1, padding: '9px 0', fontSize: 10, fontWeight: 700, letterSpacing: '0.14em',
+                textTransform: 'uppercase', fontFamily: 'var(--font-mono)', cursor: 'pointer',
+                border: 'none', borderRight: m === 'monitor' ? '1px solid var(--pm4-line-strong)' : 'none',
+                background: dashMode === m ? 'rgba(255,180,80,0.1)' : 'transparent',
+                color: dashMode === m ? 'var(--pm4-ember-lo)' : 'var(--pm4-faint)',
+              }}>
+              {m === 'monitor' ? '◉ Monitor' : '⊞ Analisi'}
+            </button>
+          ))}
+        </div>
+
         {/* ── ZONA 1 — SEMAFORO ── */}
         <ChannelLabel idx="01" name="Stato · 2-clock" />
         {primarySignal === 'maturation' && (
           <>
             <SemaforoCard label="MATURAZIONE ENZIMATICA" value={`${enzymaticMatPct.toFixed(1)}%`}
-              state={matState} color={SEMAFORO_COLORS[matState]} progress={enzymaticMatPct} target={threshold} />
+              state={matState} color={SEMAFORO_COLORS[matState]} progress={enzymaticMatPct} target={threshold} caption="maturaz. enzim." />
             <SecondaryRowCard><SecondaryRow pH={pH} leaveningPct={leaveningPct} W={W_current} /></SecondaryRowCard>
           </>
         )}
@@ -327,9 +351,9 @@ export function DashboardV4() {
           <>
             <div style={{ display: 'flex', gap: 8 }}>
               <SemaforoCard half label="MATURAZ." value={`${enzymaticMatPct.toFixed(1)}%`}
-                state={matIndep} color={SEMAFORO_COLORS[matIndep]} progress={enzymaticMatPct} target={threshold} />
+                state={matIndep} color={SEMAFORO_COLORS[matIndep]} progress={enzymaticMatPct} target={threshold} caption="maturaz." />
               <SemaforoCard half label="STRUTTURA W" value={`W ${Math.round(W_current)}`}
-                state={wState} color={SEMAFORO_COLORS[wState]} progress={(1 - tRatio) * 100} target={75} />
+                state={wState} color={SEMAFORO_COLORS[wState]} progress={(1 - tRatio) * 100} target={75} caption="glutine" />
             </div>
             <SecondaryRowCard><SecondaryRow pH={pH} leaveningPct={leaveningPct} /></SecondaryRowCard>
           </>
@@ -337,7 +361,7 @@ export function DashboardV4() {
         {primarySignal === 'structural' && (
           <>
             <SemaforoCard label="STRUTTURA W" value={`W ${Math.round(W_current)}`}
-              state={wState} color={SEMAFORO_COLORS[wState]} progress={(1 - tRatio) * 100} target={75} />
+              state={wState} color={SEMAFORO_COLORS[wState]} progress={(1 - tRatio) * 100} target={75} caption="forza glutinica" />
             <SecondaryRowCard><SecondaryRow matPct={enzymaticMatPct} pH={pH} leaveningPct={leaveningPct} /></SecondaryRowCard>
           </>
         )}
@@ -365,100 +389,110 @@ export function DashboardV4() {
           </div>
         </DarkCard>
 
-        {/* ── ZONA 2 — STRUTTURA ── */}
-        <DarkCard>
-          <ChannelLabel idx="02" name="Struttura · decad. W" right={
-            <span className="pm4-chan-tick" style={{ color: SEMAFORO_COLORS[wState], fontWeight: 700 }}>−{decayPct.toFixed(1)}%</span>
-          } />
-          <div style={{ display: 'flex', gap: 24, marginBottom: 6 }}>
-            <div>
-              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>W₀ → W</div>
-              <div style={{ color: 'var(--pm4-flour)', fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
-                {Math.round(W_initial)} <span style={{ color: 'var(--pm4-umber)' }}>→</span> {Math.round(W_current)}
-              </div>
-            </div>
-            <div>
-              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>t / t_crit</div>
-              <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, textShadow: `0 0 14px ${SEMAFORO_COLORS[wState]}55` }}>
-                {(liveRatio * 100).toFixed(0)}%
-              </div>
-            </div>
-          </div>
-          <div style={{ color: 'var(--pm4-umber)', fontSize: 9, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
-            t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
-          </div>
-          <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
-          {/* ── Sovra-lievitazione: collasso post-picco (separato dal Hill proteolitico) ── */}
-          <CollapseReadout info={collapseInfo} ambientTempC={ambientTempC} />
-        </DarkCard>
-
-        {/* Temperature + slider T_amb */}
-        <DarkCard>
-          <ChannelLabel idx="03" name="Termica · cuore impasto" tick="Newton τ" />
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, margin: '2px 0 13px' }}>
-            <div>
-              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T impasto</div>
-              <div className="pm4-glow-ember" style={{ color: 'var(--pm4-ember)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{T_dough.toFixed(1)}°</div>
-            </div>
-            <span style={{ color: 'var(--pm4-umber)', fontSize: 16, paddingBottom: 4 }}>→</span>
-            <div>
-              <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T ambiente</div>
-              <div style={{ color: 'var(--state-cold)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{ambientTempC.toFixed(1)}°</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, color: 'var(--pm4-faint)', letterSpacing: '0.08em', marginBottom: 7, fontFamily: 'var(--font-mono)' }}>
-            <span>16°</span><span>T ambiente di servizio</span><span>32°</span>
-          </div>
-          <input type="range" min={16} max={32} step={0.5} value={ambientTempC}
-            onChange={e => setTempAmbient(Number(e.target.value))}
-            aria-label="Temperatura ambiente di servizio"
-            aria-valuetext={`${ambientTempC.toFixed(1)} gradi`}
-            style={{ width: '100%', height: 22, borderRadius: 11, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
-        </DarkCard>
-
-        {/* Prefermenti (condizionale) */}
-        {session.prefermenti && session.prefermenti.length > 0 && (
-          <Collapsible title={`PREFERMENTI · ${session.prefermenti.length}`}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {session.prefermenti.map((p: any, i: number) => (
-                <div key={p.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  <span style={{ color: 'var(--pm4-ember-lo)', letterSpacing: '0.06em' }}>{(p.type ?? 'pref').toUpperCase()}</span>
-                  <span style={{ color: 'var(--pm4-tan)' }}>
-                    {p.flourFraction ?? 0}% farina · {p.hydration ?? '—'}% idr · {p.durationH ?? '—'}h
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Collapsible>
-        )}
-
-        {/* Container thermal (condizionale — fase fredda) */}
-        {(phase === 'balled_fridge' || phase === 'bulk_fridge') && (
-          <DarkCard>
-            <ChannelLabel idx="·" name="Container · frigo" right={
-              <span className="pm4-chan-tick" style={{ color: 'var(--state-cold)', fontWeight: 700 }}>{(session.fridgeTempC ?? 4).toFixed(0)}°C</span>
-            } />
-            <div style={{ color: 'var(--pm4-tan)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-              {(session.containerPreset ?? 'closed_box').replace(/_/g, ' ')} · inerzia termica attiva
-            </div>
+        {dashMode === 'monitor' ? (
+          /* Monitor: solo la timeline — no charts, no telemetria */
+          <DarkCard style={{ padding: '13px 12px 8px' }}>
+            <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
+              onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
           </DarkCard>
+        ) : (
+          <>
+            {/* ── ZONA 2 — STRUTTURA ── */}
+            <DarkCard>
+              <ChannelLabel idx="02" name="Struttura · decad. W" right={
+                <span className="pm4-chan-tick" style={{ color: SEMAFORO_COLORS[wState], fontWeight: 700 }}>−{decayPct.toFixed(1)}%</span>
+              } />
+              <div style={{ display: 'flex', gap: 24, marginBottom: 6 }}>
+                <div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>W₀ → W</div>
+                  <div style={{ color: 'var(--pm4-flour)', fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                    {Math.round(W_initial)} <span style={{ color: 'var(--pm4-umber)' }}>→</span> {Math.round(W_current)}
+                  </div>
+                </div>
+                <div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>t / t_crit</div>
+                  <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, textShadow: `0 0 14px ${SEMAFORO_COLORS[wState]}55` }}>
+                    {(liveRatio * 100).toFixed(0)}%
+                  </div>
+                </div>
+              </div>
+              <div style={{ color: 'var(--pm4-umber)', fontSize: 9, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
+                t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
+              </div>
+              <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
+              {/* ── Sovra-lievitazione: collasso post-picco (separato dal Hill proteolitico) ── */}
+              <CollapseReadout info={collapseInfo} ambientTempC={ambientTempC} />
+            </DarkCard>
+
+            {/* Temperature + slider T_amb */}
+            <DarkCard>
+              <ChannelLabel idx="03" name="Termica · cuore impasto" tick="Newton τ" />
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, margin: '2px 0 13px' }}>
+                <div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T impasto</div>
+                  <div className="pm4-glow-ember" style={{ color: 'var(--pm4-ember)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{T_dough.toFixed(1)}°</div>
+                </div>
+                <span style={{ color: 'var(--pm4-umber)', fontSize: 16, paddingBottom: 4 }}>→</span>
+                <div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T ambiente</div>
+                  <div style={{ color: 'var(--state-cold)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{ambientTempC.toFixed(1)}°</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, color: 'var(--pm4-faint)', letterSpacing: '0.08em', marginBottom: 7, fontFamily: 'var(--font-mono)' }}>
+                <span>16°</span><span>T ambiente di servizio</span><span>32°</span>
+              </div>
+              <input type="range" min={16} max={32} step={0.5} value={ambientTempC}
+                onChange={e => setTempAmbient(Number(e.target.value))}
+                aria-label="Temperatura ambiente di servizio"
+                aria-valuetext={`${ambientTempC.toFixed(1)} gradi`}
+                style={{ width: '100%', height: 22, borderRadius: 11, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
+            </DarkCard>
+
+            {/* Prefermenti (condizionale) */}
+            {session.prefermenti && session.prefermenti.length > 0 && (
+              <Collapsible title={`PREFERMENTI · ${session.prefermenti.length}`}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {session.prefermenti.map((p: any, i: number) => (
+                    <div key={p.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                      <span style={{ color: 'var(--pm4-ember-lo)', letterSpacing: '0.06em' }}>{(p.type ?? 'pref').toUpperCase()}</span>
+                      <span style={{ color: 'var(--pm4-tan)' }}>
+                        {p.flourFraction ?? 0}% farina · {p.hydration ?? '—'}% idr · {p.durationH ?? '—'}h
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Collapsible>
+            )}
+
+            {/* Container thermal (condizionale — fase fredda) */}
+            {(phase === 'balled_fridge' || phase === 'bulk_fridge') && (
+              <DarkCard>
+                <ChannelLabel idx="·" name="Container · frigo" right={
+                  <span className="pm4-chan-tick" style={{ color: 'var(--state-cold)', fontWeight: 700 }}>{(session.fridgeTempC ?? 4).toFixed(0)}°C</span>
+                } />
+                <div style={{ color: 'var(--pm4-tan)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                  {(session.containerPreset ?? 'closed_box').replace(/_/g, ' ')} · inerzia termica attiva
+                </div>
+              </DarkCard>
+            )}
+
+            {/* ── ZONA 4 — GRAFICO + TIMELINE ── */}
+            <DarkCard style={{ padding: '13px 12px 4px' }}>
+              <ChannelLabel idx="04" name="Curve & cronologia" />
+              <GompertzChart
+                key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
+                session={session} ts={ts}
+              />
+              <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
+                onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
+            </DarkCard>
+
+            {/* ── PROFILO IMPASTO (collassabile) ── */}
+            <Collapsible title="PROFILO IMPASTO">
+              <QualityProfileCard session={session} ts={ts} />
+            </Collapsible>
+          </>
         )}
-
-        {/* ── ZONA 3 — GRAFICO + TIMELINE ── */}
-        <DarkCard style={{ padding: '13px 12px 4px' }}>
-          <ChannelLabel idx="04" name="Curve & cronologia" />
-          <GompertzChart
-            key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
-            session={session} ts={ts}
-          />
-          <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
-            onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
-        </DarkCard>
-
-        {/* ── PROFILO IMPASTO (collassabile) ── */}
-        <Collapsible title="PROFILO IMPASTO">
-          <QualityProfileCard session={session} ts={ts} />
-        </Collapsible>
 
         <div style={{ height: 4 }} />
       </div>

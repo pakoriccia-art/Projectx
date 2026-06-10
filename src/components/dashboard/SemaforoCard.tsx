@@ -79,10 +79,12 @@ export function ProgressBar({ value, target, color }: { value: number; target?: 
 }
 
 export function SemaforoCard({
-  label, value, state, color, progress, target, half = false,
+  label, value, state, color, progress, target, half = false, caption,
 }: {
   label: string; value: string; state: SemaforoState; color: string;
   progress: number; target?: number; half?: boolean;
+  /** R6: nomina esplicitamente COSA misura il numero grande (varia per stile). */
+  caption?: string;
 }) {
   const isCollapsed = state === 'COLLAPSED';
   return (
@@ -93,7 +95,7 @@ export function SemaforoCard({
         <StateBadge state={state} color={color} pulsing={isCollapsed} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 11 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: caption ? 4 : 11 }}>
         <span
           className={isCollapsed ? 'pm4-glow-crit' : undefined}
           style={{
@@ -104,6 +106,11 @@ export function SemaforoCard({
           {value}
         </span>
       </div>
+      {caption && (
+        <div style={{ color: 'var(--pm4-umber)', fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
+          {caption}
+        </div>
+      )}
 
       <SegMeter progress={progress} color={color} />
 
