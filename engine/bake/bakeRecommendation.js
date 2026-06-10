@@ -18,14 +18,17 @@
 
 import { STONE_EFFUSIVITY } from './ovenProfiles.js';
 
+function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+
 // ⚠ Finestre di FATTIBILITÀ cottura per stile — PROVVISORIE (hypothesis).
 //   Centralizzate qui (v2.4.21); bakeValidator le ri-esporta per back-compat.
+//   v2.4.22: timeMinS (al top della finestra, caldo) / timeMaxS (al fondo, freddo).
 export const STYLE_BAKE_WINDOW_C = {
-  napoletana:    { min: 430, max: 485, timeMaxS: 90  },
-  contemporanea: { min: 380, max: 450, timeMaxS: 120 },
-  teglia:        { min: 230, max: 300, timeMaxS: 1200 },
-  pala:          { min: 280, max: 340, timeMaxS: 600  },
-  nystyle:       { min: 280, max: 320, timeMaxS: 900  },
+  napoletana:    { min: 430, max: 485, timeMinS: 60,  timeMaxS: 90  },
+  contemporanea: { min: 380, max: 450, timeMinS: 90,  timeMaxS: 150 },
+  teglia:        { min: 230, max: 300, timeMinS: 600, timeMaxS: 1200 },
+  pala:          { min: 280, max: 340, timeMinS: 360, timeMaxS: 600 },
+  nystyle:       { min: 280, max: 320, timeMinS: 480, timeMaxS: 900 },
 };
 export const STYLE_BAKE_WINDOW_VALIDATION = 'hypothesis';
 
@@ -50,8 +53,14 @@ export function computeBakeRecommendation({ style, ovenTempC, hydration, stone, 
   // Target: il meglio che l'hardware consente dentro la finestra di stile.
   const targetTempC = Math.round(Math.min(ovenTempC, w.max));
 
-  // Tempo consigliato: ridotto su piani ad alta effusività.
-  const bakeTimeS = Math.round(w.timeMaxS * (1 - REC_COEFF.timeEffReduction * eff));
+  // v2.4.22 — Tempo dipendente dalla temperatura (più caldo → trasferimento
+  // più rapido → cottura più corta), poi correzione effusività (secondaria).
+  // frac: 0 al fondo finestra (freddo, tempo lungo) → 1 al top (caldo, tempo corto)
+  const frac = clamp((targetTempC - w.min) / (w.max - w.min), 0, 1);
+  // interpolazione monotòna: frac=1 → timeMinS, frac=0 → timeMaxS
+  let bakeTimeS = w.timeMaxS + (w.timeMinS - w.timeMaxS) * frac;
+  // correzione effusività (alta effusività → fondo cuoce prima → più corto)
+  bakeTimeS = Math.round(bakeTimeS * (1 - REC_COEFF.timeEffReduction * eff));
 
   // Delta cielo→platea cresce con effusività e idratazione (acciaio+alta idro → platea molto più bassa).
   const hydrFactor = Math.max(0, hydration - 60) / 40; // ~0..0.3

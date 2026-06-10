@@ -157,6 +157,27 @@ console.log('\n§ REC — Raccomandazione cottura, effusività attiva (v2.4.21)'
     `hi=${hi.plateaC}, lo=${lo.plateaC}`);
 }
 
+// REC-06 monotonia temperatura (v2.4.22): stesso stile/stone, T crescente
+// → bakeTimeS strettamente decrescente (più caldo → cottura più corta)
+{
+  const base = { style: 'contemporanea', hydration: 70, stone: 'cordierite_refrattaria', dualZone: false };
+  const t380 = computeBakeRecommendation({ ...base, ovenTempC: 380 }).bakeTimeS;
+  const t415 = computeBakeRecommendation({ ...base, ovenTempC: 415 }).bakeTimeS;
+  const t450 = computeBakeRecommendation({ ...base, ovenTempC: 450 }).bakeTimeS;
+  assert(t380 > t415 && t415 > t450,
+    'REC-06 bakeTimeS strettamente decrescente con T crescente (380>415>450)',
+    `380°C=${t380}s, 415°C=${t415}s, 450°C=${t450}s`);
+}
+
+// REC-07 clamp al top finestra: ovenTempC ≥ w.max → tempo non scende oltre il minimo
+{
+  const base = { style: 'contemporanea', hydration: 70, stone: 'cordierite_refrattaria', dualZone: false };
+  const atMax  = computeBakeRecommendation({ ...base, ovenTempC: 450 }).bakeTimeS;
+  const beyond = computeBakeRecommendation({ ...base, ovenTempC: 500 }).bakeTimeS;
+  assert(beyond === atMax, 'REC-07 ovenTempC oltre w.max → bakeTimeS clampato (frac=1)',
+    `450°C=${atMax}s, 500°C=${beyond}s`);
+}
+
 // REC-05 nessuna mutazione dell'input (advisory puro)
 {
   const input = { style: 'pala', ovenTempC: 320, hydration: 70, stone: 'acciaio', dualZone: true };
