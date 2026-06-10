@@ -5,6 +5,7 @@
  */
 
 import Dexie, { type EntityTable } from 'dexie';
+import type { OvenProfile } from '../engine/bake';
 
 // ─── Value Objects ───────────────────────────────────────────────────────────
 
@@ -154,6 +155,10 @@ export interface Session {
 
   // Service-Window planner v2.4.2: soglia anti-bolle calibrabile (% lievitazione)
   bubbleThresholdPct?: number;       // default 92 (SERVICE_WINDOW_DEFAULTS)
+
+  // v2.4.18 — modulo cottura (validatore advisory, opzionale e NON indicizzato:
+  // nessun bump di versione Dexie richiesto; le sessioni esistenti restano valide).
+  ovenProfile?: OvenProfile;
 }
 
 // ─── Process Log Entry ───────────────────────────────────────────────────────
