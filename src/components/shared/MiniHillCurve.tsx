@@ -123,7 +123,12 @@ export function MiniHillCurve({
   const currentW = Math.round(hillW(W0, tCrit, currentT));
 
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}
+    // Responsive: il sistema di coordinate interno resta `width × height`, ma il
+    // viewBox + width:100% fa scalare l'SVG sotto i ~358px (iPhone SE, Fold) senza
+    // overflow orizzontale nel pannello. maxWidth blocca l'upscaling su display larghi.
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ display: 'block', maxWidth: width, height: 'auto' }}
       role="img"
       aria-label={`Curva struttura W: da ${Math.round(W0)} a ${currentW}, t su t_crit ${Math.round(tRatio * 100)}%`}>
       <title>{`Decadimento W: ${Math.round(W0)} → ${currentW} (t/t_crit ${Math.round(tRatio * 100)}%)`}</title>

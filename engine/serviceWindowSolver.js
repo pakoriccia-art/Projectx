@@ -103,13 +103,20 @@ export function simulateTimeline(segments, initial, opts) {
   });
   samples.push(snapshot(initial.tempDough));
 
-  for (const seg of segments) {
-    if (!(seg.durationH > 0)) continue;
+  // Guardia DoS: una durationH non-finita o gigantesca (input maligno / date
+  // remote) farebbe esplodere nSteps → allocazione illimitata di samples.
+  // `!(durationH > 0)` già scarta NaN/negativi; qui limitiamo l'upper bound.
+  // 100k step ≈ 5000h @ subStepH 0.05 — ordini di grandezza oltre ogni timeline
+  // reale (max fisico ~2000h), quindi nessun cambio di comportamento legittimo.
+  const MAX_STEPS_PER_SEG = 100_000;
+
+  for (const seg of (Array.isArray(segments) ? segments : [])) {
+    if (!seg || !(seg.durationH > 0)) continue;
     const isBulk  = seg.phaseType === 'bulk_room' || seg.phaseType === 'bulk_fridge';
     const massKg  = isBulk ? totalMassKg : ballMassKg;
     // v2.4.14 §2.14.4 — astrazione geometrica unificata
     const tau     = thermalTimeConstantForPhase(seg.phaseType, massKg, hydration, containerPreset);
-    const nSteps  = Math.max(1, Math.round(seg.durationH / subStepH));
+    const nSteps  = Math.min(MAX_STEPS_PER_SEG, Math.max(1, Math.round(seg.durationH / subStepH)));
     const stepH   = seg.durationH / nSteps;
     const stepSec = stepH * 3600;
 
@@ -140,12 +147,17 @@ export function simulateTimeline(segments, initial, opts) {
  * Closed-form: t = −τ·ln((target−amb)/(fridge−amb)).
  */
 export function computeTemperingH({ ballMassKg, hydration, fridgeTempC, ambientTempC, targetC, containerPreset = 'bare' }) {
+  // Guardia robustezza: massa/idratazione/temperature non-finite o massa ≤0
+  // producevano NaN (τ da massa nulla) o ore negative (massa negativa) che
+  // propagavano nello schedule del solver. Fallback sicuro: 0 ore di tempering.
+  if (![ballMassKg, hydration, fridgeTempC, ambientTempC, targetC].every(Number.isFinite) || ballMassKg <= 0) return 0;
   if (ambientTempC <= targetC || fridgeTempC >= targetC) return 0;
   const tauBase = thermalTimeConstantSphere(ballMassKg, hydration);
   const tau     = applyContainerResistance(tauBase, containerPreset);  // secondi
   const ratio   = (targetC - ambientTempC) / (fridgeTempC - ambientTempC);
   if (ratio <= 0 || ratio >= 1) return 0;
-  return (-tau * Math.log(ratio)) / 3600;  // ore
+  const t = (-tau * Math.log(ratio)) / 3600;  // ore
+  return Number.isFinite(t) ? Math.max(0, t) : 0;
 }
 
 // ─── Helper risoluzione target per stile (v2.4.5) ────────────────────────────
@@ -360,8 +372,22 @@ export function solveNowAnchoredWindow(input) {
   const bubbleThresholdPct  = resolveBubbleThresholdPct(input);
   const overshootTol = input.overshootTolerance ?? SERVICE_WINDOW_DEFAULTS.overshootTolerance ?? 2.0;
 
+  // Guardia robustezza: coerci e valida i timestamp. Senza questa, un
+  // serviceStart/now non-Date (null/stringa/numero/oggetto) faceva crashare il
+  // solver con TypeError su .getTime(). Ritorniamo infeasible invece di lanciare.
   const mixStart   = now instanceof Date ? now : new Date(now);
-  const serviceEnd = new Date(serviceStart.getTime() + serviceDurationH * HOUR_MS);
+  const svcStart   = serviceStart instanceof Date ? serviceStart : new Date(serviceStart);
+  const datesBad   = Number.isNaN(mixStart.getTime()) || Number.isNaN(svcStart.getTime()) || !Number.isFinite(serviceDurationH);
+  // ambientTempC/fridgeTempC non-finiti (es. stringa) propagavano fino a
+  // final.tempDough non-numerico → crash su .toFixed(). Validati alla frontiera.
+  const tempsBad   = !Number.isFinite(ambientTempC) || !Number.isFinite(fridgeTempCUser);
+  if (datesBad || tempsBad) {
+    return { feasible: false, mixStart: (Number.isNaN(mixStart.getTime()) ? new Date() : mixStart), mixStartIsNow: true,
+      resolvedTargetMaturationPct: targetMaturationPct, resolvedBubbleThresholdPct: bubbleThresholdPct,
+      infeasibility: { reason: datesBad ? 'invalid_timestamps' : 'invalid_input',
+        mitigations: [datesBad ? 'Verifica le date di inizio impasto e servizio' : 'Verifica temperatura ambiente e frigo (valori numerici)'] } };
+  }
+  const serviceEnd = new Date(svcStart.getTime() + serviceDurationH * HOUR_MS);
   const totalH     = (serviceEnd.getTime() - mixStart.getTime()) / HOUR_MS;
 
   if (ambientTempC <= thermalServiceTargetC) {
@@ -696,6 +722,15 @@ export function solveServiceWindow(input) {
   const targetMaturationPct = resolveTargetMaturationPct(input);
   const bubbleThresholdPct  = resolveBubbleThresholdPct(input);
 
+  // Guardia robustezza (parità con solveNowAnchoredWindow): serviceStart non-Date
+  // → infeasible invece di TypeError su .getTime() (usato più sotto, riga ~930).
+  const svcStart = serviceStart instanceof Date ? serviceStart : new Date(serviceStart);
+  if (Number.isNaN(svcStart.getTime()) || !Number.isFinite(serviceDurationH)) {
+    return { feasible: false,
+      resolvedTargetMaturationPct: targetMaturationPct, resolvedBubbleThresholdPct: bubbleThresholdPct,
+      infeasibility: { reason: 'invalid_timestamps', mitigations: ['Verifica la data di servizio e la durata'] } };
+  }
+
   const doseRef  = doseRefPct !== undefined ? doseRefPct : defaultDoseRef(agentType);
   const prefFrac = Math.min(1, (prefermenti ?? []).reduce((s, p) => s + (p.flourFraction ?? 0) / 100, 0));
   const leavLambda = Math.max(0.3, agentLambda * (1 - 0.5 * prefFrac));
@@ -905,7 +940,7 @@ export function solveServiceWindow(input) {
 
   // totalUpstreamH invariante: effectivePuntataH + effectiveTcH == puntataH + tcHours
   const totalUpstreamH = effectivePuntataH + staglioH + effectiveTcH + temperingH;
-  const mixStart = new Date(serviceStart.getTime() - totalUpstreamH * HOUR_MS);
+  const mixStart = new Date(svcStart.getTime() - totalUpstreamH * HOUR_MS);
 
   // buildServiceWindowTimeline cappa internamente puntataH→puntataMaxH e sposta
   // l'eccesso in tcHours: passiamo i valori NON cappati + puntataMaxH per coerenza.

@@ -30,9 +30,14 @@ export function buildTimelinePhases(
   session: Session,
   now: Date,
 ): TimelinePhase[] {
-  const segs = (timeline && timeline.length > 0)
+  const rawSegs = (timeline && timeline.length > 0)
     ? timeline
     : buildInitialTimeline(session as any);
+  // Resilienza record Dexie corrotti: scarta segmenti null/non-oggetto o senza
+  // phaseType valido — un solo segmento corrotto faceva crashare l'intera dashboard.
+  const segs = (Array.isArray(rawSegs) ? rawSegs : []).filter(
+    (s): s is PhaseSegment => !!s && typeof s.phaseType === 'string',
+  );
   if (segs.length === 0) return [];
 
   const startMs = session.startedAt
