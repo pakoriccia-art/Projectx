@@ -1,7 +1,8 @@
 /**
- * PizzaMatrix — Configurazione Forno & Advisory Bake (v2.4.18)
- * Vista dedicata: seleziona OvenProfile, mostra W proiettato a t_infornata,
- * chiama validateBakeFeasibility → risultato advisory (read-only).
+ * PizzaMatrix — Configurazione Forno & Raccomandazione Bake (v2.4.21)
+ * Vista dedicata: seleziona OvenProfile → FATTIBILE/NON FATTIBILE +
+ * blocco CONSIGLIATO (targetTempC, tempo, cielo/platea effusività-dipendenti).
+ * Dettagli diagnostici (arresti cinetici, W proiettato) in accordion chiuso.
  *
  * INVARIANTI:
  *  - Non muta session.hydration / W / style (advisory only).
@@ -20,6 +21,13 @@ import { SnapButtons } from '../ui';
 
 // ─── Costante Hill exponent (allineata all'engine) ────────────────────────────
 const HILL_N = 5;
+
+// ─── Formato mm:ss per il tempo di cottura consigliato ────────────────────────
+function fmtMmSs(s: number): string {
+  const m = Math.floor(s / 60);
+  const r = Math.round(s % 60);
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
 
 function hillW(W0: number, tCrit: number, hours: number): number {
   if (tCrit <= 0) return W0 * 0.5;
@@ -103,6 +111,8 @@ export function BakeView() {
   const [profile, setProfile] = useState<OvenProfile>(() =>
     (session?.ovenProfile as OvenProfile | undefined) ?? DEFAULT_PROFILE,
   );
+  // Accordion diagnostica: chiuso di default (la guida primaria è il CONSIGLIATO)
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // ── Persistenza (pattern identico a setTempAmbient) ──────────────────────
   function saveProfile(p: OvenProfile) {
@@ -186,6 +196,73 @@ export function BakeView() {
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
+
+        {/* ── 1. FATTIBILE / NON FATTIBILE (badge grande) + advice ── */}
+        {validation && (
+          <div className="pm4-panel" style={{
+            padding: '14px 14px', marginBottom: 12,
+            borderLeft: `3px solid ${validation.feasible ? '#22c55e' : '#ef4444'}`,
+          }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 800,
+              letterSpacing: '0.06em', marginBottom: validation.feasible && validation.advice.length === 0 ? 0 : 8,
+              color: validation.feasible ? '#22c55e' : '#ef4444',
+            }}>
+              {validation.feasible ? '✓ FATTIBILE' : '✗ NON FATTIBILE'}
+            </div>
+            {!validation.feasible && (
+              <div style={{ ...LABEL_MONO, fontSize: 11, marginBottom: 8, color: '#ef4444' }}>
+                {REASON_LABEL[validation.reason ?? ''] ?? validation.reason}
+              </div>
+            )}
+            {validation.advice.map((line, i) => (
+              <p key={i} style={{
+                margin: '0 0 6px', fontFamily: 'var(--font-mono)', fontSize: 11,
+                color: 'var(--pm4-tan)', lineHeight: 1.5,
+              }}>
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* ── 2. CONSIGLIATO (blocco primario, effusività attiva) ── */}
+        {validation && (
+          <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12, borderLeft: '3px solid var(--accent-brand)' }}>
+            <div style={{ ...LABEL_MONO, marginBottom: 10, color: 'var(--accent-brand)' }}>CONSIGLIATO</div>
+            <div className="pm4-cells" style={{ gridTemplateColumns: validation.recommendation.cieloC != null ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)' }}>
+              <div className="pm4-cell">
+                <div style={LABEL_MONO}>TEMPERATURA</div>
+                <div style={VALUE_MONO}>{validation.recommendation.targetTempC}°C</div>
+              </div>
+              <div className="pm4-cell">
+                <div style={LABEL_MONO}>TEMPO</div>
+                <div style={VALUE_MONO}>{fmtMmSs(validation.recommendation.bakeTimeS)}</div>
+              </div>
+              {validation.recommendation.cieloC != null && (
+                <div className="pm4-cell">
+                  <div style={LABEL_MONO}>CIELO</div>
+                  <div style={VALUE_MONO}>{validation.recommendation.cieloC}°C</div>
+                </div>
+              )}
+              {validation.recommendation.plateaC != null && (
+                <div className="pm4-cell">
+                  <div style={LABEL_MONO}>PLATEA</div>
+                  <div style={VALUE_MONO}>{validation.recommendation.plateaC}°C</div>
+                </div>
+              )}
+            </div>
+            <p style={{
+              margin: '10px 0 0', fontFamily: 'var(--font-mono)', fontSize: 11,
+              color: 'var(--pm4-tan)', lineHeight: 1.5,
+            }}>
+              {validation.recommendation.stoneNote}
+            </p>
+            <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 8, opacity: 0.55 }}>
+              ⚠ Valori indicativi — validationStatus: hypothesis
+            </div>
+          </div>
+        )}
 
         {/* ── Archetipo ── */}
         <div className="pm4-panel" style={{ padding: '13px 14px 14px', marginBottom: 12 }}>
@@ -271,97 +348,60 @@ export function BakeView() {
           </div>
         </div>
 
-        {/* ── Metriche calcolate ── */}
-        <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12 }}>
-          <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-            <div className="pm4-cell">
-              <div style={LABEL_MONO}>T FORNO STIMATA</div>
-              <div style={VALUE_MONO}>
-                {ovenTempEstimate != null ? `${Math.round(ovenTempEstimate)}°C` : '—'}
-              </div>
-            </div>
-            <div className="pm4-cell">
-              <div style={LABEL_MONO}>W A t_infornata</div>
-              <div style={VALUE_MONO}>
-                {W_proj != null ? Math.round(W_proj) : '—'}
-              </div>
-              {session.bakeTargetElapsedH != null && (
-                <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 2, opacity: 0.7 }}>
-                  t = {session.bakeTargetElapsedH.toFixed(1)}h da inizio
+        {/* ── 3. Dettagli tecnici / arresti cinetici (accordion, chiuso) ── */}
+        {validation && (
+          <div className="pm4-panel" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+            <button
+              onClick={() => setDetailsOpen(o => !o)}
+              aria-expanded={detailsOpen}
+              style={{
+                width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer',
+              }}
+            >
+              <span style={LABEL_MONO}>DETTAGLI TECNICI · ARRESTI CINETICI</span>
+              <span style={{ ...LABEL_MONO, fontSize: 12 }}>{detailsOpen ? '▾' : '▸'}</span>
+            </button>
+            {detailsOpen && (
+              <div style={{ padding: '0 14px 13px' }}>
+                <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 10 }}>
+                  <div className="pm4-cell">
+                    <div style={LABEL_MONO}>T FORNO STIMATA</div>
+                    <div style={VALUE_MONO}>
+                      {ovenTempEstimate != null ? `${Math.round(ovenTempEstimate)}°C` : '—'}
+                    </div>
+                  </div>
+                  <div className="pm4-cell">
+                    <div style={LABEL_MONO}>W A t_infornata</div>
+                    <div style={VALUE_MONO}>
+                      {W_proj != null ? Math.round(W_proj) : '—'}
+                    </div>
+                    {session.bakeTargetElapsedH != null && (
+                      <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 2, opacity: 0.7 }}>
+                        t = {session.bakeTargetElapsedH.toFixed(1)}h da inizio
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Advisory banner ── */}
-        {validation && (
-          <div className="pm4-panel" style={{
-            padding: '13px 14px', marginBottom: 12,
-            borderLeft: `3px solid ${validation.feasible ? '#22c55e' : '#ef4444'}`,
-          }}>
-            <div style={{
-              ...LABEL_MONO, fontSize: 13, fontWeight: 700, marginBottom: 8,
-              color: validation.feasible ? '#22c55e' : '#ef4444',
-            }}>
-              {validation.feasible
-                ? '✓ FATTIBILE'
-                : `✗ ${REASON_LABEL[validation.reason ?? ''] ?? validation.reason}`}
-            </div>
-            {validation.advice.map((line, i) => (
-              <p key={i} style={{
-                margin: '0 0 6px', fontFamily: 'var(--font-mono)', fontSize: 11,
-                color: 'var(--pm4-tan)', lineHeight: 1.5,
-              }}>
-                {line}
-              </p>
-            ))}
-            {validation.advice.length === 0 && validation.feasible && (
-              <p style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)' }}>
-                Configurazione compatibile con lo stile {session.style}.
-              </p>
+                {[
+                  { label: 'PROTEOLISI',    tC: validation.kineticArrest.proteolysisArrestC,  note: 'blocco enzimi proteolitici' },
+                  { label: 'β-AMILASI',     tC: validation.kineticArrest.betaAmylaseArrestC,   note: 'disattivazione β-amilasi' },
+                  { label: 'α-AMILASI',     tC: validation.kineticArrest.alphaAmylaseArrestC,  note: 'disattivazione α-amilasi' },
+                  { label: 'GELATINIZZ.',   tC: validation.kineticArrest.gelatinizationRangeC[0], note: `range ${validation.kineticArrest.gelatinizationRangeC[0]}–${validation.kineticArrest.gelatinizationRangeC[1]}°C` },
+                  { label: 'SET GLUTINE',   tC: validation.kineticArrest.glutenSetRangeC[0],   note: `range ${validation.kineticArrest.glutenSetRangeC[0]}–${validation.kineticArrest.glutenSetRangeC[1]}°C` },
+                ].map(row => (
+                  <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--pm4-line)' }}>
+                    <span style={{ ...LABEL_MONO }}>{row.label}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-wheat)' }}>
+                      {row.tC}°C <span style={{ opacity: 0.5, fontSize: 10 }}>— {row.note}</span>
+                    </span>
+                  </div>
+                ))}
+                <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 8, opacity: 0.55 }}>
+                  ⚠ Soglie indicative — validationStatus: hypothesis
+                </div>
+              </div>
             )}
-          </div>
-        )}
-
-        {/* ── Dual-zone suggestion ── */}
-        {validation?.dualZoneSuggestion && (
-          <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12 }}>
-            <div style={{ ...LABEL_MONO, marginBottom: 8 }}>RIPARTIZIONE ENERGETICA DUAL-ZONE</div>
-            <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-              <div className="pm4-cell">
-                <div style={LABEL_MONO}>CIELO</div>
-                <div style={VALUE_MONO}>{validation.dualZoneSuggestion.cieloC}°C</div>
-              </div>
-              <div className="pm4-cell">
-                <div style={LABEL_MONO}>PLATEA</div>
-                <div style={VALUE_MONO}>{validation.dualZoneSuggestion.plateaC}°C</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Arresti cinetici ── */}
-        {validation && (
-          <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12 }}>
-            <div style={{ ...LABEL_MONO, marginBottom: 10 }}>ARRESTI CINETICI A t_infornata</div>
-            {[
-              { label: 'PROTEOLISI',    tC: validation.kineticArrest.proteolysisArrestC,  note: 'blocco enzimi proteolitici' },
-              { label: 'β-AMILASI',     tC: validation.kineticArrest.betaAmylaseArrestC,   note: 'disattivazione β-amilasi' },
-              { label: 'α-AMILASI',     tC: validation.kineticArrest.alphaAmylaseArrestC,  note: 'disattivazione α-amilasi' },
-              { label: 'GELATINIZZ.',   tC: validation.kineticArrest.gelatinizationRangeC[0], note: `range ${validation.kineticArrest.gelatinizationRangeC[0]}–${validation.kineticArrest.gelatinizationRangeC[1]}°C` },
-              { label: 'SET GLUTINE',   tC: validation.kineticArrest.glutenSetRangeC[0],   note: `range ${validation.kineticArrest.glutenSetRangeC[0]}–${validation.kineticArrest.glutenSetRangeC[1]}°C` },
-            ].map(row => (
-              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--pm4-line)' }}>
-                <span style={{ ...LABEL_MONO }}>{row.label}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-wheat)' }}>
-                  {row.tC}°C <span style={{ opacity: 0.5, fontSize: 10 }}>— {row.note}</span>
-                </span>
-              </div>
-            ))}
-            <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 8, opacity: 0.55 }}>
-              ⚠ Soglie indicative — validationStatus: hypothesis
-            </div>
           </div>
         )}
 

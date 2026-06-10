@@ -23,33 +23,23 @@
 
 import { resolveOvenTempC, STONE_EFFUSIVITY } from './ovenProfiles.js';
 import { computeBakeKineticArrest } from './bakeKinetics.js';
+import { computeBakeRecommendation, STYLE_BAKE_WINDOW_C, STYLE_BAKE_WINDOW_VALIDATION } from './bakeRecommendation.js';
 import { getStyleProfile } from '../engine-v2.4.0.js';
 
-// ⚠ Range termici indicativi per stile — PROVVISORI (validationStatus:'hypothesis').
-//   Finestra di FATTIBILITÀ cottura (più ampia del range ottimale temp_forno_range
-//   dello style profile, che resta la fonte per i consigli fini).
-export const STYLE_BAKE_WINDOW_C = {
-  napoletana:    { min: 430, max: 485, timeMaxS: 90  },
-  contemporanea: { min: 380, max: 450, timeMaxS: 120 },
-  teglia:        { min: 230, max: 300, timeMaxS: 1200 },
-  pala:          { min: 280, max: 340, timeMaxS: 600  },
-  nystyle:       { min: 280, max: 320, timeMaxS: 900  },
-};
-export const STYLE_BAKE_WINDOW_VALIDATION = 'hypothesis';
+// v2.4.21: le finestre per stile vivono in bakeRecommendation.js;
+// ri-esportate qui per back-compat (tests, src/engine/bake.ts).
+export { STYLE_BAKE_WINDOW_C, STYLE_BAKE_WINDOW_VALIDATION };
 
 // ⚠ Euristiche di soglia — PROVVISORIE (validationStatus:'hypothesis').
 const HYDRATION_REF_PCT     = 72;   // sopra questa idratazione, il deficit evaporativo non penalizza
 const HYDRATION_PENALTY_C   = 4;    // °C di soglia min aggiunti per ogni punto sotto HYDRATION_REF
 const EFFUSIVITY_BURN_IDX   = 0.9;  // effusività piano oltre cui la cottura lunga brucia il fondo
 const EFFUSIVITY_BURN_TIME_S = 240; // durata oltre cui scatta l'avviso bruciatura fondo
-const DUALZONE_PLATEA_HIGH_HYD = 0.82; // platea/cielo per alta idratazione (asimmetrico)
-const DUALZONE_PLATEA_STD       = 0.92; // platea/cielo standard
-const HIGH_HYDRATION_PCT        = 70;
 export const BAKE_HEURISTICS_VALIDATION = 'hypothesis';
 
 /**
  * Valida la fattibilità della cottura per la coppia (stile, hardware).
- * @returns {BakeValidationResult} feasible/reason/ovenTempC/advice/dualZoneSuggestion/kineticArrest
+ * @returns {BakeValidationResult} feasible/reason/ovenTempC/advice/recommendation/kineticArrest
  */
 export function validateBakeFeasibility({ session, finalState, ovenProfile }) {
   const ovenTempC = resolveOvenTempC(ovenProfile);
@@ -102,17 +92,19 @@ export function validateBakeFeasibility({ session, finalState, ovenProfile }) {
     advice.push(`Forno (${ovenTempC}°C) sopra il range tipico per ${session.style}: rischio crosta bruciata, interno crudo.`);
   }
 
-  // (e) Suggerimento ripartizione energetica dual-zone (cielo/platea).
-  let dualZoneSuggestion;
-  if (ovenProfile.dualZone) {
-    const isHighHydration =
-      session.hydration >= HIGH_HYDRATION_PCT || session.style === 'teglia' || session.style === 'pala';
-    const plateaRatio = isHighHydration ? DUALZONE_PLATEA_HIGH_HYD : DUALZONE_PLATEA_STD;
-    dualZoneSuggestion = { cieloC: ovenTempC, plateaC: Math.round(ovenTempC * plateaRatio) };
-  }
+  // (e) Raccomandazione cottura (v2.4.21): temperatura/tempo consigliati,
+  //     effusività ATTIVA su platea/tempo/nota. Sostituisce il vecchio
+  //     dualZoneSuggestion (× 0.82/0.92, indipendente dal piano).
+  const recommendation = computeBakeRecommendation({
+    style: session.style,
+    ovenTempC,
+    hydration: session.hydration,
+    stone: ovenProfile.stone,
+    dualZone: !!ovenProfile.dualZone,
+  });
 
   return {
-    feasible, reason, ovenTempC, advice, dualZoneSuggestion,
+    feasible, reason, ovenTempC, advice, recommendation,
     kineticArrest: computeBakeKineticArrest({
       W_at_infornata, W_minimo_stesura: style.W_minimo_stesura,
     }),

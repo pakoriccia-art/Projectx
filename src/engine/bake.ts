@@ -19,6 +19,9 @@ export {
   STYLE_BAKE_WINDOW_C, STYLE_BAKE_WINDOW_VALIDATION,
   BAKE_HEURISTICS_VALIDATION, validateBakeFeasibility,
 } from '../../engine/bake/bakeValidator.js';
+export {
+  REC_COEFF, REC_COEFF_VALIDATION, computeBakeRecommendation,
+} from '../../engine/bake/bakeRecommendation.js';
 
 // ─── Tipi TypeScript ─────────────────────────────────────────────────────────
 
@@ -56,11 +59,22 @@ export interface BakeKineticArrest {
   W_minimo_stesura: number;
 }
 
+// v2.4.21: raccomandazione attiva (sostituisce dualZoneSuggestion).
+// L'effusività del piano modula plateaC/bakeTimeS/stoneNote.
+export interface BakeRecommendation {
+  targetTempC: number;
+  bakeTimeS: number;
+  cieloC?: number;                  // solo dual-zone
+  plateaC?: number;                 // solo dual-zone
+  stoneNote: string;
+  validationStatus: 'hypothesis';
+}
+
 export interface BakeValidationResult {
   feasible: boolean;
   reason?: BakeReason;
   ovenTempC: number;
   advice: string[];                 // suggerimenti ADVISORY, mai applicati automaticamente
-  dualZoneSuggestion?: { cieloC: number; plateaC: number };
+  recommendation: BakeRecommendation;
   kineticArrest: BakeKineticArrest;
 }

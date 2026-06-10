@@ -1528,8 +1528,13 @@ export function WizardView() {
     if (step === 4) return !!(draft.hydration && draft.salt !== undefined);
     if (step === 5) return !!(draft.agentType && draft.agentDosePct);
     if (step === 6) return !!draft.containerPreset;
-    // tc_appreto: puntataH calcolata automaticamente → basta avere il protocollo
-    if (step === 7) return !!(draft.apprettoProtocol && (draft.apprettoProtocol === 'tc_appreto' || draft.puntataH));
+    // v2.4.21 fix blocco silenzioso: il vecchio gate richiedeva draft.puntataH
+    // per ta/tc/tc_puntata, ma tc e tc_puntata non rendono nemmeno lo slider
+    // puntata e per ta il default (8h) vive solo nel display → Continua morto
+    // senza messaggio. Ogni campo del passo 7 ha default coerenti sia in Step7
+    // sia in buildSession (proto 'ta', puntata 8h, staglio 0.5h, ...): il passo
+    // è sempre strutturalmente valido. Nessun solver gira a questo passo.
+    if (step === 7) return true;
     if (step === 8) return true;
     return true;
   };

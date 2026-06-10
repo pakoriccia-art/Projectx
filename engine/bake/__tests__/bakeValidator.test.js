@@ -3,6 +3,7 @@
  * Esegui con: node engine/bake/__tests__/bakeValidator.test.js
  */
 import { validateBakeFeasibility, STYLE_BAKE_WINDOW_C } from '../bakeValidator.js';
+import { computeBakeRecommendation } from '../bakeRecommendation.js';
 import { resolveOvenTempC, OVEN_ARCHETYPES } from '../ovenProfiles.js';
 import { BAKE_ARREST_C } from '../bakeKinetics.js';
 import { getStyleProfile } from '../../engine-v2.4.0.js';
@@ -63,7 +64,7 @@ console.log('\n§ BAKE — Validatore stile-vs-hardware (v2.4.18)');
   assert(r.ovenTempC === 485, 'BAKE-03b ovenTempC = 485', `got ${r.ovenTempC}`);
 }
 
-// (d) dual-zone alta idratazione → plateaC < cieloC (rapporto asimmetrico)
+// (d) dual-zone alta idratazione → recommendation con plateaC < cieloC (v2.4.21)
 {
   const s = session({ style: 'teglia', hydration: 80 });
   const r = validateBakeFeasibility({
@@ -71,10 +72,11 @@ console.log('\n§ BAKE — Validatore stile-vs-hardware (v2.4.18)');
     finalState: { W_current: 300 },
     ovenProfile: { archetipo: 'elettrico_pizza', stone: 'cordierite_refrattaria', dualZone: true },
   });
-  assert(r.dualZoneSuggestion != null, 'BAKE-04a dualZoneSuggestion presente');
-  assert(r.dualZoneSuggestion.plateaC < r.dualZoneSuggestion.cieloC,
-    'BAKE-04b plateaC < cieloC (asimmetrico alta idratazione)',
-    `cielo=${r.dualZoneSuggestion?.cieloC}, platea=${r.dualZoneSuggestion?.plateaC}`);
+  assert(r.recommendation != null, 'BAKE-04a recommendation presente nel risultato del validatore');
+  assert(r.recommendation.plateaC < r.recommendation.cieloC,
+    'BAKE-04b recommendation.plateaC < cieloC (asimmetrico alta idratazione)',
+    `cielo=${r.recommendation?.cieloC}, platea=${r.recommendation?.plateaC}`);
+  assert(r.dualZoneSuggestion === undefined, 'BAKE-04c dualZoneSuggestion rimosso (sostituito da recommendation)');
 }
 
 // (e) conchiglia knobLevel:5 non modded → 390; modded measuredTmaxC:430 → 430
@@ -108,6 +110,59 @@ console.log('\n§ BAKE — Validatore stile-vs-hardware (v2.4.18)');
 {
   const styles = ['napoletana', 'contemporanea', 'teglia', 'pala', 'nystyle'];
   assert(styles.every(st => STYLE_BAKE_WINDOW_C[st] != null), 'BAKE-08 STYLE_BAKE_WINDOW_C copre i 5 stili');
+}
+
+console.log('\n§ REC — Raccomandazione cottura, effusività attiva (v2.4.21)');
+
+// REC-01 anti-regressione "materiale ininfluente": stesso input, stone diverso
+// → plateaC e bakeTimeS DIFFERENTI (acciaio: platea più bassa e tempo più corto del biscotto)
+{
+  const base = { style: 'contemporanea', ovenTempC: 450, hydration: 75, dualZone: true };
+  const acciaio  = computeBakeRecommendation({ ...base, stone: 'acciaio' });
+  const biscotto = computeBakeRecommendation({ ...base, stone: 'biscotto' });
+  assert(acciaio.plateaC < biscotto.plateaC,
+    'REC-01a acciaio → platea più bassa del biscotto',
+    `acciaio=${acciaio.plateaC}, biscotto=${biscotto.plateaC}`);
+  assert(acciaio.bakeTimeS < biscotto.bakeTimeS,
+    'REC-01b acciaio → tempo più corto del biscotto',
+    `acciaio=${acciaio.bakeTimeS}s, biscotto=${biscotto.bakeTimeS}s`);
+  assert(acciaio.stoneNote !== biscotto.stoneNote, 'REC-01c stoneNote differisce per materiale');
+}
+
+// REC-02 single-zone: cieloC/plateaC undefined, targetTempC presente
+{
+  const r = computeBakeRecommendation({
+    style: 'napoletana', ovenTempC: 485, hydration: 62, stone: 'biscotto', dualZone: false,
+  });
+  assert(r.cieloC === undefined && r.plateaC === undefined, 'REC-02a single-zone → cielo/platea undefined');
+  assert(typeof r.targetTempC === 'number' && r.targetTempC > 0, 'REC-02b targetTempC presente');
+  assert(r.validationStatus === 'hypothesis', 'REC-02c validationStatus = hypothesis');
+}
+
+// REC-03 clamp alla finestra di stile: forno oltre max → target = window.max
+{
+  const r = computeBakeRecommendation({
+    style: 'teglia', ovenTempC: 450, hydration: 80, stone: 'cordierite_refrattaria', dualZone: false,
+  });
+  assert(r.targetTempC === STYLE_BAKE_WINDOW_C.teglia.max,
+    'REC-03 targetTempC clampato a window.max stile', `got ${r.targetTempC}`);
+}
+
+// REC-04 idratazione alta abbassa la platea (a parità di stone)
+{
+  const base = { style: 'contemporanea', ovenTempC: 430, stone: 'acciaio', dualZone: true };
+  const hi = computeBakeRecommendation({ ...base, hydration: 80 });
+  const lo = computeBakeRecommendation({ ...base, hydration: 60 });
+  assert(hi.plateaC < lo.plateaC, 'REC-04 idratazione 80% → platea più bassa di 60%',
+    `hi=${hi.plateaC}, lo=${lo.plateaC}`);
+}
+
+// REC-05 nessuna mutazione dell'input (advisory puro)
+{
+  const input = { style: 'pala', ovenTempC: 320, hydration: 70, stone: 'acciaio', dualZone: true };
+  const snapshot = JSON.stringify(input);
+  computeBakeRecommendation(input);
+  assert(JSON.stringify(input) === snapshot, 'REC-05 input invariato (nessuna mutazione)');
 }
 
 console.log('\n── Riepilogo Bake Validator ──');
