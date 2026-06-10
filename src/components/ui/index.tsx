@@ -165,11 +165,12 @@ export function NumInput({
       <label style={S.label}>{label}{unit ? ` (${unit})` : ''}</label>
       <input
         type="number" value={raw}
+        aria-label={`${label}${unit ? ' (' + unit + ')' : ''}`}
         onChange={e => { setRaw(e.target.value); setDirty(true); }}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         min={min} max={max} step={step}
-        className="pm-input" style={S.input} {...rest}
+        className="pm-input" style={{ minHeight: 44, ...S.input }} {...rest}
       />
     </div>
   );
@@ -193,6 +194,8 @@ export function SliderInput({
       <input
         type="range" min={min} max={max} step={step}
         value={value} onChange={e => onChange(parseFloat(e.target.value))}
+        aria-label={`${label}${unit ? ' (' + unit + ')' : ''}`}
+        aria-valuetext={`${value}${unit ?? ''}`}
         style={{ width: '100%', accentColor: color ?? 'var(--accent-brand)' }}
       />
     </div>
@@ -211,11 +214,14 @@ export function SnapButtons<T extends string>({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {label && <span style={S.label}>{label}</span>}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+      <div role="radiogroup" aria-label={label} style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {options.map(opt => (
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
+            role="radio"
+            aria-checked={value === opt.value}
+            aria-label={`${label ? label + ': ' : ''}${opt.label}${opt.desc ? ' — ' + opt.desc : ''}`}
             className={`pm-snap-btn${value === opt.value ? ' pm-snap-active' : ''}`}
             style={{
               background: value === opt.value ? 'var(--accent-brand)' : 'var(--bg-elevated)',
@@ -223,6 +229,7 @@ export function SnapButtons<T extends string>({
               border: value === opt.value ? 'none' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: 'var(--radius-md)',
               padding: '10px 14px',
+              minHeight: 44,               // a11y: WCAG 2.5.5 target ≥44px (era ~32px)
               fontFamily: 'var(--font-mono)',
               fontSize: '0.75rem',
               fontWeight: value === opt.value ? 700 : 400,

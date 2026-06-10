@@ -391,7 +391,9 @@ export function DashboardV4() {
           </div>
           <input type="range" min={16} max={32} step={0.5} value={ambientTempC}
             onChange={e => setTempAmbient(Number(e.target.value))}
-            style={{ width: '100%', height: 4, borderRadius: 3, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
+            aria-label="Temperatura ambiente di servizio"
+            aria-valuetext={`${ambientTempC.toFixed(1)} gradi`}
+            style={{ width: '100%', height: 22, borderRadius: 11, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
         </DarkCard>
 
         {/* Prefermenti (condizionale) */}

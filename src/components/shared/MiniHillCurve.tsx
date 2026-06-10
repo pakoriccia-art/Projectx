@@ -120,8 +120,13 @@ export function MiniHillCurve({
     : '';
   const uid = `${Math.round(W0)}-${Math.round(tCrit)}`;
 
+  const currentW = Math.round(hillW(W0, tCrit, currentT));
+
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}>
+    <svg width={width} height={height} style={{ display: 'block' }}
+      role="img"
+      aria-label={`Curva struttura W: da ${Math.round(W0)} a ${currentW}, t su t_crit ${Math.round(tRatio * 100)}%`}>
+      <title>{`Decadimento W: ${Math.round(W0)} → ${currentW} (t/t_crit ${Math.round(tRatio * 100)}%)`}</title>
       <defs>
         <linearGradient id={`pm4w-${uid}`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#3ddc97" />
@@ -148,7 +153,7 @@ export function MiniHillCurve({
       {yLabels.map(({ w, label }) => (
         <g key={label}>
           <line x1={padL} x2={width - padR} y1={y(w)} y2={y(w)} stroke="#241a0e" strokeWidth={0.5} />
-          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={8} fill="#6a5836"
+          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={9} fill="#9a855a"
             fontFamily="'JetBrains Mono', monospace">{label}</text>
         </g>
       ))}
@@ -166,7 +171,7 @@ export function MiniHillCurve({
 
       {/* Label asse X — passo dinamico */}
       {xLabels.map(({ t, label, px }) => (
-        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={8} fill="#6a5836"
+        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={9} fill="#9a855a"
           fontFamily="'JetBrains Mono', monospace">{label}</text>
       ))}
 
@@ -175,14 +180,14 @@ export function MiniHillCurve({
         <>
           <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
             stroke="#ff7675" strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
-          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={8} fill="#ff7675"
+          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={9} fill="#ff7675"
             fontFamily="'JetBrains Mono', monospace">{Math.round(tCrit)}h</text>
         </>
       )}
 
       {/* t_crit fuori range: freccia → con valore a destra */}
       {!showTCritMarker && (
-        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={8} fill="#ff7675"
+        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={9} fill="#ff7675"
           fontFamily="'JetBrains Mono', monospace">→{Math.round(tCrit)}h</text>
       )}
 

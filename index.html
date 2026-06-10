@@ -51,7 +51,7 @@
 
         --text-primary:   #e8d5b0;
         --text-secondary: #a09070;
-        --text-muted:     #5a4a30;
+        --text-muted:     #9d8a5e;   /* a11y: 5.9:1 su bg (era #5a4a30, 2.3:1 — fail AA) */
         --text-disabled:  #3a2a10;
 
         /* Layout */
@@ -161,6 +161,19 @@
       :focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 3px; border-radius: 4px; }
       button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
 
+      /* ── Accessibility: prefers-reduced-motion ───────────────────────────────── */
+      /* Neutralizza pulse infiniti (pm4-crit/beat/pip, pm-glow-pulse) e reveal:
+         tutte le keyframes hanno stato finale = stato "visibile", quindi azzerare
+         la durata mostra direttamente il risultato senza movimento. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
       /* ── Range slider custom ─────────────────────────────────────────────────── */
       input[type="range"] {
         height: 4px;
@@ -245,8 +258,8 @@
         --pm4-line-strong: rgba(255,206,150,0.16);
         --pm4-flour: #e8d5b0;
         --pm4-tan:   #a99a76;
-        --pm4-umber: #6a5836;
-        --pm4-faint: #4a3c24;
+        --pm4-umber: #9a855a;   /* a11y: 5.6:1 (era #6a5836, 2.9:1 — fail AA) */
+        --pm4-faint: #837049;   /* a11y: 4.2:1 (era #4a3c24, 1.9:1 — fail AA) */
         --pm4-ember:    #ff8c32;
         --pm4-ember-lo: #ffd166;
         --pm4-ember-glow: rgba(255,140,50,0.5);

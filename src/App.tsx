@@ -128,12 +128,14 @@ function HomeView() {
             dispatch({ type: 'WIZARD_RESET' });
             dispatch({ type: 'NAV', view: 'wizard' });
           }}
+          className="pm-btn-primary"
           style={{
             background: 'var(--accent-brand)',
             color: '#0a0806',
             border: 'none',
             borderRadius: 'var(--radius-md)',
             padding: '16px 20px',
+            minHeight: 44,
             fontFamily: 'var(--font-mono)',
             fontWeight: 700,
             fontSize: '1rem',
@@ -146,12 +148,14 @@ function HomeView() {
 
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'history' })}
+          className="pm-btn-secondary"
           style={{
             background: 'transparent',
             color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.18)',
             borderRadius: 'var(--radius-md)',
             padding: '13px 20px',
+            minHeight: 44,
             fontFamily: 'var(--font-mono)',
             fontSize: '0.9rem',
             cursor: 'pointer',
@@ -163,12 +167,14 @@ function HomeView() {
 
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'planner' })}
+          className="pm-btn-secondary"
           style={{
             background: 'transparent',
             color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.18)',
             borderRadius: 'var(--radius-md)',
             padding: '13px 20px',
+            minHeight: 44,
             fontFamily: 'var(--font-mono)',
             fontSize: '0.9rem',
             cursor: 'pointer',
@@ -185,7 +191,7 @@ function HomeView() {
         position: 'absolute',
         bottom: 'max(20px, env(safe-area-inset-bottom))',
         fontFamily: 'var(--font-mono)',
-        fontSize: '0.65rem',
+        fontSize: '0.72rem',
         color: 'var(--text-muted)',
         letterSpacing: '0.08em',
       }}>

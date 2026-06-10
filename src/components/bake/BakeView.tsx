@@ -75,29 +75,32 @@ const LABEL_MONO: React.CSSProperties = {
   fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)', letterSpacing: '0.05em',
 };
 const VALUE_MONO: React.CSSProperties = {
-  fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: 'var(--pm4-wheat)',
+  fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: 'var(--pm4-flour)',
 };
-const TOGGLE: React.CSSProperties = {
-  width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-  position: 'relative', transition: 'background 0.2s',
-};
-
-// ─── Componente toggle semplice ───────────────────────────────────────────────
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+// ─── Toggle (switch a11y: role=switch, hit area ≥44px, track 48×28) ───────────
+function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <button
       onClick={() => onChange(!value)}
+      role="switch"
+      aria-checked={value}
+      aria-label={label}
       style={{
-        ...TOGGLE,
-        background: value ? 'var(--accent-brand)' : 'rgba(255,255,255,0.12)',
+        background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+        minHeight: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       }}
-      aria-pressed={value}
     >
       <span style={{
-        display: 'block', width: 16, height: 16, borderRadius: 8,
-        background: '#fff', position: 'absolute', top: 3,
-        left: value ? 21 : 3, transition: 'left 0.2s',
-      }} />
+        position: 'relative', display: 'block', width: 48, height: 28, borderRadius: 14,
+        transition: 'background 0.2s',
+        background: value ? 'var(--accent-brand)' : 'rgba(255,255,255,0.16)',
+      }}>
+        <span style={{
+          display: 'block', width: 22, height: 22, borderRadius: 11,
+          background: '#fff', position: 'absolute', top: 3,
+          left: value ? 23 : 3, transition: 'left 0.2s',
+        }} />
+      </span>
     </button>
   );
 }
@@ -300,7 +303,7 @@ export function BakeView() {
             {!isConchiglia && (
               <div style={ROW}>
                 <span style={LABEL_MONO}>DOPPIA ZONA (CIELO/PLATEA)</span>
-                <Toggle value={profile.dualZone} onChange={v => patch({ dualZone: v })} />
+                <Toggle value={profile.dualZone} onChange={v => patch({ dualZone: v })} label="Doppia zona cielo/platea" />
               </div>
             )}
 
@@ -314,7 +317,9 @@ export function BakeView() {
                   type="range" min={1} max={5} step={1}
                   value={knobLevel}
                   onChange={e => patch({ knobLevel: Number(e.target.value) })}
-                  style={{ width: '100%', accentColor: 'var(--accent-brand)' }}
+                  aria-label="Livello manopola fornetto"
+                  aria-valuetext={`livello ${knobLevel}, ${KNOB_TEMP_MAP_SCALE5[knobLevel as keyof typeof KNOB_TEMP_MAP_SCALE5]} gradi`}
+                  style={{ width: '100%', height: 22, borderRadius: 11, accentColor: 'var(--accent-brand)' }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', ...LABEL_MONO, fontSize: 10, marginTop: 4 }}>
                   {[1, 2, 3, 4, 5].map(n => (
@@ -327,7 +332,7 @@ export function BakeView() {
             {/* Pirometro */}
             <div style={ROW}>
               <span style={LABEL_MONO}>PIROMETRO (MODDED)</span>
-              <Toggle value={!!profile.is_modded} onChange={v => patch({ is_modded: v, measuredTmaxC: v ? (profile.measuredTmaxC ?? 300) : undefined })} />
+              <Toggle value={!!profile.is_modded} onChange={v => patch({ is_modded: v, measuredTmaxC: v ? (profile.measuredTmaxC ?? 300) : undefined })} label="Pirometro / forno modificato" />
             </div>
             {profile.is_modded && (
               <div>
@@ -336,10 +341,11 @@ export function BakeView() {
                   type="number" min={100} max={600}
                   value={profile.measuredTmaxC ?? 300}
                   onChange={e => patch({ measuredTmaxC: Number(e.target.value) })}
+                  aria-label="Temperatura misurata al pirometro (gradi C)"
                   style={{
-                    width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.06)',
+                    width: '100%', minHeight: 44, padding: '9px 12px', background: 'rgba(255,255,255,0.06)',
                     border: '1px solid var(--pm4-line-strong)', borderRadius: 8,
-                    color: 'var(--pm4-wheat)', fontFamily: 'var(--font-mono)', fontSize: 14,
+                    color: 'var(--pm4-flour)', fontFamily: 'var(--font-mono)', fontSize: 14,
                     outline: 'none', boxSizing: 'border-box',
                   }}
                 />
@@ -392,7 +398,7 @@ export function BakeView() {
                 ].map(row => (
                   <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--pm4-line)' }}>
                     <span style={{ ...LABEL_MONO }}>{row.label}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-wheat)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-flour)' }}>
                       {row.tC}°C <span style={{ opacity: 0.5, fontSize: 10 }}>— {row.note}</span>
                     </span>
                   </div>

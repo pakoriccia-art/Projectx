@@ -546,7 +546,7 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
           <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
             background: 'var(--accent-brand)', color: '#0a0806',
             border: 'none', borderRadius: 'var(--radius-sm)',
-            padding: '7px 14px', fontFamily: 'var(--font-mono)',
+            padding: '7px 14px', minHeight: 44, fontFamily: 'var(--font-mono)',
             fontWeight: 700, fontSize: '0.78rem',
             cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
             opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
@@ -821,7 +821,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
       )}
       <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
         background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
-        borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
+        borderRadius: 'var(--radius-sm)', padding: '8px 16px', minHeight: 44, fontFamily: 'var(--font-mono)',
         fontWeight: 700, fontSize: '0.8rem',
         cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
         opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
@@ -1067,7 +1067,7 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
       )}
       <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
         background: 'var(--accent-brand)', color: '#0a0806', border: 'none',
-        borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontFamily: 'var(--font-mono)',
+        borderRadius: 'var(--radius-sm)', padding: '8px 16px', minHeight: 44, fontFamily: 'var(--font-mono)',
         fontWeight: 700, fontSize: '0.8rem',
         cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
         opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
@@ -1504,6 +1504,7 @@ export function FermentationPlannerView() {
             <span style={{ ...S.label }}>Farina</span>
             <select
               value={selectedFlourId}
+              aria-label="Farina"
               onChange={e => {
                 const id = e.target.value;
                 setSelectedFlourId(id);
@@ -1521,6 +1522,7 @@ export function FermentationPlannerView() {
                 border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: 'var(--radius-sm)',
                 padding: '7px 10px',
+                minHeight: 44,
                 fontFamily: 'var(--font-mono)',
                 fontSize: '0.78rem',
                 cursor: 'pointer',
