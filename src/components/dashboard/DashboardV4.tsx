@@ -394,6 +394,10 @@ export function DashboardV4() {
               className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
               ⚙ Aggiusta Rotta
             </button>
+            <button onClick={() => dispatch({ type: 'NAV', view: 'forno' })}
+              className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+              Forno
+            </button>
             <button onClick={() => setConfirmEnd(true)}
               className="pm4-btn pm4-btn-warm" style={BTN_DANGER}>
               ■ Termina sessione

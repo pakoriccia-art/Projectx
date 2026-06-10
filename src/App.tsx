@@ -10,6 +10,7 @@ import { DashboardV4 }         from './components/dashboard/DashboardV4';
 import { HistoryView }         from './components/history/HistoryView';
 import { RottaView }           from './components/rotta/RottaView';
 import { FermentationPlannerView } from './components/tools/FermentationPlannerView';
+import { BakeView }               from './components/bake/BakeView';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
 
@@ -204,6 +205,7 @@ function AppRouter() {
     case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
     case 'tools':   return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
     case 'planner': return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
+    case 'forno':   return <ErrorBoundary><BakeView /></ErrorBoundary>;
     default:        return <HomeView />;
   }
 }
