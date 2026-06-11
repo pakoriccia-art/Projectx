@@ -63,6 +63,7 @@ export function buildPiecewiseData(
   liveEnzAdu?: number,
   timeline?: PhaseSegment[],
   targetBakeH?: number,
+  startDoughTempC?: number,
 ): { points: ChartPoint[]; transitions: Transition[] } {
   const fridgeT = session.fridgeTempC ?? 4;
   const proto   = session.apprettoProtocol ?? 'ta';
@@ -100,7 +101,9 @@ export function buildPiecewiseData(
         durationH: seg.endElapsedH != null
           ? Math.max(0.01, seg.endElapsedH - seg.startElapsedH)
           : Math.max(0.01, session.apprettoH ?? 4),
-        tempC:  seg.ambientTempC,
+        tempC:  (seg.phaseType === 'bulk_fridge' || seg.phaseType === 'balled_fridge')
+            ? seg.ambientTempC
+            : tAmbient,
         label:  PHASE_LABELS[seg.phaseType]?.label ?? seg.phaseType,
         color:  PHASE_LABELS[seg.phaseType]?.color ?? 'var(--text-muted)',
         phase:  seg.phaseType,
@@ -160,7 +163,7 @@ export function buildPiecewiseData(
 
   const RAMP_N = 3;
   const expandedSegs: Seg[] = [];
-  let T_entry = warmAmbient;
+  let T_entry = startDoughTempC != null ? startDoughTempC : warmAmbient;
 
   for (const seg of baseSegs) {
     const tempDiff    = Math.abs(seg.tempC - T_entry);
@@ -389,6 +392,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
         session, tAmb, ts?.phase, elapsedH,
         ts?.cumulativeAdu, ts?.enzymaticAdu,
         session.thermalTimeline, effectiveTargetBakeH ?? undefined,
+        ts?.tempDough ?? tAmb,
       );
       return {
         projectedPoints: raw.points.filter(p => p.h > elapsedH),
