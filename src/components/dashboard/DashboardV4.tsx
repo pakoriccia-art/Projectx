@@ -1,7 +1,8 @@
 /**
  * PizzaMatrix — Dashboard v4 (VIEW B — Monitor Fermentazione)
  * Layout mobile-first, dark theme, semaforo adattivo per stile.
- * Coesiste con DashboardView (v2.4) — riusa GompertzChart + QualityProfileCard.
+ * Coesiste con DashboardView (v2.4) — GompertzChart sostituito con GompertzChartV4
+ * (v2.4.18 BUG 1: now-split realized/projected, slider-safe).
  *
  * Adattata alle API reali del progetto:
  *  - dati live da state.tickState (two-clock) anziché da un hook che ritorna metriche
@@ -18,7 +19,8 @@ import {
 import type { DashboardWResult, AlertLevelResult } from '../../engine';
 import { simulateTimeline } from '../../engine/serviceWindowSolver';
 import { makeLeavAduRateAt, computeCollapseETA, type CollapseETAResult } from '../../engine/collapse';
-import { GompertzChart, QualityProfileCard } from './DashboardView';
+import { QualityProfileCard } from './DashboardView';
+import { GompertzChartV4 } from './GompertzChartV4';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
 import { FermentationTimeline } from './FermentationTimeline';
 import { SemaforoCard, SEMAFORO_COLORS, CollapseModal, type SemaforoState } from './SemaforoCard';
@@ -479,7 +481,7 @@ export function DashboardV4() {
             {/* ── ZONA 4 — GRAFICO + TIMELINE ── */}
             <DarkCard style={{ padding: '13px 12px 4px' }}>
               <ChannelLabel idx="04" name="Curve & cronologia" />
-              <GompertzChart
+              <GompertzChartV4
                 key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
                 session={session} ts={ts}
               />
