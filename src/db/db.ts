@@ -156,6 +156,11 @@ export interface Session {
   // Service-Window planner v2.4.2: soglia anti-bolle calibrabile (% lievitazione)
   bubbleThresholdPct?: number;       // default 92 (SERVICE_WINDOW_DEFAULTS)
 
+  // v2.4.19 PARTE A: conferma esplicita di una fase fuori dal protocollo_preferito
+  // dello stile (es. fase frigo in stile ta_only). Default falsy = NON confermato →
+  // la timeline effettiva resta all-TA. NON indicizzato: nessun bump versione Dexie.
+  outOfProtocolPhaseConfirmed?: boolean;
+
   // v2.4.18 — modulo cottura (validatore advisory, opzionale e NON indicizzato:
   // nessun bump di versione Dexie richiesto; le sessioni esistenti restano valide).
   ovenProfile?: OvenProfile;

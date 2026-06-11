@@ -19,12 +19,21 @@ import {
 import type { DashboardWResult, AlertLevelResult } from '../../engine';
 import { simulateTimeline } from '../../engine/serviceWindowSolver';
 import { makeLeavAduRateAt, computeCollapseETA, type CollapseETAResult } from '../../engine/collapse';
+import {
+  detectOutOfProtocolPhase, buildEffectiveTimeline, effectiveTimelineDurationH,
+} from '../../engine/outOfProtocol';
 import { QualityProfileCard } from './DashboardView';
 import { GompertzChartV4 } from './GompertzChartV4';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
 import { FermentationTimeline } from './FermentationTimeline';
 import { SemaforoCard, SEMAFORO_COLORS, CollapseModal, type SemaforoState } from './SemaforoCard';
+import { OutOfProtocolModal } from './OutOfProtocolModal';
 import { LiveHeader } from './LiveHeader';
+
+const STYLE_LABELS: Record<string, string> = {
+  napoletana: 'Napoletana', contemporanea: 'Contemporanea',
+  teglia: 'Teglia', pala: 'Pala', nystyle: 'NY Style',
+};
 
 // ─── Stato semaforo da alertLevel / tRatio ────────────────────────────────────
 function matSemaforoFromLevel(level: string, matPct: number, threshold: number): SemaforoState {
@@ -160,6 +169,9 @@ export function DashboardV4() {
     try { return (localStorage.getItem('pm-dashMode') ?? 'analisi') as 'monitor' | 'analisi'; }
     catch { return 'analisi'; }
   });
+  // v2.4.19 PARTE A: l'utente ha già risposto all'advisory fuori-protocollo in questa
+  // sessione? (per-sessione, sessionStorage) — evita che il modal riappaia ad ogni remount.
+  const [oopAcknowledged, setOopAcknowledged] = useState(false);
 
   const session = state.activeSession;
   const ts = state.tickState;
@@ -169,10 +181,18 @@ export function DashboardV4() {
   useEffect(() => {
     if (!session) return;
     setCollapseAcknowledged(sessionStorage.getItem(`pm-collapseAck:${session.id}`) === '1');
+    setOopAcknowledged(sessionStorage.getItem(`pm-oopAck:${session.id}`) === '1');
   }, [session?.id]);
   const ackCollapse = () => {
     setCollapseAcknowledged(true);
     if (session) sessionStorage.setItem(`pm-collapseAck:${session.id}`, '1');
+  };
+  // v2.4.19 PARTE A: risposta all'advisory fuori-protocollo. Entrambe le scelte
+  // marcano l'ack di sessione; la scelta persiste su session.outOfProtocolPhaseConfirmed.
+  const confirmOutOfProtocol = (confirmed: boolean) => {
+    setOopAcknowledged(true);
+    if (session) sessionStorage.setItem(`pm-oopAck:${session.id}`, '1');
+    dispatch({ type: 'SESSION_UPDATE', patch: { outOfProtocolPhaseConfirmed: confirmed } });
   };
 
   // Dati derivati (memoizzati su tick) — hook chiamato sempre, anche senza sessione
@@ -296,6 +316,23 @@ export function DashboardV4() {
 
   const showCollapseModal = alertRes.level === 'STRUCTURAL_COLLAPSED' && !collapseAcknowledged;
 
+  // ── v2.4.19 PARTE A — gate fuori-protocollo (single source of truth) ──────────
+  // Le 3 viste (header, timeline orizzontale, curve) consumano la timeline EFFETTIVA.
+  // Non confermato (default) + fase frigo in stile ta_only → all-TA, grafico accorciato.
+  // Memoizzato su [session, oopConfirmed]: session è stabile tra i tick (TICK aggiorna
+  // solo tickState), così il chart non ricalcola buildPiecewiseData ad ogni secondo.
+  const oopConfirmed     = !!session.outOfProtocolPhaseConfirmed;
+  const outOfProtocolSeg = detectOutOfProtocolPhase(session.style, session.thermalTimeline);
+  const { effectiveTimeline, effectiveSession } = useMemo(() => {
+    const tl = buildEffectiveTimeline(session, oopConfirmed);
+    return { effectiveTimeline: tl, effectiveSession: { ...session, thermalTimeline: tl } };
+  }, [session, oopConfirmed]);
+  // A3: orizzonte accorciato quando riconciliato all-TA (fuori-protocollo non confermato).
+  const isReconciledAllTA = !!outOfProtocolSeg && !oopConfirmed;
+  const horizonH = isReconciledAllTA ? effectiveTimelineDurationH(effectiveTimeline) : null;
+  // Advisory mostrato finché l'utente non sceglie (default = non confermato → all-TA).
+  const showOutOfProtocolModal = !!outOfProtocolSeg && !oopConfirmed && !oopAcknowledged;
+
   return (
     <div className="pm4-root" style={{ minHeight: '100dvh', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
 
@@ -316,6 +353,17 @@ export function DashboardV4() {
           message={alertRes.message}
           onEnd={() => dispatch({ type: 'SESSION_END' })}
           onContinue={ackCollapse}
+        />
+      )}
+
+      {/* ── MODAL FUORI-PROTOCOLLO (advisory + conferma — v2.4.19 A2) ── */}
+      {showOutOfProtocolModal && (
+        <OutOfProtocolModal
+          styleLabel={STYLE_LABELS[session.style] ?? session.style}
+          ambientTempC={ambientTempC}
+          protocolLabel={String(styleProfile.protocollo_preferito ?? 'ta_only')}
+          onConfirm={() => confirmOutOfProtocol(true)}
+          onStayTA={() => confirmOutOfProtocol(false)}
         />
       )}
 
@@ -394,7 +442,7 @@ export function DashboardV4() {
         {dashMode === 'monitor' ? (
           /* Monitor: solo la timeline — no charts, no telemetria */
           <DarkCard style={{ padding: '13px 12px 8px' }}>
-            <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
+            <FermentationTimeline session={effectiveSession} currentSemaforoState={currentSemaforoState}
               onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
           </DarkCard>
         ) : (
@@ -478,14 +526,14 @@ export function DashboardV4() {
               </DarkCard>
             )}
 
-            {/* ── ZONA 4 — GRAFICO + TIMELINE ── */}
+            {/* ── ZONA 4 — GRAFICO + TIMELINE (tutte e 3 le viste da effectiveTimeline) ── */}
             <DarkCard style={{ padding: '13px 12px 4px' }}>
               <ChannelLabel idx="04" name="Curve & cronologia" />
               <GompertzChartV4
-                key={`chart-${session.id}-${session.thermalTimeline?.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}`}
-                session={session} ts={ts}
+                key={`chart-${session.id}-${effectiveTimeline.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}-${oopConfirmed ? 'tc' : 'ta'}`}
+                session={effectiveSession} ts={ts} horizonH={horizonH}
               />
-              <FermentationTimeline session={session} currentSemaforoState={currentSemaforoState}
+              <FermentationTimeline session={effectiveSession} currentSemaforoState={currentSemaforoState}
                 onPhaseTransition={(p) => setPhase(p, { enforceForward: true })} />
             </DarkCard>
 

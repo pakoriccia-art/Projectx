@@ -111,11 +111,20 @@ const ENZYMATIC_CLOCK_PARAMS = {
 /** Hill W decay — §2.4 */
 const HILL_W_DECAY = {
   hillExponent: 5,
+  // tCritRefAnchors — frame 25°C/pH5.2/H65%.
+  // v2.4.19 (#96): ricalibrati (più stringenti) da proposta esterna a 20°C/pH5.2
+  // [[150,14],[220,26],[300,48],[400,85]], convertiti al frame 25°C via il
+  // fattore g(20°C) = 1/fArrhenius(20°C) ≈ 1.38181 REALE di computeTCrit
+  // (tCritRef25 = tCritProposto20 / g(20°C)). Grid W esteso a {150,220,300,400}.
+  // [IPOTESI NON VALIDATA] fonte non peer-reviewed [UNCERTAIN]; manca misura
+  // alveografica (serie t0/t12/t24 a 25°C/65%). Razionale: modello precedente
+  // ([[180,25],[240,40],[315,60],[400,90]]) troppo tollerante (~2% decay
+  // @24h/25°C/pH5.5 per W280 vs letteratura 30-50%). Esponente Hill n=5 invariato.
   tCritRefAnchors: [
-    [180, 25],
-    [240, 40],
-    [315, 60],
-    [400, 90],
+    [150, 10.131634],
+    [220, 18.815891],
+    [300, 34.737030],
+    [400, 61.513491],
   ],
   EaProteasiKj:    47,
   pHOptProteasi:   5.2,
@@ -417,9 +426,9 @@ function fHydration(H) {
 }
 
 /**
- * t_crit_ref(W) via interpolazione lineare sugli anchor — §2.4 (v2.3.1)
- * Anchor: [[180,25],[240,40],[315,60],[400,90]] → [W, t_crit_h]
- * Clamp: W ≤ 180 → 25h ; W ≥ 400 → 90h
+ * t_crit_ref(W) via interpolazione lineare sugli anchor — §2.4 (v2.4.19)
+ * Anchor (frame 25°C): [[150,10.13],[220,18.82],[300,34.74],[400,61.51]] → [W, t_crit_h]
+ * Clamp: W ≤ 150 → 10.13h ; W ≥ 400 → 61.51h
  */
 function computeTCritRef(W) {
   const anchors = HILL_W_DECAY.tCritRefAnchors;

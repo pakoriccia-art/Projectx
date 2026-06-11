@@ -110,11 +110,12 @@ assert(approx(e.fPH(4.5), 0.506, 0.01), 'fPH(4.5) ≈ 0.506');
 assert(approx(e.fHydration(65), 1.0, 0.001), 'fHydration(65%) = 1.0');
 assert(approx(e.fHydration(70), 1.028, 0.003), 'fHydration(70%) ≈ 1.028');
 
-// computeTCritRef — interpolazione anchor
-assert(approx(e.computeTCritRef(180), 25, 0.01), 'tCritRef(W=180) = 25h (clamp basso)');
-assert(approx(e.computeTCritRef(400), 90, 0.01), 'tCritRef(W=400) = 90h (clamp alto)');
-// W=210: interpola tra [180,25] e [240,40] → 25 + (210-180)/(240-180) × 15 = 25 + 7.5 = 32.5
-assert(approx(e.computeTCritRef(210), 32.5, 0.1), 'tCritRef(W=210) ≈ 32.5h (interpolato)');
+// computeTCritRef — interpolazione anchor (v2.4.19: anchor ricalibrati frame 25°C)
+// W=180: interpola tra [150,10.13] e [220,18.82] → 10.13 + (180-150)/(220-150) × 8.68 ≈ 13.85
+assert(approx(e.computeTCritRef(180), 13.85, 0.05), 'tCritRef(W=180) ≈ 13.85h');
+assert(approx(e.computeTCritRef(400), 61.51, 0.05), 'tCritRef(W=400) = 61.51h (clamp alto)');
+// W=210: interpola tra [150,10.13] e [220,18.82] → 10.13 + (210-150)/(220-150) × 8.68 ≈ 17.58
+assert(approx(e.computeTCritRef(210), 17.58, 0.05), 'tCritRef(W=210) ≈ 17.58h (interpolato)');
 
 // computeWHill: tabella §2.4
 // t/t_crit=1.0 → W/W0=0.50
@@ -450,6 +451,43 @@ assert(ssPartial.hoursUntilPeak < 48 && ssPartial.hoursUntilPeak > 0,
 const ssYeastCold = e.sweetSpot({ ...ssSession, agentMuMax: 12, agentLambda: 1.2, agentAsymptote: 100 }, 0, 4);
 assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak * 5,
   `orologio lievito @4°C ≫ maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
+
+// ─────────────────────────────────────────────────────────────
+// v2.4.19 PARTE B — ricalibrazione anchor W-decay (frame 25°C)
+// ─────────────────────────────────────────────────────────────
+console.log('\n§ v2.4.19 — W-decay anchor recalibration (#96)');
+
+// B-T1 (correttezza conversione): valutare computeTCrit(W, 20°C, 5.2, 65) deve
+// riprodurre i valori PROPOSTI a 20°C (entro ε): W150→14, W220→26, W300→48, W400→85.
+// Conferma che la conversione al frame 25°C via g(20°C) reale è esatta.
+assert(approx(e.computeTCrit(150, 20, 5.2, 65), 14, 0.1), 'B-T1: tCrit(150,20°C,5.2,65) ≈ 14h (proposto)');
+assert(approx(e.computeTCrit(220, 20, 5.2, 65), 26, 0.1), 'B-T1: tCrit(220,20°C,5.2,65) ≈ 26h (proposto)');
+assert(approx(e.computeTCrit(300, 20, 5.2, 65), 48, 0.1), 'B-T1: tCrit(300,20°C,5.2,65) ≈ 48h (proposto)');
+assert(approx(e.computeTCrit(400, 20, 5.2, 65), 85, 0.2), 'B-T1: tCrit(400,20°C,5.2,65) ≈ 85h (proposto)');
+
+// B-T2 (monotonia): t_crit decresce con T (più caldo = più rapido) e cresce con W.
+{
+  const tcCold = e.computeTCrit(280, 16, 5.2, 65);
+  const tcWarm = e.computeTCrit(280, 30, 5.2, 65);
+  assert(tcCold > tcWarm, `B-T2: t_crit decresce con T (16°C ${tcCold.toFixed(1)}h > 30°C ${tcWarm.toFixed(1)}h)`);
+  const tcLowW  = e.computeTCrit(200, 22, 5.2, 65);
+  const tcHighW = e.computeTCrit(350, 22, 5.2, 65);
+  assert(tcHighW > tcLowW, `B-T2: t_crit cresce con W (W200 ${tcLowW.toFixed(1)}h < W350 ${tcHighW.toFixed(1)}h)`);
+}
+
+// B-T3 (regressione mirata): computeTCrit(274, 32°C, 5.64) deve essere MOLTO più
+// corto del valore pre-fix (~41.6h con i vecchi anchor a H65) e cadere ~25-35h.
+{
+  const tc = e.computeTCrit(274, 32, 5.64, 65);
+  assert(tc > 20 && tc < 35, `B-T3: t_crit(274,32°C,5.64) ∈ [20,35]h — val=${tc.toFixed(1)}h (era ~41.6h pre-fix)`);
+}
+
+// B-T4 (n invariato): computeWHill mantiene esponente 5 → a t=t_crit, W/W0 = 0.5.
+{
+  const W0b = 280, tCritB = 30;
+  assert(approx(e.computeWHill(W0b, tCritB, tCritB) / W0b, 0.5, 0.001),
+    'B-T4: Hill n=5 invariato — W(t_crit)/W0 = 0.50');
+}
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n── Riepilogo ────────────────────────────────────');

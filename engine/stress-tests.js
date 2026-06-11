@@ -142,23 +142,24 @@ assert(e.gompertz(0, 12.0, 1.2, 100) < 5,
 console.log('\n§ ST-HILL — Decay Strutturale W');
 // ─────────────────────────────────────────────────────────────
 
-// ST-HILL-01 — computeTCritRef: interpolazione + clamp
-assert(approx(e.computeTCritRef(180), 25.0, 0.1),
-  'ST-HILL-01a tCritRef(W=180) = 25h (clamp inferiore)');
-assert(approx(e.computeTCritRef(210), 32.5, 0.5),
-  `ST-HILL-01b tCritRef(W=210) ≈ 32.5h — val=${e.computeTCritRef(210).toFixed(2)}`);
-assert(approx(e.computeTCritRef(240), 40.0, 0.1),
-  'ST-HILL-01c tCritRef(W=240) = 40h (anchor)');
-assert(approx(e.computeTCritRef(277.5), 50.0, 0.5),
-  `ST-HILL-01d tCritRef(W=277.5) ≈ 50h — val=${e.computeTCritRef(277.5).toFixed(2)}`);
-assert(approx(e.computeTCritRef(315), 60.0, 0.1),
-  'ST-HILL-01e tCritRef(W=315) = 60h (anchor)');
-assert(approx(e.computeTCritRef(357.5), 75.0, 0.5),
-  `ST-HILL-01f tCritRef(W=357.5) ≈ 75h — val=${e.computeTCritRef(357.5).toFixed(2)}`);
-assert(approx(e.computeTCritRef(400), 90.0, 0.1),
-  'ST-HILL-01g tCritRef(W=400) = 90h (anchor)');
-assert(approx(e.computeTCritRef(450), 90.0, 0.1),
-  'ST-HILL-01h tCritRef(W=450) = 90h (clamp superiore)');
+// ST-HILL-01 — computeTCritRef: interpolazione + clamp (v2.4.19: anchor frame 25°C)
+// Anchor ricalibrati: [[150,10.13],[220,18.82],[300,34.74],[400,61.51]]
+assert(approx(e.computeTCritRef(180), 13.85, 0.1),
+  `ST-HILL-01a tCritRef(W=180) ≈ 13.85h — val=${e.computeTCritRef(180).toFixed(2)}`);
+assert(approx(e.computeTCritRef(210), 17.58, 0.5),
+  `ST-HILL-01b tCritRef(W=210) ≈ 17.58h — val=${e.computeTCritRef(210).toFixed(2)}`);
+assert(approx(e.computeTCritRef(240), 22.80, 0.1),
+  `ST-HILL-01c tCritRef(W=240) ≈ 22.80h — val=${e.computeTCritRef(240).toFixed(2)}`);
+assert(approx(e.computeTCritRef(277.5), 30.26, 0.5),
+  `ST-HILL-01d tCritRef(W=277.5) ≈ 30.26h — val=${e.computeTCritRef(277.5).toFixed(2)}`);
+assert(approx(e.computeTCritRef(315), 38.75, 0.1),
+  `ST-HILL-01e tCritRef(W=315) ≈ 38.75h — val=${e.computeTCritRef(315).toFixed(2)}`);
+assert(approx(e.computeTCritRef(357.5), 50.13, 0.5),
+  `ST-HILL-01f tCritRef(W=357.5) ≈ 50.13h — val=${e.computeTCritRef(357.5).toFixed(2)}`);
+assert(approx(e.computeTCritRef(400), 61.51, 0.1),
+  'ST-HILL-01g tCritRef(W=400) = 61.51h (anchor)');
+assert(approx(e.computeTCritRef(450), 61.51, 0.1),
+  'ST-HILL-01h tCritRef(W=450) = 61.51h (clamp superiore)');
 
 // ST-HILL-02 — fArrhenius, fPH, fHydration
 assert(approx(e.fArrhenius(25), 1.0, 0.001),
@@ -181,14 +182,14 @@ assert(approx(e.fHydration(80), 1.083, 0.005), `ST-HILL-02k fHydration(80%) ≈ 
 
 // ST-HILL-03 — computeTCrit composito (coerenza interna)
 {
-  // t_crit_ref(300) = 56h (interpolazione anchor 240–315)
+  // v2.4.19: t_crit_ref(300) = 34.74h (anchor diretto, frame 25°C)
   // fArr(22)≈0.825, fPH(5.5)≈0.882, fHyd(65)=1.0
   const tRef300 = e.computeTCritRef(300);
-  assert(approx(tRef300, 56, 1),
-    `ST-HILL-03a tCritRef(W=300) = 56h — val=${tRef300.toFixed(2)}`);
+  assert(approx(tRef300, 34.74, 0.1),
+    `ST-HILL-03a tCritRef(W=300) = 34.74h — val=${tRef300.toFixed(2)}`);
   const tc = e.computeTCrit(300, 22, 5.5, 65);
-  assert(between(tc, 68, 86),
-    `ST-HILL-03b computeTCrit(300,22,5.5,65) ≈ 77h (±10h) — val=${tc.toFixed(1)}`);
+  assert(between(tc, 42, 54),
+    `ST-HILL-03b computeTCrit(300,22,5.5,65) ≈ 47.7h (±6h) — val=${tc.toFixed(1)}`);
   // Coerenza: computeTCrit = tCritRef / (fArr × fPH × fHyd)
   const expected = tRef300 / (e.fArrhenius(22) * e.fPH(5.5) * e.fHydration(65));
   assert(approx(tc, expected, 0.1),
@@ -231,12 +232,13 @@ assert(approx(e.fHydration(80), 1.083, 0.005), `ST-HILL-02k fHydration(80%) ≈ 
 
 // ST-HILL-06 — Autolisi: W quasi-invariato a pH=6.0, t=24h
 {
-  // t_crit(W=280, T=22, pH=6.0, H=70%) deve essere molto lungo
+  // v2.4.19: t_crit(W=280, T=22, pH=6.0, H=70%) resta lungo (pH=6 rallenta molto).
+  // Con anchor ricalibrati (più stringenti) ≈ 88h (era >100h): comunque autolisi quasi-statica.
   const tCritAut = e.computeTCrit(280, 22, 6.0, 70);
-  assert(tCritAut > 100,
-    `ST-HILL-06a tCrit autolisi > 100h (pH=6 rallenta molto) — val=${tCritAut.toFixed(1)}h`);
+  assert(tCritAut > 80,
+    `ST-HILL-06a tCrit autolisi > 80h (pH=6 rallenta molto) — val=${tCritAut.toFixed(1)}h`);
   const W_24h = e.computeWHill(280, tCritAut, 24);
-  assert(W_24h > 279.9,
+  assert(W_24h > 279,
     `ST-HILL-06b W(24h, autolisi) ≈ 280 invariato — val=${W_24h.toFixed(3)}`);
   assert(e.structuralState(280, W_24h) === 'OK',
     'ST-HILL-06c structuralState autolisi 24h = OK');

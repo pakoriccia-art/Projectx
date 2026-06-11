@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import type { PhaseSegment, ProcessLogEntry } from '../../db/db';
 import { getSessionLog } from '../../services/processLog';
+import { buildHeaderTempString } from '../../engine/outOfProtocol';
 import { Card, S } from '../ui';
 import { downsampleLTTB } from '../../lib/lttb';
 import {
@@ -311,7 +312,13 @@ export function buildRealizedSeries(
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
+// `session.thermalTimeline` è la timeline EFFETTIVA (riconciliata fuori-protocollo):
+// il chiamante (DashboardV4) passa già la versione che le 3 viste devono mostrare.
+// `horizonH` (v2.4.19 A3): quando valorizzato, accorcia l'orizzonte del grafico al
+// piano reale (Σ durate all-TA) invece di estenderlo — overshoot mostrato onestamente.
+export function GompertzChartV4({ session, ts, horizonH = null }: {
+  session: any; ts: any; horizonH?: number | null;
+}) {
   const [log, setLog] = useState<ProcessLogEntry[]>([]);
 
   // Fetch ProcessLog on mount; refresh every 15 min so new entries appear.
@@ -338,7 +345,6 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
   }, [session?.thermalTimeline, session?.apprettoProtocol]);
 
   const proto    = session.apprettoProtocol ?? 'ta';
-  const fridgeT  = session.fridgeTempC ?? 4;
   const tAmb     = ts?.tempAmbient ?? 22;
   const elapsedH = ts?.elapsedH ?? 0;
 
@@ -372,13 +378,17 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
     [log, startedAt, elapsedH, ts?.leaveningPct, ts?.enzymaticMatPct, ts?.tempDough],
   );
 
+  // A3: orizzonte effettivo del bake — quando horizonH è dato (caso all-TA accorciato),
+  // il target è il piano reale (Σ durate), non un eventuale targetBakeAt lontano.
+  const effectiveTargetBakeH = horizonH != null ? horizonH : targetBakeH;
+
   // ── Projected series (elapsedH, maxH] — slider-reactive ─────────────────
   const { projectedPoints, transitions } = useMemo(() => {
     try {
       const raw = buildPiecewiseData(
         session, tAmb, ts?.phase, elapsedH,
         ts?.cumulativeAdu, ts?.enzymaticAdu,
-        session.thermalTimeline, targetBakeH ?? undefined,
+        session.thermalTimeline, effectiveTargetBakeH ?? undefined,
       );
       return {
         projectedPoints: raw.points.filter(p => p.h > elapsedH),
@@ -387,7 +397,7 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
     } catch {
       return { projectedPoints: [], transitions: [] };
     }
-  }, [session, tAmb, elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu, ts?.phase, targetBakeH]);
+  }, [session, tAmb, elapsedH, ts?.cumulativeAdu, ts?.enzymaticAdu, ts?.phase, effectiveTargetBakeH]);
 
   // ── Merged chart data ─────────────────────────────────────────────────────
   const points = useMemo(() => {
@@ -402,6 +412,8 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
   }, [realizedPoints, projectedPoints]);
 
   // ── Chart dimensions ──────────────────────────────────────────────────────
+  // A3: con horizonH (caso all-TA accorciato) l'asse termina a Σ(durate) senza
+  // l'estensione 1.5× né l'allungamento al targetBakeAt — l'overshoot resta visibile.
   const totalH = proto === 'ta'
     ? (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : proto === 'tc'
@@ -409,21 +421,23 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
     : proto === 'tc_puntata'
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12) + (session.apprettoH ?? 0);
-  const maxH     = Math.max(totalH * 1.5, 24, targetBakeH != null ? Math.ceil(targetBakeH * 1.1) : 0);
+  const maxH     = horizonH != null
+    ? Math.max(horizonH, 1)
+    : Math.max(totalH * 1.5, 24, targetBakeH != null ? Math.ceil(targetBakeH * 1.1) : 0);
   const chartW   = Math.max(300, Math.round(maxH * PX_PER_HOUR));
   const xTickStep = maxH <= 12 ? 2 : maxH <= 24 ? 4 : 6;
   const xTicks   = Array.from({ length: Math.floor(maxH / xTickStep) + 1 }, (_, i) => i * xTickStep);
 
-  const protoLabel: Record<string, string> = {
-    ta: 'TA', tc: 'TC', tc_puntata: 'TC Puntata', tc_appreto: 'TC Appreto',
-  };
+  // A1: stringa header generata ESCLUSIVAMENTE dalla timeline effettiva
+  // (niente "TC" fantasma se non c'è un segmento frigo reale).
+  const headerStr = buildHeaderTempString(session.thermalTimeline ?? [], tAmb);
 
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={S.label}>Lievitazione · Maturazione</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)' }}>
-          {tAmb.toFixed(1)}°C TA · {fridgeT}°C TC · {protoLabel[proto] ?? proto}
+          {headerStr}
         </span>
       </div>
       <div style={{ display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -478,8 +492,8 @@ export function GompertzChartV4({ session, ts }: { session: any; ts: any }) {
           {/* Linea "ora": separa il passato congelato dal futuro proiettato */}
           <ReferenceLine yAxisId="left" x={elapsedH} stroke="var(--accent-brand)" strokeDasharray="4 4"
             label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 9, fontFamily: 'var(--font-mono)' }} />
-          {targetBakeH != null && (
-            <ReferenceLine yAxisId="left" x={targetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
+          {effectiveTargetBakeH != null && (
+            <ReferenceLine yAxisId="left" x={effectiveTargetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
           <ReferenceLine yAxisId="left" y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
