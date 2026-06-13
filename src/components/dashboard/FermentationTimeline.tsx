@@ -7,6 +7,9 @@ import { useMemo, useState, useEffect } from 'react';
 import type React from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
+import {
+  deriveCanonicalPhases, canonicalDisplayLabel, type CanonicalPhase,
+} from '../../engine/canonicalPhases';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
 
 export interface TimelinePhase {
@@ -97,38 +100,42 @@ function formatCountdown(h: number): string {
   return mm > 0 ? `${hh}h${mm.toString().padStart(2, '0')}` : `${hh}h`;
 }
 
-function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
-  phase: TimelinePhase; currentSemaforoState: SemaforoState;
+// v2.4.20: marker derivato da una fase CANONICA (single source of truth).
+function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
+  phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
   onTransition?: (phaseType: string) => void;
 }) {
-  const dotColor = phase.isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : '#2a8f74';
+  const isCurrent    = phase.state === 'current';
+  const isCompleted  = phase.state === 'past';
+  const hoursFromNow = (phase.startMs - nowMs) / 3_600_000;
 
-  const showBadge = phase.isFuture && phase.hoursFromNow > 0 && phase.hoursFromNow <= 4;
-  // Bug #94: SOLO fasi future sono tappabili — mai passate, mai corrente.
-  // isFuture usa margine 5min → nessun edge case con la fase corrente appena iniziata.
-  const canTransition = phase.isFuture === true && !!onTransition;
+  const dotColor = isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : '#2a8f74';
+
+  const showBadge = phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4;
+  // Bug #94 / v2.4.20: la tappabilità è decisa a monte (state==='future' && start>now+5min).
+  const canTransition = phase.tappable && !!onTransition;
 
   const pipBase: React.CSSProperties = {
-    width: phase.isCurrent ? 15 : 11,
-    height: phase.isCurrent ? 15 : 11,
+    width: isCurrent ? 15 : 11,
+    height: isCurrent ? 15 : 11,
     borderRadius: phase.isBake ? 2 : '50%',
     transform: phase.isBake ? 'rotate(45deg)' : 'none',
   };
-  const pipStyle: React.CSSProperties = phase.isCurrent
+  const pipStyle: React.CSSProperties = isCurrent
     ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
-    : phase.isCompleted
+    : isCompleted
       ? { ...pipBase, background: '#2a8f74' }
       : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
 
   return (
     <div
-      onClick={canTransition ? () => onTransition!(phase.phaseType) : undefined}
+      onClick={canTransition ? () => onTransition!(phase.transitionTo) : undefined}
       className={canTransition ? 'pm4-tap' : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
         alignItems: 'center', gap: 5, minWidth: 56,
         cursor: canTransition ? 'pointer' : 'default',
-        opacity: phase.isCompleted ? 0.6 : 1,
+        opacity: isCompleted ? 0.6 : 1,
       }}
     >
       {/* Affordance tap (teal) sui marker tappabili */}
@@ -145,27 +152,27 @@ function TimelineMarker({ phase, currentSemaforoState, onTransition }: {
           padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 8, letterSpacing: '0.04em',
           marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)',
         }}>
-          tra {formatCountdown(phase.hoursFromNow)}
+          tra {formatCountdown(hoursFromNow)}
         </div>
       ) : (
         <div style={{ height: 18 }} />
       )}
 
-      <div className={phase.isCurrent ? 'pm4-pip-cur' : (canTransition ? 'pm4-pip-tap' : undefined)} style={pipStyle} />
+      <div className={isCurrent ? 'pm4-pip-cur' : (canTransition ? 'pm4-pip-tap' : undefined)} style={pipStyle} />
 
       <div style={{
-        color: phase.isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
+        color: isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
         fontSize: 8, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
         lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 52,
       }}>
-        {phase.label}
+        {canonicalDisplayLabel(phase)}
       </div>
 
       <div style={{
-        color: phase.isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
+        color: isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
         fontSize: 9, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
-        {formatAbsoluteTime(phase.absoluteTime)}
+        {formatAbsoluteTime(new Date(phase.startMs))}
       </div>
     </div>
   );
@@ -184,30 +191,30 @@ export function FermentationTimeline({
     return () => clearInterval(id);
   }, []);
 
+  const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+  const nowMs       = now.getTime();
+  const temperingH  = (session as any).temperingH as number | undefined;
+
+  // v2.4.20: fasi CANONICHE dalla timeline effettiva (stessa sorgente di chip header
+  // e stringa header grafico). Sempre PUNTATA→STAGLIO→APPRETTO→COTTURA (+TEMPERING),
+  // anche con segmenti a durata ~0. Fallback alla timeline iniziale se assente.
   const phases = useMemo(
-    () => buildTimelinePhases(session.thermalTimeline, session, now),
+    () => {
+      const tl = (session.thermalTimeline && session.thermalTimeline.length > 0)
+        ? session.thermalTimeline
+        : buildInitialTimeline(session as any);
+      return deriveCanonicalPhases(tl, startedAtMs, nowMs, { temperingH });
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // Re-calcola ogni minuto (countdown badge) + su cambio timeline o sessione
-    [session.thermalTimeline, session.id, Math.floor(now.getTime() / 60_000)],
+    [session.thermalTimeline, session.id, startedAtMs, temperingH, Math.floor(nowMs / 60_000)],
   );
 
   if (phases.length === 0) return null;
 
-  // Deduplica fasi con lo stesso phaseType (può accadere dopo transizione backward):
-  // mostra la versione 'current' se presente, altrimenti la prima occorrenza.
-  const deduped = phases.reduce<TimelinePhase[]>((acc, phase) => {
-    const existing = acc.findIndex(p => p.phaseType === phase.phaseType && p.label === phase.label);
-    if (existing === -1) {
-      acc.push(phase);
-    } else if (phase.isCurrent) {
-      acc[existing] = phase;
-    }
-    return acc;
-  }, []);
-
   // R7: con molte fasi la timeline scrolla in orizzontale; mostra un fade a destra
   // come affordance di scroll (euristica: ≥6 marker superano il viewport ~430px).
-  const scrollable = deduped.length >= 6;
+  const scrollable = phases.length >= 6;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -215,10 +222,11 @@ export function FermentationTimeline({
         <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
           background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
-          {deduped.map((phase, i) => (
-            <TimelineMarker
-              key={`${phase.phaseType}-${phase.label}-${phase.absoluteTime.getTime()}-${i}`}
+          {phases.map((phase) => (
+            <CanonicalMarker
+              key={phase.key}
               phase={phase}
+              nowMs={nowMs}
               currentSemaforoState={currentSemaforoState}
               onTransition={onPhaseTransition}
             />

@@ -15,6 +15,10 @@ interface LiveHeaderProps {
   currentPhase:   string;
   alertLevel:     AlertLevel | string;
   alertMessage:   string;
+  // v2.4.20: chip derivato dalla fase CANONICA corrente (single source of truth con
+  // la strip). Se assenti, fallback alla mappa PHASE_LABELS per phaseType.
+  currentPhaseLabel?: string;
+  currentPhaseCold?:  boolean;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -45,6 +49,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, totalFlourGrams, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
+  currentPhaseLabel, currentPhaseCold,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -57,7 +62,9 @@ export function LiveHeader({
   const timeStr    = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const remainStr  = remainingH > 0.05 ? `${remainingH.toFixed(1)}h` : '🍕 ora';
   const banner     = BANNER_STYLE[alertLevel];
-  const isCold     = COLD_PHASES.has(currentPhase);
+  // v2.4.20: env dalla fase canonica se fornita, altrimenti dal phaseType.
+  const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
+  const phaseLabel = currentPhaseLabel ?? PHASE_LABELS[currentPhase] ?? currentPhase;
 
   const K: React.CSSProperties = { fontSize: 8.5, letterSpacing: '0.16em', color: 'var(--pm4-umber)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' };
   const V: React.CSSProperties = { fontSize: 13, fontWeight: 700, color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 };
@@ -93,7 +100,7 @@ export function LiveHeader({
           background: isCold ? 'rgba(116,185,255,0.08)' : 'rgba(255,209,102,0.07)',
           padding: '5px 9px', borderRadius: 999,
         }}>
-          {PHASE_LABELS[currentPhase] ?? currentPhase}
+          {phaseLabel}
         </span>
       </div>
 

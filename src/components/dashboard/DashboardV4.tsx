@@ -22,6 +22,7 @@ import { makeLeavAduRateAt, computeCollapseETA, type CollapseETAResult } from '.
 import {
   detectOutOfProtocolPhase, buildEffectiveTimeline, effectiveTimelineDurationH,
 } from '../../engine/outOfProtocol';
+import { deriveCanonicalPhases, canonicalDisplayLabel } from '../../engine/canonicalPhases';
 import { QualityProfileCard } from './DashboardView';
 import { GompertzChartV4 } from './GompertzChartV4';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
@@ -333,6 +334,13 @@ export function DashboardV4() {
   // Advisory mostrato finché l'utente non sceglie (default = non confermato → all-TA).
   const showOutOfProtocolModal = !!outOfProtocolSeg && !oopConfirmed && !oopAcknowledged;
 
+  // v2.4.20: chip header dalla fase CANONICA corrente (stessa sorgente della strip),
+  // così non può più divergere (chip-TA vs strip-TC). Funzione pura → nessun hook.
+  const canonicalPhases  = deriveCanonicalPhases(
+    effectiveTimeline, startedAt.getTime(), Date.now(), { temperingH: (session as any).temperingH },
+  );
+  const canonicalCurrent = canonicalPhases.find(p => p.state === 'current');
+
   return (
     <div className="pm4-root" style={{ minHeight: '100dvh', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
 
@@ -345,6 +353,8 @@ export function DashboardV4() {
         currentPhase={phase}
         alertLevel={alertRes.level}
         alertMessage={alertRes.message}
+        currentPhaseLabel={canonicalCurrent ? canonicalDisplayLabel(canonicalCurrent) : undefined}
+        currentPhaseCold={canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
       />
 
       {/* ── MODAL COLLASSO (non dismissibile — solo "Termina" o "Continua") ── */}
