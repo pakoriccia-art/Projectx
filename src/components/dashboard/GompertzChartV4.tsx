@@ -16,6 +16,8 @@ import {
 import type { PhaseSegment, ProcessLogEntry } from '../../db/db';
 import { getSessionLog } from '../../services/processLog';
 import { buildHeaderTempString } from '../../engine/outOfProtocol';
+import { simulateTimeline } from '../../engine/serviceWindowSolver';
+import { ddtForStyle } from '../../data/styleConstraints';
 import { Card, S } from '../ui';
 import { downsampleLTTB } from '../../lib/lttb';
 import {
@@ -52,9 +54,10 @@ export function buildPiecewiseData(
     agentMuMax: number; agentLambda: number; agentAsymptote: number;
     initialMaturationOffset?: number;
     numPanetti?: number; hydration?: number; containerPreset?: string;
-    totalFlourGrams?: number; salt?: number;
+    totalFlourGrams?: number; salt?: number; initialPH?: number;
     prefermenti?: any[];
     tLaboratorio?: number;
+    style?: string;
   },
   tAmbient: number,
   currentPhase?: string,
@@ -194,6 +197,67 @@ export function buildPiecewiseData(
   const maxH   = Math.max(totalH * 1.5, 24, targetBakeH != null ? Math.ceil(targetBakeH * 1.1) : 0);
   const stepH  = maxH / 80;
 
+  // ── T impasto (v2.4.21): traiettoria REALE del cuore da simulateTimeline ──────
+  // Sostituisce la rampa Newton grossa: doughCoreTemp continuo, τ reale per fase.
+  // Seed = cuore vivo all'anchor (startDoughTempC) o DDT a t=0 (nuove sessioni).
+  // Simula SOLO il piano residuo da elapsedH → giunzione pulita con la serie
+  // realizzata (continuità T5). muMaxScaled/leavLambda sono inerti per tempDough.
+  const baseTotalH    = baseSegs.reduce((s, seg) => s + seg.durationH, 0);
+  const anchorOffsetH = (elapsedH != null && elapsedH > 0) ? elapsedH : 0;
+  const simSeed       = startDoughTempC != null ? startDoughTempC : ddtForStyle(session.style);
+
+  const simSegs: Array<{ phaseType: string; durationH: number; ambientTempC: number }> = [];
+  {
+    let cum = 0;
+    for (const seg of baseSegs) {
+      const segStart = cum;
+      const segEnd   = cum + seg.durationH;
+      cum = segEnd;
+      const lo = Math.max(segStart, anchorOffsetH);
+      const hi = segEnd;
+      if (hi - lo > 1e-6) simSegs.push({ phaseType: seg.phase, durationH: hi - lo, ambientTempC: seg.tempC });
+    }
+    // Coda oltre il piano: traccia l'ambiente vivo invece di clampare al target.
+    const tailH = maxH - baseTotalH;
+    if (tailH > 0.1) simSegs.push({ phaseType: 'proofing', durationH: tailH, ambientTempC: tAmbient });
+  }
+
+  let simSamples: Array<{ elapsedH: number; tempDough: number }> = [];
+  try {
+    const sim = (simulateTimeline as Function)(
+      simSegs,
+      { tempDough: simSeed, leavAdu: 0, enzAdu: 0, wDamage: 0, elapsedH: 0 },
+      {
+        agentEaKj: session.agentEaKj, agentType: session.agentType,
+        muMaxScaled: session.agentMuMax, leavLambda: session.agentLambda,
+        agentAsymptote: session.agentAsymptote ?? 100,
+        W0: 280, hydration: session.hydration ?? 65, salt: session.salt ?? 2,
+        totalFlourGrams: session.totalFlourGrams ?? 1000,
+        numPanetti: session.numPanetti ?? 6,
+        containerPreset: session.containerPreset ?? 'bare',
+        initialPH: session.initialPH ?? 5.8, subStepH: 0.1,
+      },
+    );
+    simSamples = sim?.samples ?? [];
+  } catch { simSamples = []; }
+
+  // Cuore [°C] all'ora assoluta h (samples in frame relativo da anchorOffsetH).
+  const tempDoughAt = (h: number): number => {
+    if (simSamples.length === 0) return simSeed;
+    const rel = h - anchorOffsetH;
+    if (rel <= simSamples[0].elapsedH) return simSamples[0].tempDough;
+    const last = simSamples[simSamples.length - 1];
+    if (rel >= last.elapsedH) return last.tempDough;
+    for (let i = 1; i < simSamples.length; i++) {
+      if (simSamples[i].elapsedH >= rel) {
+        const p0 = simSamples[i - 1], p1 = simSamples[i];
+        const f  = (rel - p0.elapsedH) / Math.max(1e-9, p1.elapsedH - p0.elapsedH);
+        return p0.tempDough + f * (p1.tempDough - p0.tempDough);
+      }
+    }
+    return last.tempDough;
+  };
+
   const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;
   const prefFrac     = Math.min(1, (session.prefermenti ?? [])
     .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
@@ -271,7 +335,8 @@ export function buildPiecewiseData(
       h:      parseFloat(p.h.toFixed(2)),
       pct:    isNaN(raw)    ? 0 : parseFloat(raw.toFixed(1)),
       matPct: isNaN(rawEnz) ? 0 : parseFloat(rawEnz.toFixed(1)),
-      tempC:  parseFloat(p.tempC.toFixed(1)),
+      // v2.4.21: cuore REALE da simulateTimeline (non più il target di segmento).
+      tempC:  parseFloat(tempDoughAt(p.h).toFixed(1)),
     });
   }
 

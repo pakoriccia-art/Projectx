@@ -17,6 +17,7 @@ import {
   OVEN_ARCHETYPES, STONE_EFFUSIVITY, KNOB_TEMP_MAP_SCALE5, validateBakeFeasibility,
 } from '../../engine/bake';
 import { computeDashboardEffectiveW, computeCurrentPH } from '../../engine';
+import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { SnapButtons } from '../ui';
 
 // ─── Costante Hill exponent (allineata all'engine) ────────────────────────────
@@ -179,6 +180,20 @@ export function BakeView() {
   const isConchiglia = profile.archetipo === 'fornetto_conchiglia';
   const knobLevel = profile.knobLevel ?? 3;
 
+  // v2.4.21: cuore impasto proiettato a cottura — avviso se < 18°C (impasto freddo).
+  const coreTempAtBake = ts ? (() => {
+    const startedAt  = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
+    const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date((session.targetBakeAt as any) ?? Date.now() + 86_400_000);
+    const elapsedH   = Math.max(0, (Date.now() - startedAt.getTime()) / 3_600_000);
+    const ambientTempC = ts.tempAmbient ?? session.tLaboratorio ?? 22;
+    return projectCoreTempAtBakeC({
+      timeline: session.thermalTimeline, nowElapsedH: elapsedH,
+      bakeH: (targetBake.getTime() - startedAt.getTime()) / 3_600_000,
+      currentDoughTempC: ts.tempDough ?? ambientTempC, ambientTempC, session: session as any,
+    });
+  })() : null;
+  const coldAtBake = coreTempAtBake != null && coreTempAtBake < CORE_TEMP_AT_BAKE_MIN_C;
+
   return (
     <div style={{ minHeight: '100dvh', background: '#0a0806', paddingBottom: 80 }}>
 
@@ -226,6 +241,25 @@ export function BakeView() {
                 {line}
               </p>
             ))}
+          </div>
+        )}
+
+        {/* ── Avviso impasto freddo a cottura (v2.4.21) ── */}
+        {coldAtBake && (
+          <div className="pm4-panel" style={{
+            padding: '12px 14px', marginBottom: 12,
+            borderLeft: '3px solid #74b9ff',
+            background: 'linear-gradient(90deg, rgba(116,185,255,0.10), transparent)',
+          }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 800, color: '#bcd9ff', marginBottom: 6, letterSpacing: '0.04em' }}>
+              ❄ IMPASTO FREDDO
+            </div>
+            <p style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
+              Cuore stimato a cottura ~{coreTempAtBake!.toFixed(1)}° (min {CORE_TEMP_AT_BAKE_MIN_C}°):
+              {' '}{(CORE_TEMP_AT_BAKE_MIN_C - coreTempAtBake!).toFixed(1)}° sotto soglia. Rischio mollica
+              gommosa e superficie scottata prima che il cuore arrivi a temperatura. Prolunga il
+              tempering a TA prima di infornare.
+            </p>
           </div>
         )}
 

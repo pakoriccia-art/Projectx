@@ -11,6 +11,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useApp, type TickState } from '../context/AppContext';
 import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
 import { logProcessEntry, PROCESS_LOG_INTERVAL_MIN } from '../services/processLog';
+import { ddtForStyle } from '../data/styleConstraints';
 import {
   kEffective, gompertz, computeCurrentPH, computeLabAdu,
   computeTCrit, computeWHill, doughCoreTemp,
@@ -82,9 +83,10 @@ export function useTickEngine() {
     const ts       = tsRef.current;
     const prevAdu  = ts?.cumulativeAdu  ?? 0;
     const prevLabAdu = (ts as any)?.labAdu ?? 0;   // v2.4.14 §2.6 — solo LM
-    // Al primo tick ts è null: usa tLaboratorio della sessione come T iniziale impasto/ambiente.
+    // Al primo tick ts è null: il cuore parte dalla DDT di ricetta (temperatura
+    // impasto allo sformo, lookup puro per stile), NON dall'ambiente — v2.4.21.
     // I tick successivi leggono da ts (aggiornato ad ogni TICK dispatch).
-    const prevTDough = ts?.tempDough    ?? session.tLaboratorio ?? 22;
+    const prevTDough = ts?.tempDough    ?? ddtForStyle(session.style) ?? session.tLaboratorio ?? 22;
     const tAmbient   = ts?.tempAmbient  ?? session.tLaboratorio ?? 22;
     const elapsedH = ts?.elapsedH       ?? 0;
     const phase    = ts?.phase          ?? 'bulk_room';   // ← legge dal ref, non dalla closure

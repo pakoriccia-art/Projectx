@@ -23,6 +23,7 @@ import {
   detectOutOfProtocolPhase, buildEffectiveTimeline, effectiveTimelineDurationH,
 } from '../../engine/outOfProtocol';
 import { deriveCanonicalPhases, canonicalDisplayLabel } from '../../engine/canonicalPhases';
+import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { QualityProfileCard } from './DashboardView';
 import { GompertzChartV4 } from './GompertzChartV4';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
@@ -153,6 +154,27 @@ function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | nul
       <span className="pm4-cell-k" style={{ textAlign: 'left' }}>sbollatura</span>
       <span style={{ color, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.02em' }}>
         {label}
+      </span>
+    </div>
+  );
+}
+
+// ─── Readout cuore impasto alla cottura (v2.4.21) ─────────────────────────────
+// Avvisa se il cuore proiettato a cottura è sotto i 18°C (impasto freddo → crosta
+// scottata / mollica gommosa). Advisory, mai bloccante.
+function CoreTempAtBakeReadout({ coreTempAtBake }: { coreTempAtBake: number | null }) {
+  if (coreTempAtBake == null) return null;
+  const deficit = CORE_TEMP_AT_BAKE_MIN_C - coreTempAtBake;
+  const warn    = deficit > 0;
+  const color   = warn ? (deficit > 4 ? '#ff7675' : '#ffd166') : 'var(--pm4-tan)';
+  const label   = warn
+    ? `${coreTempAtBake.toFixed(1)}° · ${deficit.toFixed(1)}° sotto la soglia (min ${CORE_TEMP_AT_BAKE_MIN_C}°)`
+    : `${coreTempAtBake.toFixed(1)}° · ok (≥ ${CORE_TEMP_AT_BAKE_MIN_C}°)`;
+  return (
+    <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>a cottura</span>
+      <span style={{ color, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.02em' }}>
+        {warn ? '⚠ ' : ''}{label}
       </span>
     </div>
   );
@@ -341,6 +363,18 @@ export function DashboardV4() {
   );
   const canonicalCurrent = canonicalPhases.find(p => p.state === 'current');
 
+  // v2.4.21: cuore impasto proiettato al momento della cottura. < 18°C → impasto
+  // troppo freddo per infornare (advisory in 3 viste). Funzione pura → nessun hook.
+  const bakeH = horizonH != null ? horizonH : (targetBake.getTime() - startedAt.getTime()) / 3_600_000;
+  const coreTempAtBake = projectCoreTempAtBakeC({
+    timeline: effectiveTimeline, nowElapsedH: elapsedH, bakeH,
+    currentDoughTempC: T_dough, ambientTempC, session: session as any,
+  });
+  const coldAtBake = coreTempAtBake != null && coreTempAtBake < CORE_TEMP_AT_BAKE_MIN_C;
+  const coldBakeMsg = coldAtBake
+    ? `inforni a ~${coreTempAtBake!.toFixed(0)}° · ${(CORE_TEMP_AT_BAKE_MIN_C - coreTempAtBake!).toFixed(0)}° sotto i ${CORE_TEMP_AT_BAKE_MIN_C}° consigliati`
+    : undefined;
+
   return (
     <div className="pm4-root" style={{ minHeight: '100dvh', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
 
@@ -355,6 +389,7 @@ export function DashboardV4() {
         alertMessage={alertRes.message}
         currentPhaseLabel={canonicalCurrent ? canonicalDisplayLabel(canonicalCurrent) : undefined}
         currentPhaseCold={canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
+        coldBakeWarning={coldBakeMsg}
       />
 
       {/* ── MODAL COLLASSO (non dismissibile — solo "Termina" o "Continua") ── */}
@@ -506,6 +541,7 @@ export function DashboardV4() {
                 aria-label="Temperatura ambiente di servizio"
                 aria-valuetext={`${ambientTempC.toFixed(1)} gradi`}
                 style={{ width: '100%', height: 22, borderRadius: 11, background: 'linear-gradient(90deg, var(--state-cold), var(--accent-brand))' }} />
+              <CoreTempAtBakeReadout coreTempAtBake={coreTempAtBake} />
             </DarkCard>
 
             {/* Prefermenti (condizionale) */}

@@ -19,6 +19,9 @@ interface LiveHeaderProps {
   // la strip). Se assenti, fallback alla mappa PHASE_LABELS per phaseType.
   currentPhaseLabel?: string;
   currentPhaseCold?:  boolean;
+  // v2.4.21: advisory dedicato "impasto freddo a cottura" (cuore < 18°C). Ribbon
+  // separato dagli alert strutturali — non entra in BANNER_STYLE/alertLevel.
+  coldBakeWarning?:   string;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -49,7 +52,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, totalFlourGrams, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -115,6 +118,20 @@ export function LiveHeader({
         }}>
           <span style={{ filter: 'drop-shadow(0 0 6px currentColor)' }}>{banner.icon}</span>
           <span>{alertMessage}</span>
+        </div>
+      )}
+
+      {/* ribbon advisory "impasto freddo a cottura" (v2.4.21) — separato dagli alert */}
+      {coldBakeWarning && (
+        <div style={{
+          marginTop: 10, display: 'flex', alignItems: 'center', gap: 9,
+          padding: '8px 12px', borderRadius: 8,
+          background: 'linear-gradient(90deg, rgba(116,185,255,0.12), transparent)',
+          border: '1px solid rgba(116,185,255,0.4)', color: '#bcd9ff',
+          fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
+        }}>
+          <span style={{ filter: 'drop-shadow(0 0 6px currentColor)' }}>❄</span>
+          <span>{coldBakeWarning}</span>
         </div>
       )}
     </header>
