@@ -2,7 +2,7 @@
  * PizzaMatrix — Wizard v4 (7 step)
  * §7.2 KB: stile→protocollo→farine+prefermenti→idratazione→lievito→contenitore→tempistiche
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
 import {
@@ -595,7 +595,10 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
             t === 'poolish'   ? { hydration: 100, yeastPct: 0.05, durationH: 12 }
             : t === 'biga'    ? { hydration:  48, yeastPct: 0.10, durationH: 16 }
             : t === 'riporto' ? { hydration:  65, yeastPct: undefined, durationH: 24 }
-            : { yeastPct: undefined, durationH: 1 };
+            // Autolisi: idr. 50–80% (vincolo schema). Reset esplicito perché lo slider
+            // idratazione è nascosto per l'autolisi → senza questo, un poolish convertito
+            // resterebbe a 100% e bloccherebbe l'avvio (Zod superRefine).
+            : { hydration: 65, yeastPct: undefined, durationH: 1 };
           onUpdate({ ...pref, type: t, ...newDefaults });
         }}
       />
@@ -1517,6 +1520,11 @@ export function WizardView() {
   const update = (p: Partial<WizardDraft>) =>
     dispatch({ type: 'WIZARD_UPDATE', patch: p });
 
+  // Scroll-to-top ad ogni cambio step: il div interno è riusato tra gli step e
+  // manterrebbe lo scrollTop del passo precedente. useLayoutEffect evita il flash.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [step]);
+
   const next = () => {
     setBuildError(null);
     if (step < TOTAL_STEPS) {
@@ -1581,7 +1589,7 @@ export function WizardView() {
       <StepHeader step={step} total={TOTAL_STEPS} title={STEP_TITLES[step - 1]} />
 
       {/* Contenuto scrollabile */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '8px', minHeight: 0 }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '8px', minHeight: 0 }}>
         <StepComponent draft={draft} update={update} />
       </div>
 

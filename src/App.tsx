@@ -3,7 +3,7 @@
  * Routing basato su AppContext (view state machine, no react-router)
  * Hooks globali: persistenza DB, notifiche Capacitor
  */
-import { Component, type ReactNode } from 'react';
+import { Component, useLayoutEffect, type ReactNode } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { WizardView }          from './components/wizard/WizardView';
 import { DashboardV4 }         from './components/dashboard/DashboardV4';
@@ -204,6 +204,10 @@ function HomeView() {
 // ─── Router ───────────────────────────────────────────────────────────────────
 function AppRouter() {
   const { state } = useApp();
+  // Scroll-to-top ad ogni cambio view: dashboard e le altre viste scrollano sulla
+  // window/body, che altrimenti erediterebbe la posizione di scroll precedente.
+  // Lo scroller interno del wizard è gestito in WizardView (su cambio step).
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [state.view]);
   switch (state.view) {
     case 'wizard':    return <ErrorBoundary><WizardView /></ErrorBoundary>;
     case 'dashboard': return <ErrorBoundary><DashboardV4 /></ErrorBoundary>;
