@@ -1417,7 +1417,9 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
           {draft.apprettoProtocol !== 'tc' && (
             <Metric
               label="Puntata TA"
-              value={draft.apprettoProtocol === 'tc_appreto' ? puntataHStep8.toFixed(1) : (draft.puntataH ?? '–')}
+              value={draft.apprettoProtocol === 'tc_appreto'
+                ? (draft.puntataH != null ? draft.puntataH.toFixed(1) : puntataHStep8.toFixed(1))
+                : (draft.puntataH ?? '–')}
               unit="h"
               color={draft.apprettoProtocol === 'tc_appreto' ? 'var(--accent-brand)' : undefined}
             />
