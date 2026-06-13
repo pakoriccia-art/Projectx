@@ -22,6 +22,7 @@ import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
+  computeFrictionRise,
 } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
@@ -875,6 +876,7 @@ function solveQualityProfile(
   style: string,
   tAmb: number,
   fridgeT: number,
+  staglioH: number,
 ): QualityResult {
   const { extTarget, aromaTarget, sciTarget } = targets;
   const { W, pl } = flour;
@@ -938,15 +940,23 @@ function solveQualityProfile(
   const conflictExtSci = extTarget >= 5 && sciTarget >= 5 && mFromExt > mFromSci_hi + 0.05;
 
   // ── Schedule da mTarget ──────────────────────────────────────────────────
-  // ADU target → puntataH (dato tcHours fisso)
   const enzMu  = ENZYMATIC_CLOCK_PARAMS.muMax;
   const enzLam = ENZYMATIC_CLOCK_PARAMS.lambda;
   const aduTarget = (findAduAt as Function)(enzMu, enzLam, 100, mTarget * 100) as number;
   const aduFridge = (fArrhenius as Function)(fridgeT) as number * tcHours;
-  const aduNeeded = Math.max(0.1, aduTarget - aduFridge);
+  // Accredita l'ADU enzimatico maturato durante il prefermento (proteolisi già avanzata)
+  const prefEnzAdu = prefType !== 'none'
+    ? ((fArrhenius as Function)(prefTempC) as number) * prefDurH * (prefFrac / 100)
+    : 0;
+  const aduNeeded = Math.max(0.1, aduTarget - aduFridge - prefEnzAdu);
   const kAmbRate  = (fArrhenius as Function)(tAmb) as number;
-  const puntataH  = Math.max(1.0, aduNeeded / Math.max(0.01, kAmbRate));
-  const staglioH  = 0.5;
+  // Cap puntata al range stile (evita puntate irrealisticamente lunghe)
+  const styleProf = (getStyleProfile as Function)(style) as { puntataH_range_ta: [number, number] };
+  const puntataRaw = aduNeeded / Math.max(0.01, kAmbRate);
+  const puntataH   = Math.min(
+    styleProf.puntataH_range_ta[1],
+    Math.max(styleProf.puntataH_range_ta[0], puntataRaw),
+  );
 
   // ── Predicted profile at mTarget ──────────────────────────────────────────
   const hydFinal    = hydRef;
@@ -1360,9 +1370,10 @@ export function FermentationPlannerView() {
         style,
         tAmb,
         fridgeT,
+        staglioH,
       );
     } catch { return null; }
-  }, [plannerMode, extTarget, aromaTarget, sciTarget, W, flourPl, style, tAmb, fridgeT]);
+  }, [plannerMode, extTarget, aromaTarget, sciTarget, W, flourPl, style, tAmb, fridgeT, staglioH]);
 
   // Carica il piano qualità come sessione → wizard step 8
   const useQualityResult = (r: QualityResult) => {
@@ -1480,8 +1491,19 @@ export function FermentationPlannerView() {
               </button>
             )}
           </div>
-          <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
-            min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
+          {plannerMode !== 'quality' ? (
+            <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
+              min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+              <span style={S.label}>Idratazione</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--accent-info)' }}>
+                {qualityResult ? `${qualityResult.hydration}%` : '—'}
+                {' '}
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>← estensibilità</span>
+              </span>
+            </div>
+          )}
           <PlannerSlider label="Sale" value={salt} onChange={setSalt}
             min={0} max={4} step={0.1} unit="%" color="var(--accent-info)" />
           {/* Preview peso panetto calcolato */}
@@ -1681,10 +1703,16 @@ export function FermentationPlannerView() {
             value={kneadingMethod}
             onChange={setKneadingMethod}
           />
-          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            C_attrito {KNEADING_METHODS_FRICTION[kneadingMethod].cFrictionLo}–{KNEADING_METHODS_FRICTION[kneadingMethod].cFrictionHi}°C
-            · {KNEADING_METHODS_FRICTION[kneadingMethod].notes}
-          </div>
+          {(() => {
+            const doughMassKg = (totalFlourG * (1 + hydration / 100)) / 1000;
+            const fRise = (computeFrictionRise as Function)(kneadingMethod, 12, hydration, doughMassKg) as number;
+            return (
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                C_attrito ≈ {fRise.toFixed(1)}°C (12 min, unificato)
+                · {KNEADING_METHODS_FRICTION[kneadingMethod].notes}
+              </div>
+            );
+          })()}
         </div>
       </Card>
 
@@ -1870,16 +1898,19 @@ export function FermentationPlannerView() {
       )}
 
       {/* ── Acqua di impastamento (DDT live) ── */}
-      {plannerMode !== 'quality' && results.length > 0 && (() => {
-        const waterG   = Math.round(totalFlourG * (hydration / 100));
-        const tPref    = undefined;
-        const ddtDef   = ddtForStyle(style);
-        const wResult  = (computeWaterTempDDT as Function)({
+      {(plannerMode === 'quality' ? qualityResult !== null : results.length > 0) && (() => {
+        const waterG      = Math.round(totalFlourG * (hydration / 100));
+        const ddtDef      = ddtForStyle(style);
+        const doughMassKg = (totalFlourG * (1 + hydration / 100)) / 1000;
+        const wResult     = (computeWaterTempDDT as Function)({
           ddtTarget:       ddtDef,
           tempAmbient:     tAmb,
           kneadingMethod,
           waterTotalGrams: waterG,
-          tempPreferment:  tPref,
+          tempPreferment:  undefined,
+          kneadDurationMin: 12,
+          hydrationEff:    hydration,
+          doughMassKg,
         });
         return (
           <Card>
