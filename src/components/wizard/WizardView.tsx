@@ -13,6 +13,7 @@ import {
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective, getStyleProfile,
   KNEADING_METHODS_FRICTION, computeWaterTempDDT, type KneadingMethod,
+  computeEffectiveMixHydration,
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
@@ -375,6 +376,8 @@ function buildSession(draft: WizardDraft): Session {
       addedTo:     'final_dough',
     } : undefined,
     kneadingMethod:          draft.kneadingMethod ?? 'spiral',  // §2.7 — default spirale
+    kneadDurationMin:        draft.kneadDurationMin ?? 12,       // §2.7 v2.4.24 — durata impasto
+    tapWaterC:               draft.tapWaterC,                    // §2.7 v2.4.24 — acqua rubinetto
     tLaboratorio:            draft.tLaboratorio ?? 20,           // §2.7 — T ambiente impasto
     // Offset iniziale: contributo sourdough (engine) + ADU head-start da biga/poolish
     // prefInitialAdu è in unità ADU; /10 per normalizzare alla scala di initialMaturationOffset
@@ -873,7 +876,21 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           onChange={v => update({ tLaboratorio: v })}
           min={5} max={40} step={0.5}
         />
-        {/* Risultato live: aggiornato ad ogni cambio di impastatrice o T_lab */}
+        <NumInput
+          label="Durata impastamento"
+          unit="min"
+          value={draft.kneadDurationMin ?? 12}
+          onChange={v => update({ kneadDurationMin: v })}
+          min={0} max={120} step={1}
+        />
+        <NumInput
+          label="T acqua rubinetto"
+          unit="°C"
+          value={draft.tapWaterC ?? 15}
+          onChange={v => update({ tapWaterC: v })}
+          min={0} max={40} step={0.5}
+        />
+        {/* Risultato live: aggiornato ad ogni cambio di impastatrice, durata o T_lab */}
         {(() => {
           const waterG  = Math.round((draft.totalFlourGrams ?? 1000) * (draft.hydration ?? 65) / 100);
           const tPref   = (draft.prefermenti?.length ?? 0) > 0
@@ -881,20 +898,30 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             : undefined;
           const ddtDef  = DDT_BY_STYLE[draft.style ?? 'napoletana'] ?? 24;
           const wResult = computeWaterTempDDT({
-            ddtTarget:      ddtDef,
-            tempAmbient:    draft.tLaboratorio ?? 20,
-            kneadingMethod: (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
-            waterTotalGrams: waterG,
-            tempPreferment: tPref,
+            ddtTarget:        ddtDef,
+            tempAmbient:      draft.tLaboratorio ?? 20,
+            kneadingMethod:   (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
+            waterTotalGrams:  waterG,
+            tempPreferment:   tPref,
+            kneadDurationMin: draft.kneadDurationMin ?? 12,
+            hydrationEff:     computeEffectiveMixHydration({ hydration: draft.hydration ?? 65, prefermenti: draft.prefermenti ?? [] }),
+            doughMassKg:      ((draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100)) / 1000,
+            tapWaterC:        draft.tapWaterC,
           });
-          return <WaterTempResultCard result={wResult} compact={true} />;
+          return (
+            <>
+              <WaterTempResultCard result={wResult} compact={true} />
+              {draft.kneadingMethod && (
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+                  {wResult.frictionModel === 'unified'
+                    ? `ΔT_attrito: ${wResult.frictionRiseC?.toFixed(1)}°C · C_attrito: ${wResult.cFriction.toFixed(1)}°C`
+                    : `C_attrito: ${KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionLo}–${KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionHi}°C · ${KNEADING_METHODS_FRICTION[draft.kneadingMethod].notes}`
+                  }
+                </div>
+              )}
+            </>
+          );
         })()}
-        {draft.kneadingMethod && (
-          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-            C_attrito: {KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionLo}–{KNEADING_METHODS_FRICTION[draft.kneadingMethod].cFrictionHi}°C
-            · {KNEADING_METHODS_FRICTION[draft.kneadingMethod].notes}
-          </div>
-        )}
       </FormSection>
 
       <button
@@ -1432,11 +1459,15 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
           : undefined;
         const ddtDef    = DDT_BY_STYLE[draft.style ?? 'napoletana'] ?? 24;
         const wResult   = computeWaterTempDDT({
-          ddtTarget:       ddtDef,
-          tempAmbient:     draft.tLaboratorio ?? 20,
-          kneadingMethod:  (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
-          waterTotalGrams: waterG,
-          tempPreferment:  tPrefAvg,
+          ddtTarget:        ddtDef,
+          tempAmbient:      draft.tLaboratorio ?? 20,
+          kneadingMethod:   (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
+          waterTotalGrams:  waterG,
+          tempPreferment:   tPrefAvg,
+          kneadDurationMin: draft.kneadDurationMin ?? 12,
+          hydrationEff:     computeEffectiveMixHydration({ hydration: hydration, prefermenti: draft.prefermenti ?? [] }),
+          doughMassKg:      (flour * (1 + hydration / 100)) / 1000,
+          tapWaterC:        draft.tapWaterC,
         });
         return (
           <Card>

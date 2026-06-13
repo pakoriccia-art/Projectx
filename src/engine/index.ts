@@ -5,6 +5,12 @@
 
 // Re-export tutto dall'engine JS
 export * from '../../engine/engine-v2.4.0.js';
+// v2.4.24 — modello attrito meccanico unificato (§2.7). Sorgente unica di verità.
+export * from '../../engine/friction-v2.4.24.js';
+import {
+  computeFrictionRise,
+  FRICTION_PARAMS,
+} from '../../engine/friction-v2.4.24.js';
 
 // ─── Tipi TypeScript per le funzioni principali ──────────────────────────────
 
@@ -208,14 +214,34 @@ export interface WaterTempInput {
    * Bug #92 v2.4.15 — aggiunge il termine c_s × |T_ice| al bilancio entalpico.
    */
   iceTempC?: number;
+
+  // ── v2.4.24 — modello attrito unificato (§2.7) ──────────────────────────────
+  /**
+   * Durata di impastamento [min]. Se presente (> 0), attiva il modello attrito
+   * UNIFICATO: C_attrito = N × ΔT(mixer, durata, H_eff, massa). Se omessa, si usa
+   * il C_attrito LEGACY (KNEADING_METHODS_FRICTION lo/mid/hi) — backward compat.
+   */
+  kneadDurationMin?: number;
+  /** Idratazione efficace di impastamento [%] per f_hyd. Default = hydrationRef (65). */
+  hydrationEff?: number;
+  /** Massa totale impasto [kg] per f_mass. Default 1. */
+  doughMassKg?: number;
+  /**
+   * Temperatura acqua di rubinetto disponibile [°C] per il bilancio ghiaccio.
+   * Se presente vince su waterAvailableTempC. Default: waterAvailableTempC.
+   */
+  tapWaterC?: number;
 }
 
 /** Risultato del calcolo DDT — bilancio termico acqua di impastamento. */
 export interface WaterTempResult {
   /** Temperatura acqua calcolata per raggiungere DDT [°C] (può essere <0). */
   tWaterCalc:      number;
-  /** 'liquid' → acqua normale; 'ice' → usa ghiaccio tritato. */
-  mode:            'liquid' | 'ice';
+  /**
+   * 'liquid' → acqua normale; 'ice' → ghiaccio tritato;
+   * 'unreachable' (v2.4.24) → target irraggiungibile anche con tutto ghiaccio.
+   */
+  mode:            'liquid' | 'ice' | 'unreachable';
   /** [mode=liquid] Temperatura consigliata acqua liquida [°C], clamped [1,35]. */
   tWaterLiquid?:   number;
   /** [mode=ice] Grammi di ghiaccio [g]. */
@@ -232,6 +258,20 @@ export interface WaterTempResult {
   tempFlour:       number;
   /** Massa totale acqua della ricetta [g] — per mostrare le dosi. */
   waterTotalGrams: number;
+
+  // ── v2.4.24 — modello attrito unificato (§2.7) ──────────────────────────────
+  /** Sorgente del C_attrito applicato: 'unified' (rate×durata) | 'legacy' (lo/mid/hi). */
+  frictionModel?:   'unified' | 'legacy';
+  /** [unified] Salita attrito ΔT [°C] sopra la media-N (C_attrito = N × ΔT). */
+  frictionRiseC?:   number;
+  /** [unified] T uscita impasto prevista [°C] col setpoint raccomandato. */
+  exitTempC?:       number;
+  /** [unified] true se exitTempC > exitWarnC (glutine tende a slegarsi). Advisory. */
+  exitWarning?:     boolean;
+  /** [mode=unreachable] T acqua richiesta, impossibile anche col ghiaccio [°C]. */
+  requiredWaterTempC?: number;
+  /** [mode=unreachable] leve suggerite per rientrare nel target. */
+  levers?:          string[];
 }
 
 // ─── KB §2.6 — pH per LBF/LM ─────────────────────────────────────────────────
@@ -338,60 +378,113 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
     waterTotalGrams,
     waterAvailableTempC = ICE_THRESHOLD_C,
     iceTempC            = -18,  // Bug #92: default congelatore professionale
+    kneadDurationMin,
+    hydrationEff,
+    doughMassKg,
+    tapWaterC,
   } = input;
 
-  const spec     = KNEADING_METHODS_FRICTION[kneadingMethod] ?? KNEADING_METHODS_FRICTION.spiral;
-  const cFriction =
-    cFrictionVariant === 'lo' ? spec.cFrictionLo :
-    cFrictionVariant === 'hi' ? spec.cFrictionHi :
-    spec.cFrictionMid;
-
   const factors: 3 | 4 = tempPreferment != null ? 4 : 3;
+
+  // ── C_attrito: modello UNIFICATO (v2.4.24) se durata fornita, altrimenti LEGACY.
+  // Unified: C_attrito = N × ΔT(mixer, durata, H_eff, massa) — sorgente unica §2.7.
+  // Legacy:  KNEADING_METHODS_FRICTION lo/mid/hi (backward compat per i call-site
+  // che non passano la durata: Dashboard, Planner, vecchie sessioni).
+  let cFriction: number;
+  let frictionModel: 'unified' | 'legacy';
+  let frictionRiseC: number | undefined;
+  if (kneadDurationMin != null && kneadDurationMin > 0) {
+    const Heff   = hydrationEff ?? FRICTION_PARAMS.hydrationRef;
+    const massKg = doughMassKg ?? 1;
+    frictionRiseC = computeFrictionRise(kneadingMethod, kneadDurationMin, Heff, massKg);
+    cFriction     = factors * frictionRiseC;
+    frictionModel = 'unified';
+  } else {
+    const spec = KNEADING_METHODS_FRICTION[kneadingMethod] ?? KNEADING_METHODS_FRICTION.spiral;
+    cFriction =
+      cFrictionVariant === 'lo' ? spec.cFrictionLo :
+      cFrictionVariant === 'hi' ? spec.cFrictionHi :
+      spec.cFrictionMid;
+    frictionModel = 'legacy';
+  }
 
   // ── Calcolo temperatura acqua ─────────────────────────────────────────────
   const tWaterCalc = factors === 4
     ? ddtTarget * 4 - tempAmbient - tempFlour - tempPreferment! - cFriction
     : ddtTarget * 3 - tempAmbient - tempFlour - cFriction;
 
+  // Somma delle (N−1) temperature non-acqua — per la predizione T uscita.
+  const sumOthers = tempAmbient + tempFlour + (factors === 4 ? tempPreferment! : 0);
+  // T uscita prevista dato il setpoint acqua EFFETTIVO. Solo in modello unified
+  // (la salita ΔT è nota); legacy → undefined (nessuna predizione).
+  const exitFor = (effWaterC: number): number | undefined =>
+    frictionRiseC == null ? undefined : (sumOthers + effWaterC) / factors + frictionRiseC;
+
   // ── Acqua liquida ─────────────────────────────────────────────────────────
   if (tWaterCalc >= ICE_THRESHOLD_C) {
+    const tWaterLiquid = Math.min(35, Math.max(1, tWaterCalc));
+    const exitTempC    = exitFor(tWaterLiquid);
     return {
       tWaterCalc,
       mode:            'liquid',
-      tWaterLiquid:    Math.min(35, Math.max(1, tWaterCalc)),
+      tWaterLiquid,
       cFriction,
       factors,
       tempFlour,
       waterTotalGrams,
+      frictionModel,
+      frictionRiseC,
+      exitTempC,
+      exitWarning: exitTempC != null && exitTempC > FRICTION_PARAMS.exitWarnC,
     };
   }
 
-  // ── Sostituzione ghiaccio ─────────────────────────────────────────────────
+  // ── Sostituzione ghiaccio (§2.21 — fisica INVARIATA) ────────────────────────
   // Bug #92 v2.4.15: bilancio entalpico corretto per ghiaccio alla sua T reale.
   // ΔH_ice [cal/g] = c_s × |T_ice| + λ_f
   //   c_s = 0.5 cal/(g·°C) — calore specifico ghiaccio solido
   //   λ_f = 80 cal/g        — calore latente di fusione
-  // NB: la formula precedente usava il denominatore (80 + tAvail), che includeva il
-  // riscaldamento dell'acqua di fusione fino a tAvail. Qui quel termine è trascurato
-  // (acqua di fusione ≈0°C) e sostituito dal pre-riscaldamento del ghiaccio solido:
-  //   iceTempC=0°C  → ΔH_ice = 80  (≈ vecchia formula con tAvail→0, non identica)
-  //   iceTempC=-18°C→ ΔH_ice = 89  → iceGrams ~10% in meno (default congelatore)
-  //
   // M_ghiaccio = M_acqua × (T_avail − T_calc) / ΔH_ice
+  // v2.4.24: tapWaterC (se fornita) vince su waterAvailableTempC come T disponibile.
   const C_S_ICE = 0.5;     // cal/(g·°C)
   const LAMBDA_FUSION = 80; // cal/g
-  const tAvail   = Math.max(ICE_THRESHOLD_C, waterAvailableTempC);
-  const deltaH   = C_S_ICE * Math.abs(iceTempC) + LAMBDA_FUSION;
-  const iceGrams = Math.min(
-    waterTotalGrams,
-    Math.max(0, waterTotalGrams * (tAvail - tWaterCalc) / deltaH),
-  );
+  const tAvail    = Math.max(ICE_THRESHOLD_C, tapWaterC ?? waterAvailableTempC);
+  const deltaH    = C_S_ICE * Math.abs(iceTempC) + LAMBDA_FUSION;
+  const iceNeeded = Math.max(0, waterTotalGrams * (tAvail - tWaterCalc) / deltaH);  // grezzo, pre-clamp
+
+  // ── Irraggiungibile anche con TUTTO ghiaccio (v2.4.24) ──────────────────────
+  // Se servirebbe più ghiaccio dell'acqua totale, il target è fuori portata: l'acqua
+  // più fredda ottenibile (tutto ghiaccio) è tAvail − ΔH_ice. Esponi leve, non crashare.
+  if (iceNeeded > waterTotalGrams) {
+    const coldestWaterC = tAvail - deltaH;
+    const exitTempC     = exitFor(coldestWaterC);
+    return {
+      tWaterCalc,
+      mode:            'unreachable',
+      cFriction,
+      factors,
+      tempFlour,
+      waterTotalGrams,
+      frictionModel,
+      frictionRiseC,
+      requiredWaterTempC: tWaterCalc,
+      exitTempC,
+      exitWarning:        true,
+      levers: [
+        'Riduci la durata di impastamento',
+        'Prefermento / farina più freddi',
+        'Abbassa la T ambiente',
+        'Alza la TMD target',
+        'Riduci la pezzatura',
+      ],
+    };
+  }
 
   // Bug #91 v2.4.15: liquidGrams per differenza → invariante massa garantita.
-  // Math.round(iceGrams) + Math.round(liquidGrams) può eccedere waterTotalGrams
-  // di 1g se entrambe le frazioni sono 0.5; ora liquidGrams = totale − roundedIce.
-  const roundedIce    = Math.min(waterTotalGrams, Math.round(iceGrams));
+  const roundedIce    = Math.min(waterTotalGrams, Math.round(iceNeeded));
   const roundedLiquid = waterTotalGrams - roundedIce;  // ≥ 0 per costruzione
+  // Il mix ghiaccio+acqua raggiunge l'equivalente tWaterCalc → uscita ≈ TMD.
+  const exitTempC = exitFor(tWaterCalc);
 
   return {
     tWaterCalc,
@@ -403,5 +496,9 @@ export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
     factors,
     tempFlour,
     waterTotalGrams,
+    frictionModel,
+    frictionRiseC,
+    exitTempC,
+    exitWarning: exitTempC != null && exitTempC > FRICTION_PARAMS.exitWarnC,
   };
 }

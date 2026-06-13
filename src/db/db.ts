@@ -125,6 +125,8 @@ export interface Session {
   waterHardnessPpm?: number;           // §2.17 durezza acqua; default 150
   malt?: MaltSpec;                     // §2.15 malto diastatico
   kneadingMethod?: string;             // §2.7 metodo impastamento per calcolo DDT acqua
+  kneadDurationMin?: number;           // §2.7 v2.4.24 durata impastamento [min] → attrito unificato
+  tapWaterC?: number;                  // §2.7 v2.4.24 T acqua di rubinetto [°C] per bilancio ghiaccio
   tLaboratorio?: number;               // §2.7 T ambiente al momento dell'impasto [°C]
   fatPct?: number;                     // §5.4 grasso baker's % [0–10]; default 0
 

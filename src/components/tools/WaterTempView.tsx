@@ -16,9 +16,10 @@ import { Metric, S } from '../ui';
 
 // ─── Colore contestuale in base al risultato ──────────────────────────────────
 function resultColor(result: WaterTempResult): string {
-  if (result.mode === 'ice')   return 'var(--state-cold)';
-  if (result.tWaterCalc > 28) return 'var(--accent-warning)';
-  if (result.tWaterCalc < 10) return 'var(--accent-info)';
+  if (result.mode === 'unreachable') return 'var(--accent-warning)';
+  if (result.mode === 'ice')         return 'var(--state-cold)';
+  if (result.tWaterCalc > 28)        return 'var(--accent-warning)';
+  if (result.tWaterCalc < 10)        return 'var(--accent-info)';
   return 'var(--state-optimal-lo)';
 }
 
@@ -56,40 +57,51 @@ export function WaterTempResultCard({
   // ── Modalità compact: riga orizzontale inline ─────────────────────────────
   if (compact) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-        {result.mode === 'liquid' ? (
-          <>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              💧 Acqua consigliata:
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {result.mode === 'unreachable' ? (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--accent-warning)' }}>
+              ⚠ Target irraggiungibile — riduci durata o alza TMD
             </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color }}>
-              {result.tWaterLiquid!.toFixed(1)}°C
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              · {result.waterTotalGrams}g
-            </span>
-            {result.tWaterCalc < 10 && (
-              <span style={{ fontSize: '0.7rem', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
-                (fredda — frigo)
+          ) : result.mode === 'liquid' ? (
+            <>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                💧 Acqua consigliata:
               </span>
-            )}
-          </>
-        ) : (
-          <>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--state-cold)' }}>
-              ❄ Ghiaccio:
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'var(--state-cold)' }}>
-              {result.iceGrams}g
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              + {result.liquidGrams}g acqua ({result.waterTotalGrams}g tot.)
-            </span>
-          </>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color }}>
+                {result.tWaterLiquid!.toFixed(1)}°C
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                · {result.waterTotalGrams}g
+              </span>
+              {result.tWaterCalc < 10 && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+                  (fredda — frigo)
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--state-cold)' }}>
+                ❄ Ghiaccio:
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'var(--state-cold)' }}>
+                {result.iceGrams}g
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                + {result.liquidGrams}g acqua ({result.waterTotalGrams}g tot.)
+              </span>
+            </>
+          )}
+          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            C={result.cFriction.toFixed(1)}°C
+          </span>
+        </div>
+        {result.exitWarning && result.exitTempC != null && (
+          <div style={{ fontSize: '0.7rem', color: 'var(--accent-warning)', fontFamily: 'var(--font-mono)' }}>
+            ⚠ Uscita prevista {result.exitTempC.toFixed(1)}°C — glutine tende a slegarsi (&gt;{27}°C)
+          </div>
         )}
-        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-          C={result.cFriction}°C
-        </span>
       </div>
     );
   }
@@ -97,7 +109,36 @@ export function WaterTempResultCard({
   // ── Modalità card verticale ───────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {result.mode === 'liquid' ? (
+      {result.mode === 'unreachable' ? (
+        /* Target irraggiungibile (v2.4.24) */
+        <>
+          <div style={{
+            background: 'rgba(255,200,0,0.07)',
+            border: '1px solid var(--accent-warning)',
+            borderRadius: 'var(--radius-md)',
+            padding: '8px 12px',
+          }}>
+            <div style={{ fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-warning)', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>
+              ⚠ Target irraggiungibile
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              T_acqua richiesta {result.requiredWaterTempC?.toFixed(1)}°C — impossibile anche con tutto ghiaccio
+            </div>
+          </div>
+          {result.levers && result.levers.length > 0 && (
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ marginBottom: 4, color: 'var(--text-muted)' }}>Leve disponibili:</div>
+              {result.levers.map((l, i) => (
+                <div key={i}>· {l}</div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <Metric label="C_attrito" value={result.cFriction.toFixed(1)} unit="°C" />
+            <Metric label="Fattori" value={result.factors === 4 ? '4 (indiretto)' : '3 (diretto)'} />
+          </div>
+        </>
+      ) : result.mode === 'liquid' ? (
         /* Acqua liquida */
         <>
           {/* Temperatura + grammi in evidenza */}
@@ -122,14 +163,25 @@ export function WaterTempResultCard({
               ℹ Usa acqua di frigorifero
             </div>
           )}
-          {result.tWaterCalc > 28 && (
+          {result.tWaterCalc > 28 && !result.exitWarning && (
             <div style={{ fontSize: '0.73rem', color: 'var(--accent-warning)', fontFamily: 'var(--font-mono)' }}>
               ⚠ Temperatura alta — verifica DDT o C_attrito
             </div>
           )}
+          {result.exitWarning && result.exitTempC != null && (
+            <div style={{ fontSize: '0.73rem', color: 'var(--accent-warning)', fontFamily: 'var(--font-mono)' }}>
+              ⚠ Impasto caldo: uscita prevista {result.exitTempC.toFixed(1)}°C — glutine tende a slegarsi
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Metric label="C_attrito" value={result.cFriction} unit="°C" />
+            <Metric label="C_attrito" value={result.cFriction.toFixed(1)} unit="°C" />
             <Metric label="Fattori" value={result.factors === 4 ? '4 (indiretto)' : '3 (diretto)'} />
+            {result.frictionRiseC != null && (
+              <Metric label="ΔT_attrito" value={result.frictionRiseC.toFixed(1)} unit="°C" />
+            )}
+            {result.exitTempC != null && (
+              <Metric label="T uscita" value={result.exitTempC.toFixed(1)} unit="°C" />
+            )}
           </div>
         </>
       ) : (
@@ -171,6 +223,11 @@ export function WaterTempResultCard({
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             Acqua a {result.tWaterEffective}°C · Ghiaccio a 0°C · L=80 cal/g
           </div>
+          {result.exitWarning && result.exitTempC != null && (
+            <div style={{ fontSize: '0.73rem', color: 'var(--accent-warning)', fontFamily: 'var(--font-mono)' }}>
+              ⚠ Impasto caldo: uscita prevista {result.exitTempC.toFixed(1)}°C — glutine tende a slegarsi
+            </div>
+          )}
         </>
       )}
 

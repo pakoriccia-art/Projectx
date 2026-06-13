@@ -26,6 +26,8 @@ export interface WizardDraft {
   altitudeM?: number;
   waterHardnessPpm?: number;
   kneadingMethod?: 'hand' | 'spiral' | 'planetary' | 'diving_arm';  // §2.7 DDT acqua
+  kneadDurationMin?: number;  // §2.7 v2.4.24 durata impastamento [min]; default 12
+  tapWaterC?: number;         // §2.7 v2.4.24 T acqua di rubinetto [°C] per bilancio ghiaccio
   tLaboratorio?: number;   // §2.7 T ambiente al momento dell'impasto [°C]; default 20
   // Step 5
   agentType?: 'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat';

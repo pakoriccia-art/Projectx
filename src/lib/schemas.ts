@@ -120,6 +120,8 @@ export const WizardInputSchema = z.object({
   altitudeM:        z.number().min(0).max(5000).optional(),
   waterHardnessPpm: z.number().min(0).max(800).optional(),
   kneadingMethod:   KneadingEnum.optional(),
+  kneadDurationMin: z.number().min(0).max(120).optional(),  // §2.7 v2.4.24
+  tapWaterC:        z.number().min(0).max(40).optional(),   // §2.7 v2.4.24
   tLaboratorio:     z.number().min(5).max(40).optional(),
 
   // Step 5
