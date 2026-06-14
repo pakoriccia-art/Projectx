@@ -1,4 +1,4 @@
-# PizzaMatrix v2.4.24
+# PizzaMatrix v2.4.25
 
 Motore di calcolo predittivo per la fermentazione dell'impasto pizza.
 React + Vite + Dexie + Recharts + Capacitor Android.
@@ -34,7 +34,7 @@ React + Vite + Dexie + Recharts + Capacitor Android.
 | **Two-Clock §2.0** | `enzAdu` alimentato solo da `fArrhenius(T)` (clock proteolitico). `leavAdu` alimentato solo da `kEffective(T)` Gompertz (clock lievito). I due clock NON si mescolano mai. |
 | **Friction §2.7** | Il modulo attrito (`friction-v2.4.24.js`) NON legge né scrive `enzAdu` o `leavAdu`. Alimenta solo il calcolo DDT e il display T_uscita. |
 | **simulateTimeline** | `simulateTimeline`, tick loop, `plannerAlarmEngine`: zero modifiche strutturali senza verifica full test suite. |
-| **Input utente immutabili** | `hydration`, `W`, `style`, `mixerType` sono dati utente. I moduli li leggono, MAI li sovrascrivono silenziosamente. |
+| **Input utente immutabili** | `hydration`, `W`, `style`, `mixerType` sono dati utente. I moduli li leggono, MAI li sovrascrivono silenziosamente. Dove un reset è necessario (Autolisi → idr. pre-fermento 65% per Zod), è **advisory + undo** (v2.4.25, WP-5), non mutazione silenziosa. |
 | **Gompertz/Hill/Arrhenius/CTM** | Costanti fisiche invariate: `muMax`, `lambda`, `Ea`, `W0`, `Hill n`. Modificabili solo con riferimento bibliografico esplicito. |
 | **Dashboard v3.1** | `DashboardView.tsx` (v3.1): NON modificare. Il fix dashboard avviene a livello di `App.tsx`. |
 
@@ -400,7 +400,24 @@ Il cap stile evita puntate irrealistiche quando i target del solver supererebber
 #### Idratazione — valore derivato
 
 In modalità Qualità, `hydration` è un **output** del solver (derivato da `extTarget`),
-non un input modificabile dall'utente. Il planner la mostra come read-only.
+non un input modificabile dall'utente. Il planner la mostra come `DerivedField` (read-only
+ma "vivo": alto contrasto, pill ∑ « derivato da Estensibilità », micro-pulse al variare).
+
+#### `breakdown` — output additivo per la UI (v2.4.25, WP-0)
+
+`solveQualityProfile` ritorna anche un blocco `breakdown` (sola esposizione, nessuna nuova
+fisica) con le variabili intermedie già calcolate, consumato da card credito e cap esplicito:
+
+| Campo | Significato |
+|-------|-------------|
+| `aduTarget` / `aduFridge` / `prefEnzAdu` / `aduNeeded` | termini della sottrazione ADU enzimatica |
+| `kAmbRate` | `fArrhenius(tAmb)` |
+| `puntataRaw` | `aduNeeded / kAmbRate` (con credito enzimatico) |
+| `puntataRawNoCredit` | `(aduTarget − aduFridge) / kAmbRate` (senza credito — per anim WP-2) |
+| `puntataCapped` / `capped` | puntata dopo cap stile / flag se il cap ha agito (tol. 0.05h) |
+| `rangeTa` | `STYLE_PROFILES[style].puntataH_range_ta` |
+| `hydRef` | `60 + (extTarget − 1) × 4` |
+| `prefermentoSuggested` | `{ type, fraction, durationH, tempC }` o `null` |
 
 ---
 
@@ -455,9 +472,44 @@ src/
 
 ---
 
-## 12. Changelog sintetico v2.4.17 → v2.4.24 {#changelog}
+## 12. Changelog sintetico v2.4.17 → v2.4.25 {#changelog}
 
-### v2.4.24 (corrente)
+### v2.4.25 (corrente) — Consolidamento UX dei 5 rami condizionali del Wizard
+
+Release di sola presentazione + **una** estensione additiva dell'output di
+`solveQualityProfile` (layer componente). **Nessuna modifica** a engine fisico, Two-Clock,
+attrito o solver. Ogni WP è un commit indipendente.
+
+**Component Inventory (nuovi / modificati):**
+- `src/components/ui/feedback.tsx` — primitive condivise: `useReducedMotion`, `Badge`,
+  `Advisory` (banner dismissibile + undo), `AnimatedNumber` (rAF, reduced-motion safe),
+  `CoverageBar`, `MassSplitBar`, `ExpandableReward`, helper `pulseElement`/`shakeElement`.
+- `src/lib/haptics.ts` — `haptics(style)` feature-detected. `@capacitor/haptics` **opzionale**
+  (import dinamico non-letterale → no build-fail se assente, no-op su web). NON è dipendenza.
+- `src/components/wizard/PrefermentCreditCard.tsx` — Two-Clock visivo: riga 🟡 enzimatica
+  (ore) + riga 🔵 termica (°C), mai barra/unità condivise.
+- `WaterTempResultCard` — nuova prop `variant` ('interactive' | 'summary'), `MassSplitBar`
+  per il ghiaccio, leve `unreachable` come chip (`leverConfig`, `onLever` opzionale), `role="alert"`.
+- `FermentationPlannerView` — `DerivedField` (idratazione qualità), cap esplicito + credito
+  prefermento nella `QualityProfileResultCard`.
+
+**WP per ramo:**
+- **WP-0**: `solveQualityProfile` ritorna `breakdown` (additivo, vedi §10).
+- **WP-1**: campi derivati "vivi" in modalità Qualità; switch non distruttivo (lo slider
+  idratazione non viene mai mutato in Qualità → i valori manuali si conservano).
+- **WP-2**: `PrefermentCreditCard` — il "crollo" puntata 4.3h→2.0h ora animato e spiegato.
+- **WP-3**: Step 4 DDT progressive disclosure — durata 0 = card T-uscita dormiente (legacy);
+  durata > 0 = sblocco previsione `exitTempC` + badge unified/legacy + warning ambra > 27°C.
+- **WP-4**: card acqua — `MassSplitBar` (ghiaccio), leve chip naviganti, variant summary.
+- **WP-5**: (A) feedback tap fase bloccata (shake/flash + haptics + coachmark, nessun dispatch);
+  (B) reset Autolisi advisory + undo (undo solo se valore precedente ∈ [50,80]);
+  (C) override puntata Step 8 — badge "modificato manualmente" + teorico ghost ripristinabile.
+
+**Frizioni risolte (bug log):** campi morti in Qualità · crollo puntata percepito come bug ·
+reset Autolisi silenzioso · tap fase passata senza feedback · leve unreachable passive ·
+switch unified/legacy DDT invisibile.
+
+### v2.4.24
 
 **Modello attrito meccanico unificato** (`engine/friction-v2.4.24.js`):
 - `computeFrictionRise` come sorgente unica di verità per il calore di attrito
