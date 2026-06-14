@@ -841,6 +841,26 @@ interface QualityTargets {
   sciTarget:   number;   // 1–5
 }
 
+/**
+ * Breakdown additivo (WP-0, v2.4.25) — espone le variabili intermedie GIÀ calcolate
+ * da solveQualityProfile per il rendering della UI (card credito, cap esplicito, campi
+ * derivati). NON ricalcola fisica: solo esposizione. Two-Clock invariato.
+ */
+interface QualitySolveBreakdown {
+  aduTarget:          number;
+  aduFridge:          number;
+  prefEnzAdu:         number;   // 0 se nessun prefermento suggerito
+  aduNeeded:          number;
+  kAmbRate:           number;
+  puntataRaw:         number;   // = aduNeeded / kAmbRate (con credito enzimatico)
+  puntataRawNoCredit: number;   // = (aduTarget − aduFridge) / kAmbRate (senza credito)
+  puntataCapped:      number;   // = clamp(puntataRaw, range) — uguale a puntataH
+  capped:             boolean;  // puntataCapped !== puntataRaw oltre tolleranza 0.05h
+  rangeTa:            [number, number];  // STYLE_PROFILES[style].puntataH_range_ta
+  hydRef:             number;   // 60 + (extTarget − 1) × 4
+  prefermentoSuggested: { type: 'poolish' | 'biga'; fraction: number; durationH: number; tempC: number } | null;
+}
+
 interface QualityResult {
   // Required maturation
   mTarget:          number;   // [0,1] — reconciled
@@ -867,6 +887,8 @@ interface QualityResult {
   predictedSci:     number;
   // Schedule
   totalH:           number;
+  // WP-0 (v2.4.25): variabili intermedie esposte per la UI (additivo)
+  breakdown:        QualitySolveBreakdown;
 }
 
 /** Inverte il profilo qualità: dai target (1–5) ricava parametri di protocollo. */
@@ -972,6 +994,21 @@ function solveQualityProfile(
 
   const totalH = puntataH + staglioH + tcHours;
 
+  // ── WP-0 (v2.4.25): breakdown additivo — solo esposizione, nessuna nuova fisica ──
+  const puntataRawNoCredit = Math.max(0.1, aduTarget - aduFridge) / Math.max(0.01, kAmbRate);
+  const breakdown: QualitySolveBreakdown = {
+    aduTarget, aduFridge, prefEnzAdu, aduNeeded, kAmbRate,
+    puntataRaw,
+    puntataRawNoCredit,
+    puntataCapped: puntataH,
+    capped: Math.abs(puntataH - puntataRaw) > 0.05,
+    rangeTa: styleProf.puntataH_range_ta,
+    hydRef,
+    prefermentoSuggested: (prefType === 'biga' || prefType === 'poolish')
+      ? { type: prefType, fraction: prefFrac, durationH: prefDurH, tempC: prefTempC }
+      : null,
+  };
+
   return {
     mTarget, mFromExt, mFromSci_lo, mFromSci_hi, conflictExtSci,
     hydration: Math.round(hydRef), prefType, prefFrac, prefDurH, prefTempC, prefYeastPct,
@@ -980,6 +1017,7 @@ function solveQualityProfile(
     apprettoProtocol: tcHours > 0 ? 'tc_appreto' : 'ta',
     predictedExt, predictedAroma, predictedSci,
     totalH: parseFloat(totalH.toFixed(1)),
+    breakdown,
   };
 }
 
