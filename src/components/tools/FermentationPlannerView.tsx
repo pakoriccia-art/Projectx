@@ -27,6 +27,7 @@ import {
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
+import { PrefermentCreditCard } from '../wizard/PrefermentCreditCard';
 import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand } from '../../data/flourDatabase';
 import { ddtForStyle } from '../../data/styleConstraints';
 import { DOUGH_LIMITS } from '../../constants/limits';
@@ -1135,6 +1136,25 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
           </div>
         </div>
       </div>
+
+      {/* Credito del prefermento — Two-Clock visivo (WP-2): riga enzimatica
+          (la biga matura accorcia la puntata). Spiega il "crollo" altrimenti
+          percepito come bug. */}
+      {result.breakdown.prefEnzAdu > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <PrefermentCreditCard
+            prefLabel={`${prefLabels[result.prefType]} ${result.prefFrac}% · ${result.prefDurH}h`}
+            enzymatic={{
+              puntataBefore: result.breakdown.puntataRawNoCredit,
+              puntataAfter:  result.breakdown.puntataRaw,
+              aduTarget:     result.breakdown.aduTarget,
+              aduFridge:     result.breakdown.aduFridge,
+              prefEnzAdu:    result.breakdown.prefEnzAdu,
+              aduNeeded:     result.breakdown.aduNeeded,
+            }}
+          />
+        </div>
+      )}
 
       {/* Schedule compatto */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 14 }}>
