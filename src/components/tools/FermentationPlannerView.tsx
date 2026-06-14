@@ -15,9 +15,9 @@
  *          dove remainingH = targetTotalH − staglioH
  *   4. Valuta la viabilità in base al W della farina
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Card, Metric, SnapButtons, S } from '../ui';
+import { Card, Metric, SnapButtons, S, Badge, useReducedMotion, pulseElement } from '../ui';
 import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
@@ -587,6 +587,61 @@ function PlannerSlider({ label, value, onChange, min, max, step, unit, color }: 
   );
 }
 
+// ─── Campo derivato (WP-1, v2.4.25) ───────────────────────────────────────────
+// Valore read-only "vivo": alto contrasto (NON grigio spento), pill di spiegazione
+// tappabile, micro-pulse al variare del valore (rispetta reduced-motion).
+// È informazione viva derivata da un altro input, non un campo disabilitato.
+function DerivedField({
+  label, value, explanation, color = '#e5e7eb',
+}: {
+  label: string; value: string; explanation: string; color?: string;
+}) {
+  const reduced = useReducedMotion();
+  const valRef  = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const descId = `derived-${label.replace(/\s+/g, '-').toLowerCase()}`;
+
+  useEffect(() => {
+    if (!reduced) pulseElement(valRef.current);
+  }, [value, reduced]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 28 }}>
+        <span style={S.label}>{label}</span>
+        <span
+          ref={valRef}
+          aria-readonly="true"
+          aria-describedby={descId}
+          aria-label={`${label} ${value}, ${explanation}, sola lettura`}
+          style={{
+            display: 'inline-flex', alignItems: 'baseline', gap: 4,
+            fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 700,
+            color, fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          <span aria-hidden="true" style={{ fontSize: '0.75rem', color: '#2dd4bf' }}>∑</span>
+          {value}
+        </span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Badge tone="derived" onClick={() => setOpen(o => !o)} ariaLabel={`Spiegazione: ${explanation}`}>
+          « {explanation} »
+        </Badge>
+      </div>
+      {open && (
+        <p id={descId} style={{
+          margin: 0, fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+          color: 'var(--text-secondary)', lineHeight: 1.5, textAlign: 'right',
+        }}>
+          Valore calcolato dal solver: non modificabile direttamente. Cambia gli obiettivi sensoriali per aggiornarlo.
+        </p>
+      )}
+      {!open && <span id={descId} style={{ display: 'none' }}>{explanation}, sola lettura</span>}
+    </div>
+  );
+}
+
 // ─── Card risultato finestra di servizio ─────────────────────────────────────
 function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; value: string }) {
   return (
@@ -1088,6 +1143,16 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
             value={`${result.prefDurH}h a ${result.prefTempC}°C · lievito ${result.prefYeastPct}%`} />
         )}
         <PlanRow label="Puntata TA" value={`${result.puntataH.toFixed(1)}h`} />
+        {result.breakdown.capped && (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: '#2dd4bf',
+            lineHeight: 1.45, paddingLeft: 2,
+          }}>
+            Cappata a {result.breakdown.puntataCapped.toFixed(1)}h dal profilo stile
+            (range {result.breakdown.rangeTa[0]}–{result.breakdown.rangeTa[1]}h).
+            Il target chiederebbe {result.breakdown.puntataRaw.toFixed(1)}h.
+          </div>
+        )}
         <PlanRow label="Staglio" value={`${result.staglioH.toFixed(1)}h`} />
         {result.tcHours > 0 && <PlanRow label="Appretto TC (frigo)" value={`${result.tcHours.toFixed(1)}h`} />}
         <PlanRow label="Protocollo" value={result.apprettoProtocol === 'tc_appreto' ? 'TC Appreto' : 'Tutto TA'} />
@@ -1533,14 +1598,11 @@ export function FermentationPlannerView() {
             <PlannerSlider label="Idratazione" value={hydration} onChange={setHydration}
               min={55} max={90} step={1} unit="%" color="var(--accent-info)" />
           ) : (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-              <span style={S.label}>Idratazione</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--accent-info)' }}>
-                {qualityResult ? `${qualityResult.hydration}%` : '—'}
-                {' '}
-                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>← estensibilità</span>
-              </span>
-            </div>
+            <DerivedField
+              label="Idratazione"
+              value={qualityResult ? `${qualityResult.hydration}%` : '—'}
+              explanation="derivato da Estensibilità"
+            />
           )}
           <PlannerSlider label="Sale" value={salt} onChange={setSalt}
             min={0} max={4} step={0.1} unit="%" color="var(--accent-info)" />

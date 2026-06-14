@@ -341,6 +341,12 @@ export function StepHeader({ step, total, title }: { step: number; total: number
 
 export { S };
 
+// ─── Primitive di feedback UX (v2.4.25) ───────────────────────────────────────
+export {
+  useReducedMotion, Badge, Advisory, AnimatedNumber,
+  CoverageBar, MassSplitBar, ExpandableReward, pulseElement, shakeElement,
+} from './feedback';
+
 // ─── FormSection ──────────────────────────────────────────────────────────────
 // Raggruppa input correlati con un label-divider orizzontale e sfondo micro-elevato.
 // Sostituisce blocchi di flex-column flat senza contesto visivo.
