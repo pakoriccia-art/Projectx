@@ -3,7 +3,7 @@
  * Timeline orizzontale delle fasi, derivata da session.thermalTimeline (fonte di verità).
  * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
  */
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import type React from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
@@ -11,6 +11,8 @@ import {
   deriveCanonicalPhases, canonicalDisplayLabel, type CanonicalPhase,
 } from '../../engine/canonicalPhases';
 import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
+import { useReducedMotion, shakeElement } from '../ui';
+import { haptics } from '../../lib/haptics';
 
 export interface TimelinePhase {
   phaseType:    string;
@@ -114,6 +116,24 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
   const showBadge = phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4;
   // Bug #94 / v2.4.20: la tappabilità è decisa a monte (state==='future' && start>now+5min).
   const canTransition = phase.tappable && !!onTransition;
+  // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
+  // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
+  const isLocked = !canTransition && (isCompleted || isCurrent);
+
+  const reduced = useReducedMotion();
+  const markerRef = useRef<HTMLDivElement>(null);
+  const [coachmark, setCoachmark] = useState(false);
+  const [flash, setFlash] = useState(false);
+
+  // WP-5(A): tap su fase bloccata → shake/flash + haptics + coachmark, NESSUN dispatch.
+  // La guardia di transizione resta intatta: questo ramo non chiama mai onTransition.
+  const handleLockedTap = () => {
+    if (reduced) { setFlash(true); setTimeout(() => setFlash(false), 220); }
+    else         { shakeElement(markerRef.current); }
+    haptics('Light');
+    setCoachmark(true);
+    setTimeout(() => setCoachmark(false), 2600);
+  };
 
   const pipBase: React.CSSProperties = {
     width: isCurrent ? 15 : 11,
@@ -129,15 +149,40 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
 
   return (
     <div
-      onClick={canTransition ? () => onTransition!(phase.transitionTo) : undefined}
+      ref={markerRef}
+      onClick={canTransition ? () => onTransition!(phase.transitionTo) : (isLocked ? handleLockedTap : undefined)}
       className={canTransition ? 'pm4-tap' : undefined}
+      role={canTransition || isLocked ? 'button' : undefined}
+      aria-label={isLocked ? `${canonicalDisplayLabel(phase)} — fase bloccata, il tempo va solo avanti` : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
         alignItems: 'center', gap: 5, minWidth: 56,
-        cursor: canTransition ? 'pointer' : 'default',
+        cursor: canTransition ? 'pointer' : (isLocked ? 'not-allowed' : 'default'),
         opacity: isCompleted ? 0.6 : 1,
+        borderRadius: 8,
+        outline: flash ? '1px solid var(--pm4-ember-lo)' : 'none',
+        transition: 'outline 0.1s',
       }}
     >
+      {/* WP-5(A): coachmark transitorio sul tap di una fase bloccata */}
+      {coachmark && (
+        <div role="status" style={{
+          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+          marginBottom: 6, zIndex: 5, width: 150,
+          background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)',
+          borderRadius: 6, padding: '6px 8px', fontSize: 9, lineHeight: 1.35,
+          color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', textAlign: 'center',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+        }}>
+          🔒 Le fasi passate sono bloccate: il tempo va solo avanti.
+        </div>
+      )}
+      {/* Lucchetto sulle fasi consolidate (affordance visiva prima del tap) */}
+      {isLocked && isCompleted && (
+        <div aria-hidden="true" style={{
+          position: 'absolute', top: 16, right: 6, fontSize: 8, opacity: 0.7,
+        }}>🔒</div>
+      )}
       {/* Affordance tap (teal) sui marker tappabili */}
       {canTransition && (
         <div style={{

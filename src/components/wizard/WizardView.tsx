@@ -568,6 +568,9 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
   };
   const color = TYPE_COLORS[pref.type] ?? 'var(--accent-brand)';
 
+  // WP-5(B): idratazione precedente da ripristinare se l'utente annulla il reset Autolisi.
+  const [autolysisUndoHyd, setAutolysisUndoHyd] = useState<number | null>(null);
+
   const hydMin = pref.type === 'biga' ? 40 : pref.type === 'riporto' ? 55 : 80;
   const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
 
@@ -600,9 +603,33 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
             // idratazione è nascosto per l'autolisi → senza questo, un poolish convertito
             // resterebbe a 100% e bloccherebbe l'avvio (Zod superRefine).
             : { hydration: 65, yeastPct: undefined, durationH: 1 };
+          // WP-5(B): il reset a 65 resta (serve a Zod) ma non più silenzioso —
+          // memorizza il valore precedente per l'undo se davvero cambia.
+          if (t === 'autolysis' && pref.hydration !== 65) {
+            setAutolysisUndoHyd(pref.hydration);
+          } else {
+            setAutolysisUndoHyd(null);
+          }
           onUpdate({ ...pref, type: t, ...newDefaults });
         }}
       />
+
+      {autolysisUndoHyd != null && pref.type === 'autolysis' && (() => {
+        // Undo sicuro solo se il valore precedente è valido per l'autolisi (50–80%):
+        // ripristinare un 100% (poolish) o 48% (biga) ri-bloccherebbe Zod.
+        const undoSafe = autolysisUndoHyd >= 50 && autolysisUndoHyd <= 80;
+        return (
+          <div style={{ marginTop: 10 }}>
+            <Advisory
+              tone="teal"
+              text={`Passando ad Autolisi ho riportato l'idratazione del pre-fermento a 65% (l'autolisi richiede 50–80%).`}
+              undoLabel={undoSafe ? `Ripristina ${autolysisUndoHyd}%` : undefined}
+              onUndo={undoSafe ? () => { onUpdate({ ...pref, hydration: autolysisUndoHyd }); setAutolysisUndoHyd(null); } : undefined}
+              onDismiss={() => setAutolysisUndoHyd(null)}
+            />
+          </div>
+        );
+      })()}
 
       {/* ── Composizione ── */}
       <FormSection title="Composizione" accent={color}>
@@ -1348,7 +1375,7 @@ function StepMetric({ label, value, unit, color }: { label: string; value: strin
 // ═══════════════════════════════════════════════════════════════════════════════
 // STEP 8 — Riepilogo ricetta (read-only, pre-avvio sessione)
 // ═══════════════════════════════════════════════════════════════════════════════
-function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
   const hydration = draft.hydration ?? 65;
   const salt      = draft.salt ?? 2;
   const flour     = draft.totalFlourGrams ?? 0;
@@ -1457,16 +1484,45 @@ function Step8({ draft }: { draft: WizardDraft; update: (p: Partial<WizardDraft>
           Tempistiche
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {draft.apprettoProtocol !== 'tc' && (
-            <Metric
-              label="Puntata TA"
-              value={draft.apprettoProtocol === 'tc_appreto'
-                ? (draft.puntataH != null ? draft.puntataH.toFixed(1) : puntataHStep8.toFixed(1))
-                : (draft.puntataH ?? '–')}
-              unit="h"
-              color={draft.apprettoProtocol === 'tc_appreto' ? 'var(--accent-brand)' : undefined}
-            />
-          )}
+          {draft.apprettoProtocol !== 'tc' && (() => {
+            // WP-5(C): override puntata persistente e visibile. Per tc_appreto, se il
+            // valore attivo (draft.puntataH) diverge dal teorico (puntataHStep8) oltre
+            // 0.05h, marca "modificato manualmente" + riferimento ghost ripristinabile.
+            const isAppreto = draft.apprettoProtocol === 'tc_appreto';
+            const overridden = isAppreto && draft.puntataH != null
+              && Math.abs(draft.puntataH - puntataHStep8) > 0.05;
+            const shown = isAppreto
+              ? (draft.puntataH != null ? draft.puntataH.toFixed(1) : puntataHStep8.toFixed(1))
+              : (draft.puntataH ?? '–');
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div
+                  aria-label={overridden
+                    ? `Puntata ${shown} ore, modificata manualmente; teorico ${puntataHStep8.toFixed(1)} ore`
+                    : undefined}
+                >
+                  <Metric label="Puntata TA" value={shown} unit="h"
+                    color={isAppreto ? 'var(--accent-brand)' : undefined} />
+                </div>
+                {overridden && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <Badge tone="manual">modificato manualmente</Badge>
+                    <button
+                      type="button"
+                      onClick={() => update({ puntataH: undefined })}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+                        padding: '4px 0', minHeight: 44,
+                        fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)',
+                      }}
+                    >
+                      teorico {puntataHStep8.toFixed(1)}h · <span style={{ color: 'var(--accent-info)', textDecoration: 'underline' }}>ripristina</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {isTcProto && (
             <Metric label="Freddo" value={draft.tcHours ?? '–'} unit="h" color="var(--state-cold)" />
           )}
