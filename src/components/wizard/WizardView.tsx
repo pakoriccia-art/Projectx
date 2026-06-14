@@ -7,6 +7,7 @@ import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
 import {
   Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2, Metric,
+  Badge, ExpandableReward, Advisory,
 } from '../ui';
 import {
   normalizeFlourGroup, computeCombinedInitialState,
@@ -882,7 +883,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         <NumInput
           label="Durata impastamento"
           unit="min"
-          value={draft.kneadDurationMin ?? 12}
+          value={draft.kneadDurationMin ?? 0}
           onChange={v => update({ kneadDurationMin: v })}
           min={0} max={120} step={1}
         />
@@ -893,8 +894,11 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           onChange={v => update({ tapWaterC: v })}
           min={0} max={40} step={0.5}
         />
-        {/* Risultato live: aggiornato ad ogni cambio di impastatrice, durata o T_lab */}
+        {/* Risultato live: aggiornato ad ogni cambio di impastatrice, durata o T_lab.
+            WP-3: con durata 0 → path legacy (C_attrito fisso) e card T uscita dormiente;
+            con durata > 0 → path unified e la previsione T uscita si "sblocca". */}
         {(() => {
+          const knead   = draft.kneadDurationMin ?? 0;
           const waterG  = Math.round((draft.totalFlourGrams ?? 1000) * (draft.hydration ?? 65) / 100);
           const tPref   = (draft.prefermenti?.length ?? 0) > 0
             ? draft.prefermenti!.reduce((s, p) => s + (p.tempC ?? 16), 0) / draft.prefermenti!.length
@@ -906,11 +910,12 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             kneadingMethod:   (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
             waterTotalGrams:  waterG,
             tempPreferment:   tPref,
-            kneadDurationMin: draft.kneadDurationMin ?? 12,
+            kneadDurationMin: knead > 0 ? knead : undefined,
             hydrationEff:     computeEffectiveMixHydration({ hydration: draft.hydration ?? 65, prefermenti: draft.prefermenti ?? [] }),
             doughMassKg:      ((draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100)) / 1000,
             tapWaterC:        draft.tapWaterC,
           });
+          const unlocked = knead > 0 && wResult.exitTempC != null;
           return (
             <>
               <WaterTempResultCard result={wResult} compact={true} />
@@ -922,6 +927,44 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
                   }
                 </div>
               )}
+              {/* WP-3: previsione T uscita — premio della compilazione */}
+              <ExpandableReward
+                unlocked={unlocked}
+                tone={wResult.exitWarning ? 'amber' : 'neutral'}
+                dormantCta={
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    🔓 Imposta la <strong>durata impasto</strong> per sbloccare la previsione T uscita
+                  </span>
+                }
+              >
+                {unlocked && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        T uscita prevista
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 800, color: wResult.exitWarning ? '#eab308' : 'var(--text-primary)' }}>
+                        {wResult.exitTempC!.toFixed(1)}°C
+                      </span>
+                      <Badge tone={wResult.frictionModel === 'unified' ? 'advanced' : 'base'}>
+                        {wResult.frictionModel === 'unified' ? 'Calcolo avanzato' : 'Calcolo base'}
+                      </Badge>
+                    </div>
+                    {wResult.frictionRiseC != null && (
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                        di cui attrito: +{wResult.frictionRiseC.toFixed(1)}°C ({knead} min)
+                      </div>
+                    )}
+                    {wResult.exitWarning && (
+                      <Advisory
+                        tone="amber"
+                        dismissible={false}
+                        text={`T uscita ${wResult.exitTempC!.toFixed(1)}°C — sopra 27°C: rischio glutine slegato. Usa acqua più fredda o accorcia l'impasto.`}
+                      />
+                    )}
+                  </div>
+                )}
+              </ExpandableReward>
             </>
           );
         })()}
