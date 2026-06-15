@@ -307,6 +307,26 @@ Prima di v2.4.20: la timeline aveva segmenti di durata variabile, causando
 artefatti grafici nel GompertzChart. Ora ogni segmento è di durata costante
 normalizzata — la curva realizzata/proiettata è continua.
 
+### Marker mostrati sulla strip (`deriveCanonicalPhases`, `canonicalPhases.ts`)
+
+`deriveCanonicalPhases` è la sorgente unica per chip header, strip orizzontale e
+header grafico. Sempre PUNTATA → STAGLIO → APPRETTO → COTTURA, più un marker
+condizionale **USCITA FRIGO**:
+
+| Marker | Confine | Glifo | Presente quando |
+|--------|---------|:-----:|-----------------|
+| PUNTATA | span bulk | ● | sempre |
+| STAGLIO | bulk → balled | ● | sempre (in TC puntata = uscita frigo `bulk_fridge → balled_room`) |
+| APPRETTO | span balled/proofing | ● | sempre |
+| **USCITA FRIGO** | `balled_fridge → proofing` | ● | **solo appretto TC con `temperingH > 0`** (v2.4.25 WP-6) |
+| COTTURA | fine timeline | ★ | sempre (★ esclusiva cottura) |
+
+- **USCITA FRIGO** (era "TEMPERING") = marker puntuale all'orario `cottura − temperingH`,
+  tappabile forward-only (`transitionTo: 'proofing'` → `CONFIRM_PHASE_TRANSITION`),
+  badge countdown "tra Xh Ym" se ≤ 4h. In **TC puntata** l'uscita frigo coincide con lo
+  STAGLIO (nessun doppione). Con `temperingH === 0` non viene emesso (warning "cottura a
+  freddo" v2.4.21 copre quel rischio).
+
 ---
 
 ## 9. Collasso Strutturale §2.10 — v2.4.23 {#collasso}
@@ -504,10 +524,17 @@ attrito o solver. Ogni WP è un commit indipendente.
 - **WP-5**: (A) feedback tap fase bloccata (shake/flash + haptics + coachmark, nessun dispatch);
   (B) reset Autolisi advisory + undo (undo solo se valore precedente ∈ [50,80]);
   (C) override puntata Step 8 — badge "modificato manualmente" + teorico ghost ripristinabile.
+- **WP-6** (addendum): marker **USCITA FRIGO** sulla strip Dashboard. Sola presentazione:
+  in `canonicalPhases.ts` la fase condizionale `tempering` (key invariata) è ora etichettata
+  "USCITA FRIGO" e resa marker puntuale (`isMarker: true`, `endMs = startMs`) al confine
+  `balled_fridge → proofing` (= `cottura − temperingH`). Tappabilità/countdown/forward-only
+  già esistenti. Nessun doppione in TC puntata, nessun marker se `temperingH === 0`.
 
 **Frizioni risolte (bug log):** campi morti in Qualità · crollo puntata percepito come bug ·
 reset Autolisi silenzioso · tap fase passata senza feedback · leve unreachable passive ·
-switch unified/legacy DDT invisibile.
+switch unified/legacy DDT invisibile · marker uscita frigo assente per TC appretto (segmento
+tempering già in `session.timeline` ma non etichettato come momento d'uscita) — confermato che
+TC puntata non richiede marker dedicato (uscita frigo = staglio).
 
 ### v2.4.24
 

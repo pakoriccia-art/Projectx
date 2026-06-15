@@ -5,7 +5,7 @@
  * stringa header grafico): per OGNI stile e protocollo la fermentazione si racconta
  * SEMPRE con le quattro fasi canoniche
  *
- *     PUNTATA → STAGLIO → APPRETTO → COTTURA   (+ TEMPERING condizionale)
+ *     PUNTATA → STAGLIO → APPRETTO → COTTURA   (+ USCITA FRIGO condizionale)
  *
  * presenti anche quando il segmento corrispondente ha durata ~0 (marker puntuale).
  * Questo elimina sia la non-uniformità (la strip saltava le fasi senza segmento) sia
@@ -94,7 +94,7 @@ export function deriveCanonicalPhases(
   const balledFridge = segs.filter(s => s.phaseType === 'balled_fridge');
   const proofing     = segs.filter(s => s.phaseType === 'proofing');
 
-  // TEMPERING = proofing TA finale dopo un appretto TC, SOLO se temperingH > 0.
+  // USCITA FRIGO = proofing TA finale dopo un appretto TC, SOLO se temperingH > 0.
   const hasTempering = (opts.temperingH ?? 0) > 0 && balledFridge.length > 0 && proofing.length > 0;
   const temperingSeg = hasTempering ? proofing[proofing.length - 1] : null;
 
@@ -148,17 +148,21 @@ export function deriveCanonicalPhases(
     isMarker: false, isBake: false,
   });
 
-  // ── TEMPERING (condizionale): proofing TA finale dopo appretto TC ───────────
+  // ── USCITA FRIGO (condizionale): confine balled_fridge → proofing ────────────
+  // Marker puntuale al momento in cui i panetti escono dal frigo per il tempering
+  // (= fine appretto TC = cottura − temperingH). Esiste SOLO per appretto TC con
+  // temperingH > 0; in TC puntata l'uscita frigo coincide con lo STAGLIO (nessun
+  // doppione). Tappabile forward-only via la transizione 'proofing' esistente.
   if (temperingSeg) {
     const tStartMs = toMs(temperingSeg.startElapsedH);
     const tEndMs   = toMs(segEnd(temperingSeg));
     const tState   = deriveState([temperingSeg], tStartMs, tEndMs, nowMs);
     phases.push({
-      key: 'tempering', label: 'TEMPERING', env: 'TA',
-      startMs: tStartMs, endMs: tEndMs, state: tState,
+      key: 'tempering', label: 'USCITA FRIGO', env: 'TA',
+      startMs: tStartMs, endMs: tStartMs, state: tState,
       tappable: tappableFrom(tState, tStartMs, nowMs),
       transitionTo: 'proofing',
-      isMarker: false, isBake: false,
+      isMarker: true, isBake: false,
     });
   }
 
