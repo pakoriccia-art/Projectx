@@ -4,3 +4,7 @@ android/
 .DS_Store
 *.local
 *.map
+
+# Playwright artifacts
+playwright-report/
+test-results/
