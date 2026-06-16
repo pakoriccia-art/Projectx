@@ -948,7 +948,7 @@ interface QualityResult {
 }
 
 /** Inverte il profilo qualità: dai target (1–5) ricava parametri di protocollo. */
-function solveQualityProfile(
+export function solveQualityProfile(
   targets: QualityTargets,
   flour: { W: number; pl: number },
   style: string,
