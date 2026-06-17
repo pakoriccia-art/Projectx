@@ -391,6 +391,8 @@ function buildSession(draft: WizardDraft): Session {
     // Service-Window planner: timeline precomputata (onorata da startSession) + soglia bolle
     thermalTimeline:         draft.thermalTimeline,
     bubbleThresholdPct:      draft.bubbleThresholdPct ?? 92,
+    // temperingH: dal planner (draft.temperingH) o calcolato da buildSession per tc_appreto
+    temperingH:              draft.temperingH ?? (_proto === 'tc_appreto' ? _a : 0),
   } as unknown as Session;
 }
 

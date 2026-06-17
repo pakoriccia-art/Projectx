@@ -47,6 +47,8 @@ export interface WizardDraft {
   // Service-Window planner: timeline precomputata + soglia bolle calibrabile
   thermalTimeline?: PhaseSegment[];
   bubbleThresholdPct?: number;
+  // Ore di tempering (uscita frigo → TA): > 0 → marker USCITA FRIGO sulla timeline
+  temperingH?: number;
   // Target maturazione: 85% default (ora di cottura), 90% per finestra servizio
   alertThreshold?: number;
   // Navigazione: indica da dove è stato aperto il riepilogo (step 8)

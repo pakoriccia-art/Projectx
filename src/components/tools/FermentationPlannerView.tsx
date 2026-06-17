@@ -1476,6 +1476,7 @@ export function FermentationPlannerView() {
       tLaboratorio:     tAmb,
       kneadingMethod,
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
+      temperingH:       s.temperingH,         // → marker USCITA FRIGO sulla dashboard
       bubbleThresholdPct: r.resolvedBubbleThresholdPct ?? 92,
       alertThreshold:   r.resolvedTargetMaturationPct ?? 90,
       navigationSource: 'planner' as const,
