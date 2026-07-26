@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Gate bloccante: typecheck + tutte le suite deterministiche ──────────────
+  test:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Due config vitest con include disgiunti: vitest.config.ts copre tests/,
+      # vite.config.ts copre src/__tests__/. Nessuna delle due vede l'altra —
+      # per questo vanno invocate entrambe (issue #24).
+      - name: Vitest — tests/
+        run: npx vitest run --config vitest.config.ts
+
+      - name: Vitest — src/__tests__/
+        run: npx vitest run --config vite.config.ts
+
+      # Otto script standalone che nessun runner raccoglie. Escono tutti con
+      # exit code 1 in caso di fallimento (verificato), quindi la catena `&&`
+      # di npm run test:engine e' un gate valido.
+      - name: Script standalone engine/
+        run: npm run test:engine
+
+  # ── Non bloccante: dipende dai binari del browser, storicamente instabile ──
+  e2e:
+    name: e2e (non bloccante)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Installa la versione di browser che il Playwright del lockfile richiede.
+      # Il run di Fase 0 e' fallito 30/30 in ~3ms per un mismatch fra Playwright
+      # 1.61 (build chromium 1228) e il browser fornito dall'ambiente (1194).
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
