@@ -1,10 +1,12 @@
 name: CI
 
-# push solo sui branch integrati: sui feature branch ci pensa pull_request.
-# Con `push:` nudo ogni PR faceva partire DUE run identici.
+# Il lavoro vive su claude/pizzamatrix-* (branch agganciato a Vercel), non su
+# main: la CI deve girare sui push diretti li', altrimenti un push senza PR non
+# verrebbe verificato da nulla. `pull_request` copre i branch di lavoro brevi.
+# `push:` nudo no: farebbe partire due run identici per ogni PR.
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
   pull_request:
   workflow_dispatch:
 
