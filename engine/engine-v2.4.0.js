@@ -1262,10 +1262,16 @@ function thermalTimeConstantForPhase(phase, massKg, hydration, containerPreset) 
 /**
  * Contributo amilasico del malto diastatico — §2.15.1
  *
- * amylase_index_malt = (maltDosePct / 100) × (maltDP / 200) × 1.2
+ * amylase_index_malt = (maltDosePct / 100)
+ *                    × (maltDP / MALT_PARAMS.refDPLintner)
+ *                    × MALT_PARAMS.maltAmylaseScale
+ *
+ * La scala NON è ripetuta qui come numero: vive solo in MALT_PARAMS, che ne
+ * documenta la calibrazione. (Il JSDoc riportava `× 1.2`, valore pre-v2.4.0
+ * rimasto indietro rispetto a maltAmylaseScale = 60 — fattore 50×.)
  *
  * maltDosePct: % su farina [0–1%]
- * maltDP:      potere diastatico in °Lintner (default 200)
+ * maltDP:      potere diastatico in °Lintner (default MALT_PARAMS.refDPLintner)
  *
  * Nota: se il malto è aggiunto a un prefermento a pH < 5.5, applicare
  * computeDenaturationFactor() sul contributo (stessa logica §2.8.2)
