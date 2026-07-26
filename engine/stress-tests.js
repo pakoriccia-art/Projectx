@@ -750,45 +750,11 @@ assert(e.phInhibition(3.0, 'lab') === 0.0,
     `ST-LM-03b μmax_sacc_eff = 0.25×0.6 = 0.15 — val=${muSaccEff.toFixed(3)}`);
 }
 
-// ─────────────────────────────────────────────────────────────
-console.log('\n§ ST-FRICT — Attrito Meccanico e DDT');
-// ─────────────────────────────────────────────────────────────
-
-// ST-FRICT-01 — computeFrictionHeat: mixer types
-{
-  // spiral, 1kg, 10min, 65%
-  // fHyd = 0.5 + (65-50)/30 × 0.5 = 0.5 + 0.25 = 0.75
-  // ΔT = 3.8 × 0.75 × 1.0 × 1.0 = 2.85
-  const dtSpiral = e.computeFrictionHeat({ mixerType: 'spiral', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(between(dtSpiral, 2.5, 3.5),
-    `ST-FRICT-01a spiral(1kg,10min,65%) ΔT ∈ [2.5,3.5] — val=${dtSpiral.toFixed(3)}`);
-
-  // planetary > spiral
-  const dtPlan = e.computeFrictionHeat({ mixerType: 'planetary', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(dtPlan > dtSpiral,
-    `ST-FRICT-01b planetary(${dtPlan.toFixed(2)}) > spiral(${dtSpiral.toFixed(2)})`);
-
-  // hand < spiral
-  const dtHand = e.computeFrictionHeat({ mixerType: 'hand', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(dtHand < dtSpiral,
-    `ST-FRICT-01c hand(${dtHand.toFixed(2)}) < spiral(${dtSpiral.toFixed(2)})`);
-
-  // Tipo sconosciuto → fallback spiral
-  const dtUnk = e.computeFrictionHeat({ mixerType: 'unknown', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(approx(dtUnk, dtSpiral, 0.001), 'ST-FRICT-01d fallback unknown → spiral');
-}
-
-// ST-FRICT-02 — computeWaterTemp DDT
-{
-  const T_water = e.computeWaterTemp({
-    ddt: 25, tempFlour: 20, tempRoom: 22,
-    mixerType: 'spiral', hydration: 65, flourKg: 1.0, mixingMinutes: 10,
-  });
-  // T_water = 3×25 - 20 - 22 - friction
-  // = 75 - 42 - friction (friction≈2.85) = 30.15 → clamp(0,35)
-  assert(between(T_water, 25, 35),
-    `ST-FRICT-02a T_water DDT=25°C ∈ [25,35] — val=${T_water.toFixed(1)}`);
-}
+// § ST-FRICT — RIMOSSA (issue #17). computeFrictionHeat/computeWaterTemp erano
+// una seconda implementazione del bilancio DDT, mai usata da src/ e sbagliata
+// (sottraevano il ΔT grezzo invece del fattore N × ΔT: 7.8 °C sull'acqua).
+// Copertura ora: tests/unit/engine.friction.test.ts (computeWaterTempDDT) e
+// engine/friction-v2.4.24.test.js (computeFrictionRise).
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ ST-DASH — Dashboard W effettivo');

@@ -933,37 +933,22 @@ function computeLMState(adu, tempC, initialPH, elapsedH) {
   };
 }
 
-// Fattori base calore attrito [°C/(10 min × 1 kg × 65% idr)] — §2.7
-const FRICTION_BASE_FACTORS = {
-  spiral:      3.8,
-  fork:        2.5,
-  planetary:   7.5,
-  diving_arm:  3.2,
-  hand:        1.2,
-};
-
-/**
- * Calore generato dall'impastamento meccanico — §2.7
- * ΔT_friction = F_base × f_hydration × f_time × f_mass
- */
-function computeFrictionHeat({ mixerType, hydration, flourKg, mixingMinutes }) {
-  const fBase = FRICTION_BASE_FACTORS[mixerType] ?? FRICTION_BASE_FACTORS.spiral;
-  const fHyd  = 0.5 + (hydration - 50) / (80 - 50) * 0.5;  // normaliz. 50-80%
-  const fTime = mixingMinutes / 10;
-  const fMass = flourKg / 1.0;
-  return fBase * fHyd * fTime * fMass;
-}
-
-/**
- * Temperatura ottimale acqua per DDT target — §2.7
- * T_water = DDT × coeff_water - T_room × coeff_room - T_flour × coeff_flour - ΔT_friction
- */
-function computeWaterTemp({ ddt, tempFlour, tempRoom, mixerType, hydration, flourKg, mixingMinutes }) {
-  const friction = computeFrictionHeat({ mixerType, hydration, flourKg, mixingMinutes });
-  // Coefficienti semplificati: DDT = (T_flour + T_room + T_water + T_friction_correction) / 3
-  const T_water = 3 * ddt - tempFlour - tempRoom - friction;
-  return safeClamp(T_water, 0, 35);
-}
+// ─── Attrito meccanico e DDT — RIMOSSI in questo modulo (issue #17) ──────────
+//
+// FRICTION_BASE_FACTORS, computeFrictionHeat() e computeWaterTemp() vivevano qui
+// come seconda implementazione del bilancio termico dell'acqua, mai chiamata da
+// src/ ma esportata — e SBAGLIATA: computeWaterTemp sottraeva il ΔT grezzo invece
+// del fattore di attrito N × ΔT che la formula di Calvel richiede.
+//
+// Divergenza misurata (DDT 24 °C, farina 20 °C, ambiente 22 °C, spirale 12 min, H 62 %):
+//   computeWaterTemp        → 26.81 °C
+//   computeWaterTempDDT     → 19.00 °C     ← corretta
+//   7.81 °C sull'acqua ≈ 2.6 °C sulla DDT.
+//
+// Sorgenti di verità uniche, da usare al loro posto:
+//   • bilancio DDT / ghiaccio  → computeWaterTempDDT()  in src/engine/index.ts
+//   • salita termica da attrito → computeFrictionRise() in engine/friction-v2.4.24.js
+//     (FRICTION_PARAMS, già dichiarata "sorgente unica di verità" §2.7 in v2.4.24)
 
 // ═══════════════════════════════════════════════════════════════
 // § K — SWEET SPOT + TICK LOOP + DASHBOARD (v2.3.2)
@@ -1573,7 +1558,6 @@ const _constants = {
   AMYLASE_PH_PARAMS,
   AMYLASE_DENATURATION_PARAMS,
   AMYLASE_CORRECTION_PARAMS,
-  FRICTION_BASE_FACTORS,
   // v2.4.0
   SALT_INHIBITION_PARAMS,
   W_BLEND_NONLINEAR_K,
@@ -1989,8 +1973,6 @@ if (typeof module !== 'undefined' && module.exports) {
     phInhibition,
     estimatePH,
     computeLMState,
-    computeFrictionHeat,
-    computeWaterTemp,
 
     // § K Dashboard/Tick
     computeDeltaAdu,
@@ -2055,7 +2037,6 @@ export {
   CARDINAL_PARAMS, AGENT_GOMPERTZ, LM_PARAMS, HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS, AUTOLYSIS_CALIBRATION, PREFERMENTO_CALIBRATION,
   AMYLASE_PH_PARAMS, AMYLASE_DENATURATION_PARAMS, AMYLASE_CORRECTION_PARAMS,
-  FRICTION_BASE_FACTORS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
   ALTITUDE_PARAMS, WATER_HARDNESS_PARAMS, ENZYMATIC_CLOCK_PARAMS,
   ACID_PRODUCTION_PARAMS,
@@ -2069,7 +2050,7 @@ export {
   normalizeAmylaseActivity, fPHAmylase, computeDenaturationFactor, amylaseCorrectedRate,
   blendAmylaseIndex, validateFlourGroup, normalizeFlourGroup,
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
-  phInhibition, estimatePH, computeLMState, computeFrictionHeat, computeWaterTemp,
+  phInhibition, estimatePH, computeLMState,
   computeDeltaAdu, sweetSpot, sweetSpotMaturation, computeDashboardEffectiveW,
   computeKprot, computeWEffectiveExp,
   fSaltYeast, fSaltProtease,
