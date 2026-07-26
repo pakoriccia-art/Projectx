@@ -524,7 +524,7 @@ function FlourRow({ flour, idx, total, onChange, onRemove }: {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={S.label}>Farina {idx + 1}</span>
         {total > 1 && (
-          <button onClick={onRemove} style={{
+          <button onClick={onRemove} aria-label={`Rimuovi farina ${idx + 1}`} style={{
             background: 'none', border: 'none', color: 'var(--text-muted)',
             cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px',
           }}>×</button>

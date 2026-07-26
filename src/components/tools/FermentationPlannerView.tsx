@@ -1556,6 +1556,7 @@ export function FermentationPlannerView() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'home' })}
+          aria-label="Torna alla schermata iniziale"
           style={{ background: 'none', border: 'none', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer' }}
         >←</button>
         <div>
@@ -1754,6 +1755,7 @@ export function FermentationPlannerView() {
                   </div>
                   <button
                     onClick={() => setBlendFlours(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)}
+                    aria-label={`Rimuovi farina ${i + 1} dal blend`}
                     style={{ fontSize: 14, color: 'var(--state-critical)', background: 'none', border: 'none', cursor: 'pointer', paddingBottom: 2 }}
                   >×</button>
                 </div>
