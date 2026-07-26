@@ -327,16 +327,10 @@ function findAduAt(muMax, lambda, A = 100, pct) {
   return (lo + hi) / 2;
 }
 
-/**
- * Lag phase effettiva a temperatura T con scala Arrhenius — §2.3
- * lambdaEffective(T) = lambdaRef × exp((EaKjLag/R) × (1/T_K - 1/T_ref_K))
- */
-function lagPhaseAtTemp(tempC, lambdaRef, eaKjLag, agentType) {
-  const T_K = tempC + 273.15;
-  // La lag si allunga al freddo → exp è > 1 per T < 25°C
-  const factor = safeExp((eaKjLag * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
-  return lambdaRef * factor;
-}
+// lagPhaseAtTemp() rimossa — issue #19. Mai chiamata, e ridondante: lambda è
+// espressa in ADU, non in ore, quindi è GIÀ scalata implicitamente in temperatura
+// dal kRatio che genera gli ADU. Applicarle un secondo fattore di Arrhenius
+// avrebbe allungato la lag due volte al freddo.
 
 // ═══════════════════════════════════════════════════════════════
 // § E — THERMAL STACK (v2.3) — spec completa §3
@@ -474,19 +468,10 @@ function structuralState(W0, W_current) {
   return 'OK';
 }
 
-/**
- * Idratazione massima sicura per la struttura — §2.9
- * Formula empirica derivata da W, P/L e proteine
- */
-function maxSafeHydration(W, pl, protein) {
-  // Base da W (farina più forte → può sostenere più acqua)
-  const baseFromW  = 55 + (W - 200) * 0.05;
-  // Correzione P/L (più estensibile → meno struttura → meno acqua)
-  const plCorr     = (pl - 0.5) * (-5);
-  // Correzione proteine
-  const protCorr   = (protein - 12) * 0.8;
-  return safeClamp(baseFromW + plCorr + protCorr, 55, 85);
-}
+// maxSafeHydration() rimossa — issue #19 + #20. Mai chiamata da src/, e in
+// conflitto con le altre sorgenti: per W280/PL0.60/prot11.75 restituiva 58.9 %,
+// bocciando il 65 % che il wizard stesso propone come default per la napoletana.
+// Sorgente unica di verità: hydrationRangeForStyle() in src/data/styleConstraints.ts.
 
 // ═══════════════════════════════════════════════════════════════
 // § G — AMYLASE (v2.3.2)
@@ -1379,14 +1364,8 @@ function computeReverseScaling({
 // § T — FUNZIONI MANCANTI KB v2.3.2
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * pH stimato per agenti LBF/LM — KB §2.6 spec corretta
- * Sostituisce estimatePH nel tick loop (KB §12.2 step 5)
- * Drop calibrato: 0.0015 pH/% maturazione; floor biologico 4.8 (non raggiungibile sotto con LBF)
- */
-function estimatePHForLBF(initialPH, maturationPct) {
-  return Math.max(4.8, (initialPH ?? 5.8) - 0.0015 * maturationPct);
-}
+// estimatePHForLBF() rimossa — issue #19. Sostituita da computeCurrentPH()
+// (v2.4.11 §2.6.1), che deriva il pH da leavAdu invece che dalla maturazione.
 
 /**
  * pH biochimicamente corretto da leavAdu — v2.4.11 §2.6.1
@@ -1427,73 +1406,14 @@ function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
   return (prevLabAdu ?? 0) + labRate * subStepH;
 }
 
-/**
- * Indice di estensibilità combinato — KB §15.4
- * Combina alveografia (W, P/L), stabilità farinografica e avanzamento maturazione.
- * Pesi: W=30%, P/L=20%, stabilità=30%, maturazione=20%
- * Ritorna [0, 1] — 1 = ottimo per pizza.
- */
-function computeExtensibilityIndex({ W, pl, stability, maturationPct }) {
-  const wNorm    = safeClamp((W - 80) / 320, 0, 1);          // W: 80–400 → 0–1
-  const plNorm   = safeClamp(1 - Math.abs(pl - 0.65) / 0.70, 0, 1); // ottimale 0.65
-  const stabNorm = safeClamp(stability / 25, 0, 1);          // 0–25 min → 0–1
-  const matNorm  = safeClamp(maturationPct / 100, 0, 1);
-  return 0.30 * wNorm + 0.20 * plNorm + 0.30 * stabNorm + 0.20 * matNorm;
-}
-
-/**
- * Calcolo inverso: dose lievito da target tempo + maturazione — KB §8
- * Scaling LINEARE: muMaxScaled = muMax × (dose/refDose)
- * NOT sqrt. [KB §1.5 anti-pattern §13.3]
- *
- * Algoritmo: inverte Gompertz rispetto a muMax per trovare il tasso
- * necessario a raggiungere targetMatPct nell'ADU disponibile a tempC,
- * poi scala linearmente la dose.
- */
-function computeInverseProgram({
-  targetDurationH,
-  targetMatPct = 85,
-  tempC,
-  agentType,
-  eaKj,
-  muMaxRef,
-  lambdaRef,
-  refDosePct,
-  asymptote = 100,
-}) {
-  const aduAvailable = kRatio(tempC, eaKj, agentType) * targetDurationH;
-  const r = safeClamp(targetMatPct / asymptote, 0.001, 0.999);
-
-  // Inverso Gompertz per muMax:
-  //   r = exp(-exp((muMax×e/A)×(λ-adu)+1))
-  //   ln(-ln(r)) = (muMax×e/A)×(λ-adu) + 1
-  //   muMax = (A/e) × (ln(-ln(r)) - 1) / (λ - adu)
-  const lnArg      = Math.log(-Math.log(r));
-  const denominator = lambdaRef - aduAvailable;
-
-  let muMaxNeeded;
-  if (Math.abs(denominator) < 1e-6) {
-    muMaxNeeded = muMaxRef; // vicino al punto di flesso — usa dose di riferimento
-  } else {
-    muMaxNeeded = (asymptote / Math.E) * (lnArg - 1) / denominator;
-  }
-
-  if (muMaxNeeded <= 0) {
-    // Target irraggiungibile a questa temperatura/durata — restituisce dose minima
-    return { dosePct: refDosePct * 0.05, muMaxScaled: muMaxRef * 0.05, aduAvailable, feasible: false };
-  }
-
-  // Scaling lineare dose (KB §8 — NOT sqrt)
-  const rawDose = refDosePct * (muMaxNeeded / muMaxRef);
-  const dosePct = safeClamp(rawDose, refDosePct * 0.05, refDosePct * 20);
-
-  return {
-    dosePct,
-    muMaxScaled: muMaxNeeded,
-    aduAvailable,
-    feasible: rawDose >= refDosePct * 0.05 && rawDose <= refDosePct * 20,
-  };
-}
+// computeExtensibilityIndex() e computeInverseProgram() rimosse — issue #19.
+//
+// computeExtensibilityIndex: mai integrata in UI. Il dashboard calcola i propri
+//   indici con formule più semplici e slegate dalla fermentazione
+//   (cfr. PROFILE_INDICES_REPORT.md §1.4).
+// computeInverseProgram: sostituita dal Service-Window solver, che risolve lo
+//   stesso problema inverso (dose per centrare un target) integrando la timeline
+//   reale invece di assumere temperatura costante.
 
 // ═══════════════════════════════════════════════════════════════
 // § S — EXPORTS
@@ -1895,7 +1815,6 @@ if (typeof module !== 'undefined' && module.exports) {
     kRatio,
     gompertz,
     findAduAt,
-    lagPhaseAtTemp,
 
     // § E Thermal
     doughSpecificHeat,
@@ -1911,7 +1830,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeTCrit,
     computeWHill,
     structuralState,
-    maxSafeHydration,
 
     // § G Amylase
     normalizeAmylaseActivity,
@@ -1970,9 +1888,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeReverseScaling,
 
     // § T KB v2.3.2 additions
-    estimatePHForLBF,
-    computeExtensibilityIndex,
-    computeInverseProgram,
     // v2.4.11
     computeCurrentPH,
     // v2.4.14
@@ -2001,10 +1916,10 @@ export {
 
   // Functions
   safeExp, safeDiv, safeClamp,
-  cardinalCorrection, kEffective, kRatio, gompertz, findAduAt, lagPhaseAtTemp,
+  cardinalCorrection, kEffective, kRatio, gompertz, findAduAt,
   doughSpecificHeat, thermalTimeConstant, applyContainerResistance, doughCoreTemp,
   fArrhenius, fPH, fHydration,
-  computeTCritRef, computeTCrit, computeWHill, structuralState, maxSafeHydration,
+  computeTCritRef, computeTCrit, computeWHill, structuralState,
   normalizeAmylaseActivity, fPHAmylase, computeDenaturationFactor, amylaseCorrectedRate,
   blendAmylaseIndex, validateFlourGroup, normalizeFlourGroup,
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
@@ -2017,7 +1932,6 @@ export {
   computeAltitudeFactor, volumeMilestoneCorrection,
   fHardnessGluten, fHardnessProtease,
   computeReverseScaling,
-  estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
   computeCurrentPH,
   computeLabAdu, thermalTimeConstantForPhase,
   LAB_KINETICS, SACC_ACID_CONTRIB,

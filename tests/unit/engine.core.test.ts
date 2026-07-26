@@ -1,9 +1,9 @@
 // tests/unit/engine.core.test.ts
-// 53 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
+// 52 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
 import { describe, it, expect } from 'vitest';
 import {
   fArrhenius, kEffective, gompertz, findAduAt,
-  computeWHill, computeTCrit, structuralState, maxSafeHydration,
+  computeWHill, computeTCrit, structuralState,
   fSaltYeast, fSaltProtease, amylaseCorrectedRate,
   normalizeFlourGroup, blendAmylaseIndex, validateFlourGroup,
   normalizeAmylaseActivity,
@@ -250,12 +250,6 @@ describe('W-decay — Hill + tCrit + structuralState', () => {
   it('UT-ENG-34: structuralState CRITICAL/COLLAPSED per W_current < 160 (napoletana)', () => {
     const s = structuralState(280, 150, 65, 0.55, 12.5);
     expect(['WARNING', 'CRITICAL', 'COLLAPSED']).toContain(s);
-  });
-
-  it('UT-ENG-35: maxSafeHydration decresce al diminuire di W_current', () => {
-    const h1 = maxSafeHydration(280, 0.55, 12.5);
-    const h2 = maxSafeHydration(200, 0.55, 12.5);
-    expect(h2).toBeLessThan(h1);
   });
 });
 

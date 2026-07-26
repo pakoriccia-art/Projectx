@@ -351,42 +351,11 @@ let threw = false;
 try { e.computeReverseScaling({ availablePrefermKg: 0, prefermType: 'biga', targetFlourFraction: 50, targetHydration: 65, targetPanWeightG: 260 }); }
 catch { threw = true; }
 assert(threw, 'reverseScaling: errore su availablePrefermKg=0');
+// § T — RIMOSSA (issue #19). Copriva estimatePHForLBF,
+// computeExtensibilityIndex e computeInverseProgram: tutte e tre funzioni morte,
+// rimosse dall'engine. Sostituite rispettivamente da computeCurrentPH (v2.4.11),
+// dagli indici propri del dashboard e dal Service-Window solver.
 
-// ═══════════════════════════════════════════════════════════════
-// § T — KB v2.3.2: estimatePHForLBF + computeExtensibilityIndex + computeInverseProgram
-// ═══════════════════════════════════════════════════════════════
-console.log('\n§ T — KB v2.3.2 (estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram)');
-
-// estimatePHForLBF — KB §2.6
-assert(approx(e.estimatePHForLBF(5.8, 0), 5.8, 0.001), 'estimatePHForLBF(5.8, 0) = 5.8');
-assert(approx(e.estimatePHForLBF(5.8, 60), 5.71, 0.001), 'estimatePHForLBF(5.8, 60) = 5.71');
-assert(approx(e.estimatePHForLBF(5.8, 1000), 4.8, 0.001), 'estimatePHForLBF(5.8, 1000) = 4.8 (floor)');
-assert(approx(e.estimatePHForLBF(undefined, 50), 5.725, 0.001), 'estimatePHForLBF(undefined, 50) usa default 5.8');
-
-// computeExtensibilityIndex — KB §15.4 (pesi 30/20/30/20)
-const extLow  = e.computeExtensibilityIndex({ W: 80,  pl: 0.65, stability: 0,  maturationPct: 0 });
-const extHigh = e.computeExtensibilityIndex({ W: 400, pl: 0.65, stability: 25, maturationPct: 100 });
-assert(extLow < 0.25,  `extIdx debole giovane < 0.25 — val=${extLow.toFixed(3)}`);
-assert(extHigh > 0.95, `extIdx forte ottimale > 0.95 — val=${extHigh.toFixed(3)}`);
-// Verifica pesi: incremento singolo input ≈ peso × Δnormalized
-const base = { W: 240, pl: 0.65, stability: 12.5, maturationPct: 50 };
-const idxBase = e.computeExtensibilityIndex(base);
-const idxMaxW = e.computeExtensibilityIndex({ ...base, W: 400 });   // wNorm 0.5 → 1.0; peso 0.30
-assert(approx(idxMaxW - idxBase, 0.15, 0.01), `extIdx Δ(W) = 0.15 (peso 30%) — val=${(idxMaxW - idxBase).toFixed(3)}`);
-
-// computeInverseProgram — KB §8 (scaling LINEARE, NON sqrt)
-const ipA = e.computeInverseProgram({
-  targetDurationH: 24, targetMatPct: 85, tempC: 22, agentType: 'fresh_yeast',
-  eaKj: 62, muMaxRef: 12.0, lambdaRef: 1.2, refDosePct: 0.10, asymptote: 100,
-});
-const ipB = e.computeInverseProgram({
-  targetDurationH: 12, targetMatPct: 85, tempC: 22, agentType: 'fresh_yeast',
-  eaKj: 62, muMaxRef: 12.0, lambdaRef: 1.2, refDosePct: 0.10, asymptote: 100,
-});
-const doseRatio = ipB.dosePct / ipA.dosePct;
-const muRatio   = ipB.muMaxScaled / ipA.muMaxScaled;
-assert(approx(doseRatio, muRatio, 0.001), `inverseProgram: scaling LINEARE ratio_dose=${doseRatio.toFixed(3)} ≈ ratio_muMax=${muRatio.toFixed(3)}`);
-assert(Math.abs(doseRatio - Math.sqrt(2)) > 0.5, 'inverseProgram: NON sqrt scaling (raddoppio durata ≠ √2)');
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ S — Two-Clock Enzymatic (v2.4.1)');
