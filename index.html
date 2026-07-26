@@ -158,6 +158,19 @@
       .pm-glow-danger  { text-shadow: 0 0 8px rgba(225,112,85,0.4); }
       .pm-glow-optimal { text-shadow: 0 0 10px rgba(255,140,50,0.3); }
 
+      /* ── Accessibility: contenuto per sole tecnologie assistive (issue #31) ──── */
+      /* Usata dagli <h1> di vista: la skin BANCO non prevede intestazioni visibili,
+         ma senza h1 l'albero di accessibilità è piatto e non si può navigare. */
+      .sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
       /* ── Accessibility: focus ring ───────────────────────────────────────────── */
       :focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 3px; border-radius: 4px; }
       button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
@@ -176,8 +189,24 @@
       }
 
       /* ── Range slider custom ─────────────────────────────────────────────────── */
+      /* issue #30 — l'area di tap era 4px.
+         Il thumb si vede a 20px, ma gli eventi li riceve la scatola dell'input,
+         che era alta quanto la traccia. Su un'app in cui idratazione, sale, dose
+         e temperature si impostano tutti con slider, e che si usa con le mani
+         infarinate, era il difetto d'uso piu' concreto. WCAG 2.5.5 chiede 44px.
+
+         Soluzione per padding invece che per height: `box-sizing: content-box`
+         (deroga al border-box globale) tiene l'altezza VISIVA a 4px, il padding
+         porta la scatola a 44px, e `background-clip: content-box` confina lo
+         sfondo alla traccia. Cosi' l'aspetto non cambia di un pixel — incluse le
+         due varianti spesse che impostano height:22 e un gradiente inline
+         (BakeView, DashboardV4): li' il padding si somma ai loro 22px e il
+         gradiente resta confinato al content box. */
       input[type="range"] {
+        box-sizing: content-box;
         height: 4px;
+        padding: 20px 0;
+        background-clip: content-box;
         -webkit-appearance: none;
         appearance: none;
         border-radius: 2px;
@@ -230,22 +259,32 @@
         touch-action: manipulation;
       }
 
-      html, body, #root {
+      html, body {
         height: 100%;
         background-color: var(--bg-primary);
         color: var(--text-primary);
         font-family: var(--font-body);
-        /* Safe area per notch iOS/Android */
-        padding-top: env(safe-area-inset-top);
-        padding-bottom: env(safe-area-inset-bottom);
-        padding-left: env(safe-area-inset-left);
-        padding-right: env(safe-area-inset-right);
       }
 
+      /* Safe area per notch iOS/Android — issue #29.
+         Va su UN SOLO elemento. Prima era dichiarata su `html, body, #root`,
+         che sono annidati: con viewport-fit=cover l'inset veniva sommato tre
+         volte (iPhone con notch: ~47px x3 = ~141px di banda morta in cima).
+         In piu' box-sizing:border-box e' globale e tutti e tre avevano
+         height:100%, quindi ogni livello sottraeva il proprio padding
+         dall'altezza disponibile → overflow verticale.
+         min-height invece di height: il contenuto piu' alto della viewport
+         scrolla invece di essere tagliato. */
       #root {
+        min-height: 100%;
         max-width: 430px;
         margin: 0 auto;
         overflow-x: hidden;
+        padding:
+          env(safe-area-inset-top)
+          env(safe-area-inset-right)
+          env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
       }
 
       /* ══════════════════════════════════════════════════════════════════════

@@ -201,6 +201,21 @@ function HomeView() {
   );
 }
 
+// ─── Titoli di vista (issue #31) ──────────────────────────────────────────────
+// Ogni vista deve avere un <h1>. Il design non prevede un titolo visibile in cima
+// — la skin BANCO usa etichette-canale, non intestazioni — quindi l'h1 è reso con
+// .sr-only: presente nell'albero di accessibilità, invisibile a schermo.
+const VIEW_TITLES: Record<string, string> = {
+  wizard:    'Nuovo impasto',
+  dashboard: 'Monitoraggio fermentazione',
+  rotta:     'Aggiusta rotta',
+  history:   'Storico sessioni',
+  tools:     'Pianifica fermentazione',
+  planner:   'Pianifica fermentazione',
+  forno:     'Cottura',
+  home:      'PizzaMatrix — gestione predittiva degli impasti',
+};
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 function AppRouter() {
   const { state } = useApp();
@@ -208,16 +223,29 @@ function AppRouter() {
   // window/body, che altrimenti erediterebbe la posizione di scroll precedente.
   // Lo scroller interno del wizard è gestito in WizardView (su cambio step).
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [state.view]);
-  switch (state.view) {
-    case 'wizard':    return <ErrorBoundary><WizardView /></ErrorBoundary>;
-    case 'dashboard': return <ErrorBoundary><DashboardV4 /></ErrorBoundary>;
-    case 'rotta':     return <ErrorBoundary><RottaView /></ErrorBoundary>;
-    case 'history':   return <ErrorBoundary><HistoryView /></ErrorBoundary>;
-    case 'tools':   return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
-    case 'planner': return <ErrorBoundary><FermentationPlannerView /></ErrorBoundary>;
-    case 'forno':   return <ErrorBoundary><BakeView /></ErrorBoundary>;
-    default:        return <HomeView />;
-  }
+
+  const view = (() => {
+    switch (state.view) {
+      case 'wizard':    return <WizardView />;
+      case 'dashboard': return <DashboardV4 />;
+      case 'rotta':     return <RottaView />;
+      case 'history':   return <HistoryView />;
+      case 'tools':     return <FermentationPlannerView />;
+      case 'planner':   return <FermentationPlannerView />;
+      case 'forno':     return <BakeView />;
+      default:          return <HomeView />;
+    }
+  })();
+
+  // <main> è il landmark che permette di saltare direttamente al contenuto.
+  // Prima l'albero di accessibilità era piatto: ogni nodo `generic`, nessun
+  // punto di riferimento per navigare.
+  return (
+    <main>
+      <h1 className="sr-only">{VIEW_TITLES[state.view] ?? VIEW_TITLES.home}</h1>
+      <ErrorBoundary>{view}</ErrorBoundary>
+    </main>
+  );
 }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
