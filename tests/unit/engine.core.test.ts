@@ -1,10 +1,10 @@
 // tests/unit/engine.core.test.ts
-// 50 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
+// 53 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
 import { describe, it, expect } from 'vitest';
 import {
   fArrhenius, kEffective, gompertz, findAduAt,
   computeWHill, computeTCrit, structuralState, maxSafeHydration,
-  fSaltYeast, fSaltProtease,
+  fSaltYeast, fSaltProtease, amylaseCorrectedRate,
   normalizeFlourGroup, blendAmylaseIndex, validateFlourGroup,
   normalizeAmylaseActivity,
   getStyleProfile, computeStyleAwareAlertLevel,
@@ -256,6 +256,32 @@ describe('W-decay — Hill + tCrit + structuralState', () => {
     const h1 = maxSafeHydration(280, 0.55, 12.5);
     const h2 = maxSafeHydration(200, 0.55, 12.5);
     expect(h2).toBeLessThan(h1);
+  });
+});
+
+// ─── 1.F-bis Guardia NaN sull'indice amilasico (issue #6) ────────────────────
+// amylaseCorrectedRate non ha difese interne: Math.max(0.50, NaN) PROPAGA NaN.
+// Se una Session arriva senza effectiveAmylaseIndex (schema vecchio, restore da
+// IndexedDB, Session costruita fuori dal wizard), il tick loop somma NaN a
+// cumulativeAdu e lo persiste — corruzione permanente dello stato.
+// Il fix vive nel call-site (useTickEngine: `?? 1.0` + Number.isFinite).
+// Questi test pinnano la ragione per cui quel fallback è obbligatorio.
+
+describe('amylaseCorrectedRate — propagazione NaN (issue #6)', () => {
+  it('UT-ENG-51: con amylaseIndex undefined restituisce NaN (motiva il fallback)', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, undefined, 0, 5.8);
+    expect(Number.isNaN(r)).toBe(true);
+  });
+
+  it('UT-ENG-52: con il fallback 1.0 restituisce un valore finito e positivo', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, 1.0, 0, 5.8);
+    expect(Number.isFinite(r)).toBe(true);
+    expect(r).toBeGreaterThan(0);
+  });
+
+  it('UT-ENG-53: rateFloor 0.50 non viene mai violato per indici molto bassi', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, 0, 0, 5.8);
+    expect(r).toBeGreaterThanOrEqual(0.5);
   });
 });
 

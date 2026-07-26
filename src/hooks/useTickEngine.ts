@@ -129,15 +129,28 @@ export function useTickEngine() {
     ) as number;
 
     // ── kEffective + amylase correction ───────────────────────────────────────
+    // Fallback ?? 1.0 allineato alla dashboard (DashboardView.tsx:534, 1064): senza
+    // di esso una sessione priva di effectiveAmylaseIndex (schema vecchio, restore da
+    // IndexedDB, Session costruita fuori dal wizard) manda in NaN l'intero tickState.
+    // Math.max(0.50, NaN) propaga NaN, non lo scarta.
     const baseRate = (kEffective as Function)(tDough, session.agentEaKj, session.agentType);
     const corrRate = (amylaseCorrectedRate as Function)(
-      baseRate, session.effectiveAmylaseIndex, elapsedH, currentPH,
+      baseRate, session.effectiveAmylaseIndex ?? 1.0, elapsedH, currentPH,
     );
     const kRef     = (kEffective as Function)(25, session.agentEaKj, session.agentType);
     const kRatioVal = kRef > 1e-12 ? corrRate / kRef : 0;
 
-    const deltaAdu = kRatioVal * saltYeast * deltaH;
-    const newAdu   = prevAdu + deltaAdu;
+    // Guardia terminale: un NaN/Infinity da QUALUNQUE sorgente a monte verrebbe
+    // sommato in cumulativeAdu e persistito, corrompendo lo stato in modo permanente
+    // (ogni tick successivo somma a un NaN già salvato). Meglio un tick perso.
+    const rawDeltaAdu = kRatioVal * saltYeast * deltaH;
+    const deltaAdu    = Number.isFinite(rawDeltaAdu) ? rawDeltaAdu : 0;
+    if (rawDeltaAdu !== deltaAdu && import.meta.env.DEV) {
+      console.warn('[PizzaMatrix] deltaAdu non finito, tick scartato:', {
+        kRatioVal, saltYeast, deltaH, amylaseIndex: session.effectiveAmylaseIndex,
+      });
+    }
+    const newAdu = prevAdu + deltaAdu;
 
     // ── Gompertz lievitazione (orologio lievito) ────────────────────────────────
     // Parte BASSA (impasto degassato): nessun offset di maturazione iniettato.
