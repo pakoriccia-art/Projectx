@@ -52,23 +52,33 @@ assert(e.cardinalCorrection(44.0, 'instant_dry_yeast') === 0,
     `ST-CTM-03 asimmetria γ(36.5)>γ(14.75): ${g_high.toFixed(3)} > ${g_low.toFixed(3)}`);
 }
 
-// ST-CTM-04 — k_effective = 0 sotto Tmin anche con Arrhenius > 0
+// ST-CTM-04 — separazione crescita / attività fermentativa (issue #3 + #4)
+// Il CTM di crescita tronca a 1.5 °C; l'attività fermentativa no, perché la CO₂
+// non richiede duplicazione cellulare. kEffective usa i cardinali fermentativi.
 {
-  const arrPos = e.fArrhenius(1.0) > 0;
+  const arrPos    = e.fArrhenius(1.0) > 0;
   const gammaZero = e.cardinalCorrection(1.0, 'fresh_yeast') === 0;
-  const kZero = e.kEffective(1.0, 62, 'fresh_yeast') === 0;
-  assert(arrPos,   'ST-CTM-04a fArrhenius(1°C) > 0 (mai zero)');
-  assert(gammaZero,'ST-CTM-04b γ_CTM(1°C, fresh_yeast) = 0');
-  assert(kZero,    'ST-CTM-04c kEffective(1°C) = 0 (CTM tronca)');
+  const kPositive = e.kEffective(1.0, 62, 'fresh_yeast') > 0;
+  const kZeroSub  = e.kEffective(-3.0, 62, 'fresh_yeast') === 0;
+  assert(arrPos,    'ST-CTM-04a fArrhenius(1°C) > 0 (mai zero)');
+  assert(gammaZero, 'ST-CTM-04b γ_crescita(1°C, fresh_yeast) = 0 (Tmin crescita 1.5)');
+  assert(kPositive, 'ST-CTM-04c kEffective(1°C) > 0 (fermentazione attiva sotto Tmin crescita)');
+  assert(kZeroSub,  'ST-CTM-04d kEffective(−3°C) = 0 (sotto congelamento impasto)');
 }
 
-// ST-CTM-05 — kRatio(4°C) molto ridotto vs 25°C
+// ST-CTM-05 — kRatio a freddo dentro la banda Q10 2–3 (issue #3)
+// La soglia precedente (< 0.10) era la firma del doppio conteggio: dava 0.0055,
+// cioè un rallentamento di 181× fra 25 e 4 °C contro i 7–10× della letteratura.
 {
   const kr4 = e.kRatio(4, 62, 'fresh_yeast');
-  assert(kr4 > 0 && kr4 < 0.10,
-    `ST-CTM-05 kRatio(4°C) piccolo ma >0: ${kr4.toFixed(4)}`);
+  const q10 = (T, Q) => 1 / Math.pow(Q, (25 - T) / 10);
+  assert(kr4 >= q10(4, 3) && kr4 <= q10(4, 2),
+    `ST-CTM-05 kRatio(4°C) ∈ banda Q10 2–3 [${q10(4,3).toFixed(3)}, ${q10(4,2).toFixed(3)}]: ${kr4.toFixed(4)}`);
   assert(e.kRatio(25, 62, 'fresh_yeast') > 0,
     'ST-CTM-05b kRatio(25°C) > 0 (attività di riferimento)');
+  // Il declino sopra Topt non deve essere una discontinuità
+  assert(e.kRatio(40, 62, 'fresh_yeast') < e.kRatio(32, 62, 'fresh_yeast'),
+    'ST-CTM-05c inattivazione termica: kRatio(40°C) < kRatio(32°C)');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -707,88 +717,17 @@ console.log('\n§ ST-PH — pH Combining Logaritmico');
     `ST-PH-03 pH biga+poolish ≈ 5.049 ∈ [5.03,5.07] — val=${r.initialPH.toFixed(4)}`);
 }
 
-// ─────────────────────────────────────────────────────────────
-console.log('\n§ ST-LM — Lievito Madre Dual Population');
-// ─────────────────────────────────────────────────────────────
-
-// ST-LM-01 — phInhibition: rami
-assert(e.phInhibition(5.0, 'saccharomyces') === 1.0,
-  'ST-LM-01a phInhibition(5.0, sacc) = 1.0 (sopra 4.5)');
-assert(e.phInhibition(4.5, 'saccharomyces') === 1.0,
-  'ST-LM-01b phInhibition(4.5, sacc) = 1.0 (threshold non ancora superato per sacc)');
-assert(e.phInhibition(4.0, 'saccharomyces') < 1.0,
-  `ST-LM-01c phInhibition(4.0, sacc) < 1.0 — val=${e.phInhibition(4.0,'saccharomyces').toFixed(3)}`);
-assert(e.phInhibition(3.5, 'saccharomyces') === 0.05,
-  `ST-LM-01d phInhibition(3.5, sacc) = 0.05 — val=${e.phInhibition(3.5,'saccharomyces')}`);
-assert(e.phInhibition(4.0, 'lab') === 1.0,
-  'ST-LM-01e phInhibition(4.0, lab) = 1.0 (sopra 3.5)');
-assert(e.phInhibition(3.5, 'lab') === 0.0,
-  `ST-LM-01f phInhibition(3.5, lab) = 0 — val=${e.phInhibition(3.5,'lab')}`);
-assert(e.phInhibition(3.0, 'lab') === 0.0,
-  'ST-LM-01g phInhibition(3.0, lab) = 0 (inibiti)');
-
-// ST-LM-02 — computeLMState: struttura output
-{
-  const lm = e.computeLMState(2.0, 26, 6.2, 8);
-  assert(typeof lm.saccharomycesMatPct === 'number' && lm.saccharomycesMatPct >= 0,
-    `ST-LM-02a saccharomycesMatPct ≥ 0 — val=${lm.saccharomycesMatPct.toFixed(2)}`);
-  assert(typeof lm.labMatPct === 'number' && lm.labMatPct >= 0,
-    `ST-LM-02b labMatPct ≥ 0 — val=${lm.labMatPct.toFixed(2)}`);
-  assert(lm.estimatedPH < 6.2,
-    `ST-LM-02c pH scende nel tempo — val=${lm.estimatedPH.toFixed(3)}`);
-  assert(between(lm.estimatedPH, 4.5, 6.2),
-    `ST-LM-02d pH ∈ [4.5,6.2] — val=${lm.estimatedPH.toFixed(3)}`);
-}
-
-// ST-LM-03 — matrixFactor 0.6 riduce μmax
-{
-  const { LM_PARAMS } = e;
-  assert(LM_PARAMS.matrixFactor === 0.6,
-    'ST-LM-03a matrixFactor = 0.6');
-  const muSaccEff = LM_PARAMS.saccharomyces.muMax * LM_PARAMS.matrixFactor;
-  assert(approx(muSaccEff, 0.15, 0.001),
-    `ST-LM-03b μmax_sacc_eff = 0.25×0.6 = 0.15 — val=${muSaccEff.toFixed(3)}`);
-}
-
-// ─────────────────────────────────────────────────────────────
-console.log('\n§ ST-FRICT — Attrito Meccanico e DDT');
-// ─────────────────────────────────────────────────────────────
-
-// ST-FRICT-01 — computeFrictionHeat: mixer types
-{
-  // spiral, 1kg, 10min, 65%
-  // fHyd = 0.5 + (65-50)/30 × 0.5 = 0.5 + 0.25 = 0.75
-  // ΔT = 3.8 × 0.75 × 1.0 × 1.0 = 2.85
-  const dtSpiral = e.computeFrictionHeat({ mixerType: 'spiral', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(between(dtSpiral, 2.5, 3.5),
-    `ST-FRICT-01a spiral(1kg,10min,65%) ΔT ∈ [2.5,3.5] — val=${dtSpiral.toFixed(3)}`);
-
-  // planetary > spiral
-  const dtPlan = e.computeFrictionHeat({ mixerType: 'planetary', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(dtPlan > dtSpiral,
-    `ST-FRICT-01b planetary(${dtPlan.toFixed(2)}) > spiral(${dtSpiral.toFixed(2)})`);
-
-  // hand < spiral
-  const dtHand = e.computeFrictionHeat({ mixerType: 'hand', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(dtHand < dtSpiral,
-    `ST-FRICT-01c hand(${dtHand.toFixed(2)}) < spiral(${dtSpiral.toFixed(2)})`);
-
-  // Tipo sconosciuto → fallback spiral
-  const dtUnk = e.computeFrictionHeat({ mixerType: 'unknown', hydration: 65, flourKg: 1.0, mixingMinutes: 10 });
-  assert(approx(dtUnk, dtSpiral, 0.001), 'ST-FRICT-01d fallback unknown → spiral');
-}
-
-// ST-FRICT-02 — computeWaterTemp DDT
-{
-  const T_water = e.computeWaterTemp({
-    ddt: 25, tempFlour: 20, tempRoom: 22,
-    mixerType: 'spiral', hydration: 65, flourKg: 1.0, mixingMinutes: 10,
-  });
-  // T_water = 3×25 - 20 - 22 - friction
-  // = 75 - 42 - friction (friction≈2.85) = 30.15 → clamp(0,35)
-  assert(between(T_water, 25, 35),
-    `ST-FRICT-02a T_water DDT=25°C ∈ [25,35] — val=${T_water.toFixed(1)}`);
-}
+// ─── Sezioni rimosse: coprivano solo codice morto ────────────────────────────
+//
+// § ST-LM — issue #18. computeLMState/estimatePH/phInhibition erano il dual-pop
+//   v2.0: scala Gompertz incompatibile (85 % = 29 giorni contro 18.3 h) e
+//   feedback pH inerte per costruzione. La cinetica LM reale (computeLabAdu +
+//   computeCurrentPH, v2.4.14) resta coperta da tests/unit/engine.core.test.ts.
+//
+// § ST-FRICT — issue #17. computeFrictionHeat/computeWaterTemp erano una seconda
+//   implementazione del bilancio DDT, sbagliata di 7.8 °C sull'acqua. Copertura
+//   ora: tests/unit/engine.friction.test.ts (computeWaterTempDDT) e
+//   engine/friction-v2.4.24.test.js (computeFrictionRise).
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ ST-DASH — Dashboard W effettivo');
@@ -971,16 +910,25 @@ console.log('\n§ ST-EDGE — Edge Cases e Robustezza Numerica');
     `ST-EDGE-05c fHydration(100%) ≈ 1.193 — val=${fHyd100.toFixed(4)}`);
 }
 
-// ST-EDGE-06 — LM a T_frigo (4°C): LAB inibiti, saccharomyces residuo
+// ST-EDGE-06 — LM a T_frigo (4°C): crescita ferma, attività fermentativa no
+// I due orologi vanno letti separatamente (issue #4): il CTM di CRESCITA azzera
+// i LAB a 4 °C perché lì non si duplicano, ma il loro METABOLISMO prosegue — ed
+// è il meccanismo che produce l'aroma della maturazione lunga in cella.
 {
-  // sourdough_wheat Tmin=2.0 → γ(4°C) > 0
+  // Crescita: cardinali invariati (sourdough Tmin=2.0, lab_bacteria Tmin=5.0)
   const gSacc4 = e.cardinalCorrection(4.0, 'sourdough_wheat');
   assert(gSacc4 > 0,
-    `ST-EDGE-06a γ_sacc(4°C, sourdough) > 0 — val=${gSacc4.toFixed(4)}`);
-  // lab_bacteria Tmin=5.0 → γ(4°C) = 0
+    `ST-EDGE-06a γ_crescita_sacc(4°C, sourdough) > 0 — val=${gSacc4.toFixed(4)}`);
   const gLab4 = e.cardinalCorrection(4.0, 'lab_bacteria');
   assert(gLab4 === 0,
-    'ST-EDGE-06b γ_lab(4°C) = 0 (Tmin=5°C → inibiti)');
+    'ST-EDGE-06b γ_crescita_lab(4°C) = 0 (Tmin crescita 5°C → non si duplicano)');
+
+  // Attività fermentativa: entrambi attivi a 4 °C
+  assert(e.kEffective(4.0, 65, 'sourdough_wheat') > 0,
+    'ST-EDGE-06c kEffective(4°C, sourdough) > 0 (fermentazione attiva in cella)');
+  const labAdu4 = e.computeLabAdu(0, 5.8, 4.0, 24);
+  assert(labAdu4 > 0,
+    `ST-EDGE-06d labAdu accumula a 4°C in 24h — val=${labAdu4.toFixed(4)}`);
 }
 
 // ST-EDGE-07 — flourFraction=0 non divide per zero in breakdown

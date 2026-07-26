@@ -69,14 +69,47 @@ const RHO_DOUGH = 1050;  // kg/m³ densità impasto
 const H_AIR     = 8;     // W/(m²·K) convezione naturale aria (ambiente chiuso)
 
 /**
- * Parametri cardinali CTM per agente — §2.1
- * Tmin/Topt/Tmax in °C
+ * Parametri cardinali della CRESCITA (duplicazione cellulare) — §2.1
+ * Tmin/Topt/Tmax in °C. Fonte: letteratura microbiologica classica.
+ *
+ * ⚠ NON usare per la produzione di gas — issue #4.
+ * A 4 °C S. cerevisiae non si divide (sotto Tmin), ma il metabolismo
+ * fermentativo prosegue: la CO₂ non richiede duplicazione cellulare.
+ * Applicare questi cardinali al tasso di fermentazione azzerava il ramo frigo.
+ * Per l'attività fermentativa vedi FERMENTATIVE_CARDINALS.
+ *
+ * Attualmente consumati solo da cardinalCorrection(), tenuta come primitiva di
+ * riferimento per un futuro modello di crescita della biomassa nel prefermento
+ * (che oggi duplica le proprie costanti in WizardView e FermentationPlannerView).
+ * Se quel modello non arriva, questa coppia va rimossa.
  */
 const CARDINAL_PARAMS = {
   fresh_yeast:      { Tmin: 1.5, Topt: 28.0, Tmax: 45.0 },
   instant_dry_yeast:{ Tmin: 2.0, Topt: 28.0, Tmax: 44.0 },
   sourdough_wheat:  { Tmin: 2.0, Topt: 26.0, Tmax: 43.0 },
   lab_bacteria:     { Tmin: 5.0, Topt: 32.0, Tmax: 48.0 },
+};
+
+/**
+ * Parametri cardinali dell'ATTIVITÀ FERMENTATIVA — issue #3 + #4 (v2.5.0)
+ *
+ * Popolazione sostanzialmente costante (impasto finale), non in crescita.
+ * Topt/Tmax invariati rispetto alla crescita; cambia Tmin.
+ *
+ * Tmin = −2 °C non è arbitrario: è all'incirca il punto di congelamento
+ * dell'impasto (abbassamento crioscopico da sali e zuccheri). Sotto, l'acqua
+ * liquida non è più disponibile e il metabolismo si arresta davvero.
+ *
+ * Verifica: con questi cardinali il rate a 4 °C è 0.150 rispetto a 25 °C
+ * (rallentamento 6.7×), dentro la banda 0.100–0.233 attesa da Q10 = 2–3.
+ * Il modello precedente dava 0.0055, cioè 181× — fuori scala di un ordine
+ * di grandezza rispetto a qualunque dato pubblicato.
+ */
+const FERMENTATIVE_CARDINALS = {
+  fresh_yeast:      { Tmin: -2.0, Topt: 28.0, Tmax: 45.0 },
+  instant_dry_yeast:{ Tmin: -2.0, Topt: 28.0, Tmax: 44.0 },
+  sourdough_wheat:  { Tmin: -2.0, Topt: 26.0, Tmax: 43.0 },
+  lab_bacteria:     { Tmin: -2.0, Topt: 32.0, Tmax: 48.0 },
 };
 
 /**
@@ -89,12 +122,9 @@ const AGENT_GOMPERTZ = {
   sourdough_wheat:   { muMax:  7.0, lambda: 3.5, Ea: 65, asymptote: 100 },
 };
 
-/** Modello LM dual-population — §2.6 */
-const LM_PARAMS = {
-  saccharomyces: { Ea: 65, muMax: 0.25, lambda: 2.5, Topt: 26 },
-  lab:           { Ea: 58, muMax: 0.45, lambda: 1.8, Topt: 32 },
-  matrixFactor:  0.6,   // riduzione muMax in matrice solida
-};
+// LM_PARAMS (modello dual-population v2.0) rimosso — issue #18.
+// Era su una scala Gompertz incompatibile con AGENT_GOMPERTZ (85 % = 29 giorni).
+// Il matrixFactor 0.6 sopravvive dov'è realmente usato: LAB_KINETICS.muMax.
 
 /** Orologio maturazione enzimatica — two-clock v2.4.1 (KB §2.4)
  * Accumulo: enzAdu += fArrhenius(T) × deltaH — senza CTM → attivo a 4°C (~29% ritmo a 22°C).
@@ -242,7 +272,7 @@ const ACID_PRODUCTION_PARAMS = {
 const LAB_KINETICS = {
   muMax:        0.45 * 0.6,  // matrixFactor=0.6 in matrice solida (§2.6)
   Topt:         32,
-  Tmin:         5,
+  Tmin:         -2,        // era 5 (crescita); ora fermentativo — issue #4
   Tmax:         45,
   Ea:           58,           // kJ/mol
   kAcid:        0.030,        // drop pH per unità labAdu
@@ -272,9 +302,11 @@ function _cardinalForParams(tempC, Tmin, Topt, Tmax) {
 }
 
 /**
- * Modello CTM di Rosso (1993) — §2.1
- * Restituisce γ(T) ∈ [0, 1]
- * γ(Topt) = 1.0 ; γ = 0 per T ≤ Tmin o T ≥ Tmax
+ * Modello CTM di Rosso (1993) sulla CRESCITA — §2.1
+ * Restituisce γ(T) ∈ [0, 1]; γ(Topt) = 1.0; γ = 0 per T ≤ Tmin o T ≥ Tmax
+ *
+ * ⚠ NON è più il fattore termico di kEffective — issue #3. Legge
+ * CARDINAL_PARAMS (crescita); vedi la nota su quella costante.
  */
 function cardinalCorrection(tempC, agentType) {
   const p = CARDINAL_PARAMS[agentType];
@@ -283,15 +315,53 @@ function cardinalCorrection(tempC, agentType) {
 }
 
 /**
- * Modello composito CTM × Arrhenius — §2.1.1
- * k_effective(T) = arrhenius(T, Ea) × γ_CTM(T)
- * Restituisce tasso effettivo (non normalizzato)
+ * Envelope di inattivazione termica sopra l'ottimo — issue #3 (v2.5.0)
+ *
+ * decline(T) = 1                          per T ≤ Topt
+ *            = (Tmax − T) / (Tmax − Topt) per Topt < T < Tmax
+ *            = 0                          per T ≥ Tmax
+ *
+ * Sotto Topt il tasso è governato dalla sola cinetica enzimatica (Arrhenius);
+ * sopra Topt subentra la denaturazione. È la struttura classica
+ * "Arrhenius + inattivazione termica" (famiglia Schoolfield), NON il prodotto
+ * CTM × Arrhenius della v2.4.x — lì la temperatura veniva contata due volte,
+ * perché γ_CTM è già di per sé la risposta termica completa.
+ */
+function _thermalDeclineFor(tempC, Topt, Tmax) {
+  if (tempC <= Topt) return 1.0;
+  if (tempC >= Tmax) return 0.0;
+  return (Tmax - tempC) / (Tmax - Topt);
+}
+
+/** Envelope di inattivazione per agente. Ritorna 0 fuori da [Tmin, Tmax]. */
+function thermalDecline(tempC, agentType) {
+  const p = FERMENTATIVE_CARDINALS[agentType];
+  if (!p) return 0;
+  if (tempC <= p.Tmin || tempC >= p.Tmax) return 0;
+  return _thermalDeclineFor(tempC, p.Topt, p.Tmax);
+}
+
+/**
+ * Tasso di attività fermentativa — §2.1.1 (riscritto, issue #3 + #4)
+ *
+ * k_effective(T) = arrhenius(T, Ea) × decline(T)   dentro [Tmin, Tmax]
+ *                = 0                               fuori
+ *
+ * Proprietà verificate rispetto alla banda Q10 = 2–3 della letteratura:
+ *   4 °C  → 0.150 (banda 0.100–0.233)   6 °C  → 0.182 (0.124–0.268)
+ *  10 °C  → 0.266 (0.192–0.354)        16 °C  → 0.459 (0.372–0.536)
+ *  20 °C  → 0.653 (0.577–0.707)        22 °C  → 0.776 (0.719–0.812)
+ * Picco a 32.5 °C; zero sopra Tmax. Ordine fra agenti preservato: a 32 °C il
+ * lievito di birra (Topt 28) resta 1.15× più veloce della pasta madre (Topt 26),
+ * cosa che l'Arrhenius nudo invertiva perché la PM ha Ea maggiore.
  */
 function kEffective(tempC, eaKj, agentType) {
-  const T_K   = tempC + 273.15;
-  const arr   = safeExp((-eaKj * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
-  const gamma = cardinalCorrection(tempC, agentType);
-  return arr * gamma;
+  const p = FERMENTATIVE_CARDINALS[agentType];
+  if (!p) return 0;
+  if (tempC <= p.Tmin || tempC >= p.Tmax) return 0;
+  const T_K = tempC + 273.15;
+  const arr = safeExp((-eaKj * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
+  return arr * _thermalDeclineFor(tempC, p.Topt, p.Tmax);
 }
 
 /**
@@ -330,16 +400,10 @@ function findAduAt(muMax, lambda, A = 100, pct) {
   return (lo + hi) / 2;
 }
 
-/**
- * Lag phase effettiva a temperatura T con scala Arrhenius — §2.3
- * lambdaEffective(T) = lambdaRef × exp((EaKjLag/R) × (1/T_K - 1/T_ref_K))
- */
-function lagPhaseAtTemp(tempC, lambdaRef, eaKjLag, agentType) {
-  const T_K = tempC + 273.15;
-  // La lag si allunga al freddo → exp è > 1 per T < 25°C
-  const factor = safeExp((eaKjLag * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
-  return lambdaRef * factor;
-}
+// lagPhaseAtTemp() rimossa — issue #19. Mai chiamata, e ridondante: lambda è
+// espressa in ADU, non in ore, quindi è GIÀ scalata implicitamente in temperatura
+// dal kRatio che genera gli ADU. Applicarle un secondo fattore di Arrhenius
+// avrebbe allungato la lag due volte al freddo.
 
 // ═══════════════════════════════════════════════════════════════
 // § E — THERMAL STACK (v2.3) — spec completa §3
@@ -477,19 +541,10 @@ function structuralState(W0, W_current) {
   return 'OK';
 }
 
-/**
- * Idratazione massima sicura per la struttura — §2.9
- * Formula empirica derivata da W, P/L e proteine
- */
-function maxSafeHydration(W, pl, protein) {
-  // Base da W (farina più forte → può sostenere più acqua)
-  const baseFromW  = 55 + (W - 200) * 0.05;
-  // Correzione P/L (più estensibile → meno struttura → meno acqua)
-  const plCorr     = (pl - 0.5) * (-5);
-  // Correzione proteine
-  const protCorr   = (protein - 12) * 0.8;
-  return safeClamp(baseFromW + plCorr + protCorr, 55, 85);
-}
+// maxSafeHydration() rimossa — issue #19 + #20. Mai chiamata da src/, e in
+// conflitto con le altre sorgenti: per W280/PL0.60/prot11.75 restituiva 58.9 %,
+// bocciando il 65 % che il wizard stesso propone come default per la napoletana.
+// Sorgente unica di verità: hydrationRangeForStyle() in src/data/styleConstraints.ts.
 
 // ═══════════════════════════════════════════════════════════════
 // § G — AMYLASE (v2.3.2)
@@ -877,93 +932,43 @@ function computeCombinedInitialState({ prefermenti, mainFlourGroup, waterHardnes
 // § J — LM DUAL-POPULATION + FRICTION (v2.0)
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Inibizione pH per organismo — §2.6
- * Restituisce moltiplicatore [0, 1]
- */
-function phInhibition(pH, organism) {
-  if (organism === 'saccharomyces') {
-    if (pH < 3.5) return 0.05;
-    if (pH < 4.5) return safeClamp((pH - 3.5) / 1.0 * 0.95 + 0.05, 0.05, 1.0);
-    return 1.0;
-  }
-  if (organism === 'lab') {
-    if (pH < 3.5) return 0;
-    if (pH < 3.8) return safeClamp((pH - 3.5) / 0.3, 0, 1);
-    return 1.0;
-  }
-  return 1.0;
-}
+// ─── Dual-population v2.0 — RIMOSSA (issue #18) ─────────────────────────────
+//
+// computeLMState(), estimatePH() e phInhibition() erano il modello dual-pop
+// della v2.0. Mai chiamate da src/, ma esportate — e non funzionanti:
+//
+// 1. SCALA INCOMPATIBILE. computeLMState usava LM_PARAMS invece di
+//    AGENT_GOMPERTZ. Con muMax = 0.25 × matrixFactor 0.6 = 0.15 servivano
+//    693 ADU per l'85 % — 29 giorni a 25 °C, contro le 18.3 h che dà
+//    AGENT_GOMPERTZ.sourdough_wheat (muMax 7.0, lambda 3.5), realmente in uso.
+//
+// 2. FEEDBACK pH INERTE PER COSTRUZIONE. La riga
+//        const pHCurrent = estimatePH(initialPH, sacMat, elapsedH);
+//    passava la maturazione dei SACCAROMICETI al parametro che estimatePH
+//    chiama labMatPct; estimatePH cappava il calo a 0.08 pH e ignorava del
+//    tutto elapsedH. Risultato: phInhibition restituiva sempre 1.0 e
+//    l'inibizione acida non si attivava mai.
+//
+// La cinetica LM reale passa da computeLabAdu() + computeCurrentPH() (v2.4.14
+// §2.6), che modellano i LAB con CTM × Arrhenius e autoinibizione progressiva.
+// Nota: quel modello è a sua volta sotto-calibrato di ~1 unità di pH — issue #9.
 
-/**
- * pH stimato da produzione acida LAB — §2.6
- * Δ pH = −0.08 per unità di maturazione LAB (a maturazione piena)
- */
-function estimatePH(initialPH, labMatPct, elapsedH) {
-  // LAB producono ~0.08 ΔpH/h × matFactor
-  const drop = 0.08 * (labMatPct / 100);
-  return Math.max(3.5, initialPH - drop);
-}
-
-/**
- * Stato LM dual-population — §2.6 (Gobbetti 2005)
- * Modella saccharomyces + LAB in parallel
- */
-function computeLMState(adu, tempC, initialPH, elapsedH) {
-  const { saccharomyces, lab, matrixFactor } = LM_PARAMS;
-
-  // Saccharomyces
-  const muSacc  = saccharomyces.muMax * matrixFactor;
-  const sacMat  = gompertz(adu, muSacc, saccharomyces.lambda, 100);
-
-  // LAB (pH cresce nel tempo)
-  const pHCurrent = estimatePH(initialPH, sacMat, elapsedH);
-  const labInhib  = phInhibition(pHCurrent, 'lab');
-  const muLab     = lab.muMax * matrixFactor * labInhib;
-  const labMat    = gompertz(adu, muLab, lab.lambda, 100);
-
-  // Saccharomyces inibiti da acidità
-  const saccInhib = phInhibition(pHCurrent, 'saccharomyces');
-
-  return {
-    saccharomycesMatPct: sacMat * saccInhib,
-    labMatPct:           labMat,
-    estimatedPH:         pHCurrent,
-    overallMatPct:       (sacMat * saccInhib * 0.7 + labMat * 0.3),
-  };
-}
-
-// Fattori base calore attrito [°C/(10 min × 1 kg × 65% idr)] — §2.7
-const FRICTION_BASE_FACTORS = {
-  spiral:      3.8,
-  fork:        2.5,
-  planetary:   7.5,
-  diving_arm:  3.2,
-  hand:        1.2,
-};
-
-/**
- * Calore generato dall'impastamento meccanico — §2.7
- * ΔT_friction = F_base × f_hydration × f_time × f_mass
- */
-function computeFrictionHeat({ mixerType, hydration, flourKg, mixingMinutes }) {
-  const fBase = FRICTION_BASE_FACTORS[mixerType] ?? FRICTION_BASE_FACTORS.spiral;
-  const fHyd  = 0.5 + (hydration - 50) / (80 - 50) * 0.5;  // normaliz. 50-80%
-  const fTime = mixingMinutes / 10;
-  const fMass = flourKg / 1.0;
-  return fBase * fHyd * fTime * fMass;
-}
-
-/**
- * Temperatura ottimale acqua per DDT target — §2.7
- * T_water = DDT × coeff_water - T_room × coeff_room - T_flour × coeff_flour - ΔT_friction
- */
-function computeWaterTemp({ ddt, tempFlour, tempRoom, mixerType, hydration, flourKg, mixingMinutes }) {
-  const friction = computeFrictionHeat({ mixerType, hydration, flourKg, mixingMinutes });
-  // Coefficienti semplificati: DDT = (T_flour + T_room + T_water + T_friction_correction) / 3
-  const T_water = 3 * ddt - tempFlour - tempRoom - friction;
-  return safeClamp(T_water, 0, 35);
-}
+// ─── Attrito meccanico e DDT — RIMOSSI in questo modulo (issue #17) ──────────
+//
+// FRICTION_BASE_FACTORS, computeFrictionHeat() e computeWaterTemp() vivevano qui
+// come seconda implementazione del bilancio termico dell'acqua, mai chiamata da
+// src/ ma esportata — e SBAGLIATA: computeWaterTemp sottraeva il ΔT grezzo invece
+// del fattore di attrito N × ΔT che la formula di Calvel richiede.
+//
+// Divergenza misurata (DDT 24 °C, farina 20 °C, ambiente 22 °C, spirale 12 min, H 62 %):
+//   computeWaterTemp        → 26.81 °C
+//   computeWaterTempDDT     → 19.00 °C     ← corretta
+//   7.81 °C sull'acqua ≈ 2.6 °C sulla DDT.
+//
+// Sorgenti di verità uniche, da usare al loro posto:
+//   • bilancio DDT / ghiaccio  → computeWaterTempDDT()  in src/engine/index.ts
+//   • salita termica da attrito → computeFrictionRise() in engine/friction-v2.4.24.js
+//     (FRICTION_PARAMS, già dichiarata "sorgente unica di verità" §2.7 in v2.4.24)
 
 // ═══════════════════════════════════════════════════════════════
 // § K — SWEET SPOT + TICK LOOP + DASHBOARD (v2.3.2)
@@ -1262,10 +1267,16 @@ function thermalTimeConstantForPhase(phase, massKg, hydration, containerPreset) 
 /**
  * Contributo amilasico del malto diastatico — §2.15.1
  *
- * amylase_index_malt = (maltDosePct / 100) × (maltDP / 200) × 1.2
+ * amylase_index_malt = (maltDosePct / 100)
+ *                    × (maltDP / MALT_PARAMS.refDPLintner)
+ *                    × MALT_PARAMS.maltAmylaseScale
+ *
+ * La scala NON è ripetuta qui come numero: vive solo in MALT_PARAMS, che ne
+ * documenta la calibrazione. (Il JSDoc riportava `× 1.2`, valore pre-v2.4.0
+ * rimasto indietro rispetto a maltAmylaseScale = 60 — fattore 50×.)
  *
  * maltDosePct: % su farina [0–1%]
- * maltDP:      potere diastatico in °Lintner (default 200)
+ * maltDP:      potere diastatico in °Lintner (default MALT_PARAMS.refDPLintner)
  *
  * Nota: se il malto è aggiunto a un prefermento a pH < 5.5, applicare
  * computeDenaturationFactor() sul contributo (stessa logica §2.8.2)
@@ -1426,14 +1437,8 @@ function computeReverseScaling({
 // § T — FUNZIONI MANCANTI KB v2.3.2
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * pH stimato per agenti LBF/LM — KB §2.6 spec corretta
- * Sostituisce estimatePH nel tick loop (KB §12.2 step 5)
- * Drop calibrato: 0.0015 pH/% maturazione; floor biologico 4.8 (non raggiungibile sotto con LBF)
- */
-function estimatePHForLBF(initialPH, maturationPct) {
-  return Math.max(4.8, (initialPH ?? 5.8) - 0.0015 * maturationPct);
-}
+// estimatePHForLBF() rimossa — issue #19. Sostituita da computeCurrentPH()
+// (v2.4.11 §2.6.1), che deriva il pH da leavAdu invece che dalla maturazione.
 
 /**
  * pH biochimicamente corretto da leavAdu — v2.4.11 §2.6.1
@@ -1461,7 +1466,14 @@ function computeCurrentPH(initialPH, leavAdu, agentType, labAdu = 0) {
  * CTM(Topt=32) × Arrhenius(Ea=58) × autoinibizione pH (declino lineare 4.8→3.5).
  */
 function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
-  const labCTM = _cardinalForParams(tempC, LAB_KINETICS.Tmin, LAB_KINETICS.Topt, LAB_KINETICS.Tmax);
+  // issue #3: stesso doppio conteggio di kEffective, stessa correzione.
+  // Era `_cardinalForParams(...) × Arrhenius`; ora Arrhenius × envelope, con
+  // Tmin fermentativo. Con il vecchio Tmin = 5 °C i LAB erano azzerati in frigo,
+  // mentre molti eterofermentanti di pasta madre restano attivi a 4–8 °C — ed è
+  // il meccanismo che produce l'aroma della maturazione lunga in cella.
+  const labDecline = (tempC <= LAB_KINETICS.Tmin || tempC >= LAB_KINETICS.Tmax)
+    ? 0
+    : _thermalDeclineFor(tempC, LAB_KINETICS.Topt, LAB_KINETICS.Tmax);
   const labArr = safeExp((-LAB_KINETICS.Ea * 1000 / R_GAS) * (1 / (tempC + 273.15) - 1 / T_REF_K));
   let phInhib = 1.0;
   if (currentPH <= LAB_KINETICS.pHInhibFloor) {
@@ -1470,77 +1482,18 @@ function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
     phInhib = (currentPH - LAB_KINETICS.pHInhibFloor) /
               (LAB_KINETICS.pHInhibStart - LAB_KINETICS.pHInhibFloor);
   }
-  const labRate = LAB_KINETICS.muMax * labCTM * labArr * phInhib;
+  const labRate = LAB_KINETICS.muMax * labDecline * labArr * phInhib;
   return (prevLabAdu ?? 0) + labRate * subStepH;
 }
 
-/**
- * Indice di estensibilità combinato — KB §15.4
- * Combina alveografia (W, P/L), stabilità farinografica e avanzamento maturazione.
- * Pesi: W=30%, P/L=20%, stabilità=30%, maturazione=20%
- * Ritorna [0, 1] — 1 = ottimo per pizza.
- */
-function computeExtensibilityIndex({ W, pl, stability, maturationPct }) {
-  const wNorm    = safeClamp((W - 80) / 320, 0, 1);          // W: 80–400 → 0–1
-  const plNorm   = safeClamp(1 - Math.abs(pl - 0.65) / 0.70, 0, 1); // ottimale 0.65
-  const stabNorm = safeClamp(stability / 25, 0, 1);          // 0–25 min → 0–1
-  const matNorm  = safeClamp(maturationPct / 100, 0, 1);
-  return 0.30 * wNorm + 0.20 * plNorm + 0.30 * stabNorm + 0.20 * matNorm;
-}
-
-/**
- * Calcolo inverso: dose lievito da target tempo + maturazione — KB §8
- * Scaling LINEARE: muMaxScaled = muMax × (dose/refDose)
- * NOT sqrt. [KB §1.5 anti-pattern §13.3]
- *
- * Algoritmo: inverte Gompertz rispetto a muMax per trovare il tasso
- * necessario a raggiungere targetMatPct nell'ADU disponibile a tempC,
- * poi scala linearmente la dose.
- */
-function computeInverseProgram({
-  targetDurationH,
-  targetMatPct = 85,
-  tempC,
-  agentType,
-  eaKj,
-  muMaxRef,
-  lambdaRef,
-  refDosePct,
-  asymptote = 100,
-}) {
-  const aduAvailable = kRatio(tempC, eaKj, agentType) * targetDurationH;
-  const r = safeClamp(targetMatPct / asymptote, 0.001, 0.999);
-
-  // Inverso Gompertz per muMax:
-  //   r = exp(-exp((muMax×e/A)×(λ-adu)+1))
-  //   ln(-ln(r)) = (muMax×e/A)×(λ-adu) + 1
-  //   muMax = (A/e) × (ln(-ln(r)) - 1) / (λ - adu)
-  const lnArg      = Math.log(-Math.log(r));
-  const denominator = lambdaRef - aduAvailable;
-
-  let muMaxNeeded;
-  if (Math.abs(denominator) < 1e-6) {
-    muMaxNeeded = muMaxRef; // vicino al punto di flesso — usa dose di riferimento
-  } else {
-    muMaxNeeded = (asymptote / Math.E) * (lnArg - 1) / denominator;
-  }
-
-  if (muMaxNeeded <= 0) {
-    // Target irraggiungibile a questa temperatura/durata — restituisce dose minima
-    return { dosePct: refDosePct * 0.05, muMaxScaled: muMaxRef * 0.05, aduAvailable, feasible: false };
-  }
-
-  // Scaling lineare dose (KB §8 — NOT sqrt)
-  const rawDose = refDosePct * (muMaxNeeded / muMaxRef);
-  const dosePct = safeClamp(rawDose, refDosePct * 0.05, refDosePct * 20);
-
-  return {
-    dosePct,
-    muMaxScaled: muMaxNeeded,
-    aduAvailable,
-    feasible: rawDose >= refDosePct * 0.05 && rawDose <= refDosePct * 20,
-  };
-}
+// computeExtensibilityIndex() e computeInverseProgram() rimosse — issue #19.
+//
+// computeExtensibilityIndex: mai integrata in UI. Il dashboard calcola i propri
+//   indici con formule più semplici e slegate dalla fermentazione
+//   (cfr. PROFILE_INDICES_REPORT.md §1.4).
+// computeInverseProgram: sostituita dal Service-Window solver, che risolve lo
+//   stesso problema inverso (dose per centrare un target) integrando la timeline
+//   reale invece di assumere temperatura costante.
 
 // ═══════════════════════════════════════════════════════════════
 // § S — EXPORTS
@@ -1558,8 +1511,8 @@ const _constants = {
   RHO_DOUGH,
   H_AIR,
   CARDINAL_PARAMS,
+  FERMENTATIVE_CARDINALS,
   AGENT_GOMPERTZ,
-  LM_PARAMS,
   HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS,
   AUTOLYSIS_CALIBRATION,
@@ -1567,7 +1520,6 @@ const _constants = {
   AMYLASE_PH_PARAMS,
   AMYLASE_DENATURATION_PARAMS,
   AMYLASE_CORRECTION_PARAMS,
-  FRICTION_BASE_FACTORS,
   // v2.4.0
   SALT_INHIBITION_PARAMS,
   W_BLEND_NONLINEAR_K,
@@ -1940,11 +1892,11 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // § D Core
     cardinalCorrection,
+    thermalDecline,
     kEffective,
     kRatio,
     gompertz,
     findAduAt,
-    lagPhaseAtTemp,
 
     // § E Thermal
     doughSpecificHeat,
@@ -1960,7 +1912,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeTCrit,
     computeWHill,
     structuralState,
-    maxSafeHydration,
 
     // § G Amylase
     normalizeAmylaseActivity,
@@ -1980,11 +1931,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeCombinedInitialState,
 
     // § J LM + Friction
-    phInhibition,
-    estimatePH,
-    computeLMState,
-    computeFrictionHeat,
-    computeWaterTemp,
 
     // § K Dashboard/Tick
     computeDeltaAdu,
@@ -2024,9 +1970,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeReverseScaling,
 
     // § T KB v2.3.2 additions
-    estimatePHForLBF,
-    computeExtensibilityIndex,
-    computeInverseProgram,
     // v2.4.11
     computeCurrentPH,
     // v2.4.14
@@ -2046,24 +1989,22 @@ if (typeof module !== 'undefined' && module.exports) {
 export {
   // Constants
   DEFAULT_FN, DEFAULT_ASH, EXTREME_W_SPREAD, T_REF_K, R_GAS,
-  CARDINAL_PARAMS, AGENT_GOMPERTZ, LM_PARAMS, HILL_W_DECAY,
+  CARDINAL_PARAMS, FERMENTATIVE_CARDINALS, AGENT_GOMPERTZ, HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS, AUTOLYSIS_CALIBRATION, PREFERMENTO_CALIBRATION,
   AMYLASE_PH_PARAMS, AMYLASE_DENATURATION_PARAMS, AMYLASE_CORRECTION_PARAMS,
-  FRICTION_BASE_FACTORS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
   ALTITUDE_PARAMS, WATER_HARDNESS_PARAMS, ENZYMATIC_CLOCK_PARAMS,
   ACID_PRODUCTION_PARAMS,
 
   // Functions
   safeExp, safeDiv, safeClamp,
-  cardinalCorrection, kEffective, kRatio, gompertz, findAduAt, lagPhaseAtTemp,
+  cardinalCorrection, thermalDecline, kEffective, kRatio, gompertz, findAduAt,
   doughSpecificHeat, thermalTimeConstant, applyContainerResistance, doughCoreTemp,
   fArrhenius, fPH, fHydration,
-  computeTCritRef, computeTCrit, computeWHill, structuralState, maxSafeHydration,
+  computeTCritRef, computeTCrit, computeWHill, structuralState,
   normalizeAmylaseActivity, fPHAmylase, computeDenaturationFactor, amylaseCorrectedRate,
   blendAmylaseIndex, validateFlourGroup, normalizeFlourGroup,
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
-  phInhibition, estimatePH, computeLMState, computeFrictionHeat, computeWaterTemp,
   computeDeltaAdu, sweetSpot, sweetSpotMaturation, computeDashboardEffectiveW,
   computeKprot, computeWEffectiveExp,
   fSaltYeast, fSaltProtease,
@@ -2073,7 +2014,6 @@ export {
   computeAltitudeFactor, volumeMilestoneCorrection,
   fHardnessGluten, fHardnessProtease,
   computeReverseScaling,
-  estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram,
   computeCurrentPH,
   computeLabAdu, thermalTimeConstantForPhase,
   LAB_KINETICS, SACC_ACID_CONTRIB,

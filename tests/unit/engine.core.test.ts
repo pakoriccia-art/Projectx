@@ -1,10 +1,10 @@
 // tests/unit/engine.core.test.ts
-// 50 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
+// 52 test — fArrhenius, kEffective, Gompertz, sale, Two-Clock, W-decay, blend, style, collasso, pH
 import { describe, it, expect } from 'vitest';
 import {
   fArrhenius, kEffective, gompertz, findAduAt,
-  computeWHill, computeTCrit, structuralState, maxSafeHydration,
-  fSaltYeast, fSaltProtease,
+  computeWHill, computeTCrit, structuralState,
+  fSaltYeast, fSaltProtease, amylaseCorrectedRate,
   normalizeFlourGroup, blendAmylaseIndex, validateFlourGroup,
   normalizeAmylaseActivity,
   getStyleProfile, computeStyleAwareAlertLevel,
@@ -71,8 +71,12 @@ describe('kEffective — clock lievito (CTM×Arrhenius)', () => {
     expect(kEffective(28, EA_FRESH, 'fresh_yeast')).toBeGreaterThan(fArrhenius(28));
   });
 
-  it('UT-ENG-08: kEffective=0 a T≤Tmin (1.5°C per fresh_yeast)', () => {
-    expect(kEffective(1.0, EA_FRESH, 'fresh_yeast')).toBe(0);
+  it('UT-ENG-08: kEffective=0 solo sotto Tmin fermentativo (−2°C), non a 1°C', () => {
+    // Prima della issue #3 il taglio era a 1.5 °C, il Tmin di CRESCITA: a 1 °C il
+    // modello dava 0 anche se la fermentazione non si ferma affatto lì. Il Tmin
+    // fermentativo è −2 °C, il congelamento dell'impasto.
+    expect(kEffective(-3, EA_FRESH, 'fresh_yeast')).toBe(0);
+    expect(kEffective(1.0, EA_FRESH, 'fresh_yeast')).toBeGreaterThan(0);
   });
 
   it('UT-ENG-09: kEffective=0 a T≥Tmax (45°C per fresh_yeast)', () => {
@@ -99,9 +103,36 @@ describe('kEffective — clock lievito (CTM×Arrhenius)', () => {
     }
   });
 
-  it('UT-ENG-12: kEffective(4°C, instant_dry_yeast) < 0.15 (quasi fermo in frigo)', () => {
-    const EA_IDY = (AGENT_GOMPERTZ as any).instant_dry_yeast.Ea as number;
-    expect(kEffective(4, EA_IDY, 'instant_dry_yeast')).toBeLessThan(0.15);
+  // Sostituisce il vecchio UT-ENG-12 ("< 0.15 a 4 °C, quasi fermo in frigo"), che
+  // codificava il bug della issue #3: l'impasto in cella NON è quasi fermo.
+  it('UT-ENG-12: il rate a freddo rispetta la banda Q10 2–3 della letteratura', () => {
+    // Rate relativo a 25 °C atteso per Q10 ∈ [2, 3]: 1/Q10^((25−T)/10)
+    const banda = (T: number): [number, number] => {
+      const d = (25 - T) / 10;
+      return [1 / 3 ** d, 1 / 2 ** d];
+    };
+    const kRel = (T: number) =>
+      kEffective(T, EA_FRESH, 'fresh_yeast') / kEffective(25, EA_FRESH, 'fresh_yeast');
+
+    for (const T of [4, 6, 10, 16, 20, 22]) {
+      const [lo, hi] = banda(T);
+      expect(kRel(T)).toBeGreaterThanOrEqual(lo);
+      expect(kRel(T)).toBeLessThanOrEqual(hi);
+    }
+  });
+
+  it('UT-ENG-12b: il tasso declina sopra Topt e si annulla a Tmax', () => {
+    const k = (T: number) => kEffective(T, EA_FRESH, 'fresh_yeast');
+    expect(k(40)).toBeLessThan(k(32));      // inattivazione termica
+    expect(k(45)).toBe(0);                  // Tmax fresh_yeast
+  });
+
+  it('UT-ENG-12c: sopra Topt il lievito resta più veloce della pasta madre', () => {
+    // Con Arrhenius nudo l'ordine si invertiva: la PM ha Ea maggiore (65 vs 62)
+    // e sarebbe risultata più veloce a 32 °C, pur avendo Topt più basso (26 vs 28).
+    const EA_SOUR = (AGENT_GOMPERTZ as any).sourdough_wheat.Ea as number;
+    const rel = (T: number, ea: number, ag: string) => kEffective(T, ea, ag) / kEffective(25, ea, ag);
+    expect(rel(32, EA_FRESH, 'fresh_yeast')).toBeGreaterThan(rel(32, EA_SOUR, 'sourdough_wheat'));
   });
 });
 
@@ -251,11 +282,31 @@ describe('W-decay — Hill + tCrit + structuralState', () => {
     const s = structuralState(280, 150, 65, 0.55, 12.5);
     expect(['WARNING', 'CRITICAL', 'COLLAPSED']).toContain(s);
   });
+});
 
-  it('UT-ENG-35: maxSafeHydration decresce al diminuire di W_current', () => {
-    const h1 = maxSafeHydration(280, 0.55, 12.5);
-    const h2 = maxSafeHydration(200, 0.55, 12.5);
-    expect(h2).toBeLessThan(h1);
+// ─── 1.F-bis Guardia NaN sull'indice amilasico (issue #6) ────────────────────
+// amylaseCorrectedRate non ha difese interne: Math.max(0.50, NaN) PROPAGA NaN.
+// Se una Session arriva senza effectiveAmylaseIndex (schema vecchio, restore da
+// IndexedDB, Session costruita fuori dal wizard), il tick loop somma NaN a
+// cumulativeAdu e lo persiste — corruzione permanente dello stato.
+// Il fix vive nel call-site (useTickEngine: `?? 1.0` + Number.isFinite).
+// Questi test pinnano la ragione per cui quel fallback è obbligatorio.
+
+describe('amylaseCorrectedRate — propagazione NaN (issue #6)', () => {
+  it('UT-ENG-51: con amylaseIndex undefined restituisce NaN (motiva il fallback)', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, undefined, 0, 5.8);
+    expect(Number.isNaN(r)).toBe(true);
+  });
+
+  it('UT-ENG-52: con il fallback 1.0 restituisce un valore finito e positivo', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, 1.0, 0, 5.8);
+    expect(Number.isFinite(r)).toBe(true);
+    expect(r).toBeGreaterThan(0);
+  });
+
+  it('UT-ENG-53: rateFloor 0.50 non viene mai violato per indici molto bassi', () => {
+    const r = (amylaseCorrectedRate as Function)(1.0, 0, 0, 5.8);
+    expect(r).toBeGreaterThanOrEqual(0.5);
   });
 });
 

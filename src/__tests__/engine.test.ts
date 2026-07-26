@@ -14,7 +14,7 @@ import {
   computeMaltAmylaseContrib, maltAlertLevel,
   computeReverseScaling,
   thermalTimeConstant, thermalTimeConstantSphere,
-  estimatePH, blendAmylaseIndex,
+  blendAmylaseIndex,
   HILL_W_DECAY,
 } from '../engine';
 
@@ -22,7 +22,7 @@ import {
 const approx = (a: number, b: number, tol = 0.01) =>
   expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
 
-// ─── CTM × Arrhenius ─────────────────────────────────────────────────────────
+// ─── Arrhenius + inattivazione termica (era CTM × Arrhenius fino a aec1079) ──
 describe('§D — Core Kinetics', () => {
   it('cardinalCorrection = 1.0 a T_opt=28°C (fresh_yeast)', () => {
     // CARDINAL_PARAMS.fresh_yeast.Topt = 28°C
@@ -41,11 +41,29 @@ describe('§D — Core Kinetics', () => {
     expect(k).toBe(0);
   });
 
-  // Tabella KB §2.1.3 (LBF: Ea=47kJ/mol)
-  it('kEffective(35°C) > kEffective(30°C)', () => {
-    const k35 = (kEffective as Function)(35, 47, 'fresh_yeast') as number;
-    const k30 = (kEffective as Function)(30, 47, 'fresh_yeast') as number;
-    expect(k35).toBeGreaterThan(k30);
+  // Inattivazione termica (issue #3): dopo aec1079 kEffective NON è più il CTM.
+  // Sotto Topt governa la sola Arrhenius; sopra Topt subentra l'envelope di
+  // denaturazione, che scende linearmente a zero verso Tmax.
+  //
+  // ⚠ Il picco NON cade su Topt: Arrhenius continua a salire mentre l'envelope
+  // scende, quindi il massimo sta OLTRE l'ottimo e dipende dalla Ea —
+  // 28.9 °C con Ea=47, 32.5 °C con Ea=62, 33.0 °C con Ea=65.
+  // Non scrivere assertion che diano per scontato "picco a Topt": sono false.
+  //
+  // Il confronto è ancorato a 40 vs 32 °C e non a 35 vs 30: con Ea=62 il margine
+  // 35/30 è dello 0.6 % (1.3245 vs 1.3329) e basterebbe ritoccare la Ea per
+  // invertirlo. A 40 vs 32 il margine è del 46 %, cioè si misura l'invariante
+  // dove il segnale c'è davvero.
+  it('kEffective decresce oltre l\'ottimo: kEffective(40°C) < kEffective(32°C)', () => {
+    for (const Ea of [47, 62]) {
+      const k40 = (kEffective as Function)(40, Ea, 'fresh_yeast') as number;
+      const k32 = (kEffective as Function)(32, Ea, 'fresh_yeast') as number;
+      expect(k40).toBeLessThan(k32);
+    }
+  });
+
+  it('kEffective si annulla a Tmax (45°C per fresh_yeast)', () => {
+    expect((kEffective as Function)(45, 47, 'fresh_yeast') as number).toBe(0);
   });
 });
 
@@ -294,14 +312,7 @@ describe('§E — Thermal Stack', () => {
   });
 });
 
-// ─── pH ──────────────────────────────────────────────────────────────────────
-describe('§J — estimatePH', () => {
-  it('pH decresce nel tempo (fermentazione)', () => {
-    const ph0  = (estimatePH as Function)(5.8, 0,  0)  as number;
-    const ph24 = (estimatePH as Function)(5.8, 30, 24) as number;
-    expect(ph24).toBeLessThan(ph0);
-  });
-});
+// ─── §J — estimatePH: RIMOSSA (dual-population non funzionante, cfr. issue #19) ──
 
 // ─── blendAmylaseIndex ───────────────────────────────────────────────────────
 describe('§H — blendAmylaseIndex', () => {

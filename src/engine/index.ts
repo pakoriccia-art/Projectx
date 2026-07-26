@@ -274,10 +274,6 @@ export interface WaterTempResult {
   levers?:          string[];
 }
 
-// ─── KB §2.6 — pH per LBF/LM ─────────────────────────────────────────────────
-// estimatePHForLBF — auto-exported via `export *` from engine JS.
-// Signature: (initialPH: number | undefined, maturationPct: number) => number
-
 // ─── v2.4.11 §2.6.1 — pH biochimicamente corretto da leavAdu ─────────────────
 // computeCurrentPH — auto-exported via `export *` from engine JS.
 // Signature: (initialPH: number | undefined, leavAdu: number, agentType: string) => number
@@ -310,41 +306,6 @@ export interface StyleProfile {
   puntataMatPct_target:   number;
   [key: string]: unknown;
 }
-
-// ─── KB §15.4 — Indice estensibilità ─────────────────────────────────────────
-
-export interface ExtensibilityIndexInput {
-  W:            number;   // forza alveografica [80–400]
-  pl:           number;   // rapporto P/L [0.2–1.2]
-  stability:    number;   // stabilità farinografica [min]
-  maturationPct: number;  // avanzamento maturazione [0–100]
-}
-
-// computeExtensibilityIndex — auto-exported via `export *`. Returns [0,1].
-// Pesi: W=30%, P/L=20%, stabilità=30%, maturazione=20%
-
-// ─── KB §8 — Calcolo inverso dose lievito ─────────────────────────────────────
-
-export interface InverseProgramInput {
-  targetDurationH:  number;
-  targetMatPct?:    number;   // default 85
-  tempC:            number;
-  agentType:        AgentType;
-  eaKj:             number;
-  muMaxRef:         number;
-  lambdaRef:        number;
-  refDosePct:       number;
-  asymptote?:       number;   // default 100
-}
-
-export interface InverseProgramResult {
-  dosePct:      number;
-  muMaxScaled:  number;
-  aduAvailable: number;
-  feasible:     boolean;
-}
-
-// computeInverseProgram — auto-exported via `export *`. Scaling LINEARE (non sqrt).
 
 /**
  * Calcola la temperatura ottimale dell'acqua per raggiungere la DDT — §2.7

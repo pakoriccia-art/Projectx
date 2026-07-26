@@ -275,12 +275,14 @@ assert(approx(tau_sph_500 / tau_sph_250, Math.pow(2, 1/3), 0.02),
 console.log('\n§ O — Malto Diastatico (v2.4.0)');
 // ─────────────────────────────────────────────────────────────
 
-// dose 0.5% a DP=200 → contrib = (0.5/100) × (200/200) × 1.2 = 0.006
-assert(approx(e.computeMaltAmylaseContrib(0.5, 200), 0.006, 0.0001),
-  'maltContrib(0.5%, 200°L) = 0.006');
-// dose 1% a DP=400 → (1/100) × (400/200) × 1.2 = 0.024
-assert(approx(e.computeMaltAmylaseContrib(1.0, 400), 0.024, 0.0001),
-  'maltContrib(1%, 400°L) = 0.024');
+// dose 0.5% a DP=200 → contrib = (0.5/100) × (200/200) × 60 = 0.30
+// (scala MALT_PARAMS.maltAmylaseScale = 60, cfr. e92cce8: il vecchio oracolo
+//  a scala 1.2 era rimasto indietro rispetto al codice — fattore 50×)
+assert(approx(e.computeMaltAmylaseContrib(0.5, 200), 0.30, 0.0001),
+  'maltContrib(0.5%, 200°L) = 0.30');
+// dose 1% a DP=400 → (1/100) × (400/200) × 60 = 1.20
+assert(approx(e.computeMaltAmylaseContrib(1.0, 400), 1.20, 0.0001),
+  'maltContrib(1%, 400°L) = 1.20');
 
 // computeTotalAmylaseIndex
 assert(approx(e.computeTotalAmylaseIndex(1.0, 0.5), 1.5, 0.001),
@@ -351,42 +353,11 @@ let threw = false;
 try { e.computeReverseScaling({ availablePrefermKg: 0, prefermType: 'biga', targetFlourFraction: 50, targetHydration: 65, targetPanWeightG: 260 }); }
 catch { threw = true; }
 assert(threw, 'reverseScaling: errore su availablePrefermKg=0');
+// § T — RIMOSSA (issue #19). Copriva estimatePHForLBF,
+// computeExtensibilityIndex e computeInverseProgram: tutte e tre funzioni morte,
+// rimosse dall'engine. Sostituite rispettivamente da computeCurrentPH (v2.4.11),
+// dagli indici propri del dashboard e dal Service-Window solver.
 
-// ═══════════════════════════════════════════════════════════════
-// § T — KB v2.3.2: estimatePHForLBF + computeExtensibilityIndex + computeInverseProgram
-// ═══════════════════════════════════════════════════════════════
-console.log('\n§ T — KB v2.3.2 (estimatePHForLBF, computeExtensibilityIndex, computeInverseProgram)');
-
-// estimatePHForLBF — KB §2.6
-assert(approx(e.estimatePHForLBF(5.8, 0), 5.8, 0.001), 'estimatePHForLBF(5.8, 0) = 5.8');
-assert(approx(e.estimatePHForLBF(5.8, 60), 5.71, 0.001), 'estimatePHForLBF(5.8, 60) = 5.71');
-assert(approx(e.estimatePHForLBF(5.8, 1000), 4.8, 0.001), 'estimatePHForLBF(5.8, 1000) = 4.8 (floor)');
-assert(approx(e.estimatePHForLBF(undefined, 50), 5.725, 0.001), 'estimatePHForLBF(undefined, 50) usa default 5.8');
-
-// computeExtensibilityIndex — KB §15.4 (pesi 30/20/30/20)
-const extLow  = e.computeExtensibilityIndex({ W: 80,  pl: 0.65, stability: 0,  maturationPct: 0 });
-const extHigh = e.computeExtensibilityIndex({ W: 400, pl: 0.65, stability: 25, maturationPct: 100 });
-assert(extLow < 0.25,  `extIdx debole giovane < 0.25 — val=${extLow.toFixed(3)}`);
-assert(extHigh > 0.95, `extIdx forte ottimale > 0.95 — val=${extHigh.toFixed(3)}`);
-// Verifica pesi: incremento singolo input ≈ peso × Δnormalized
-const base = { W: 240, pl: 0.65, stability: 12.5, maturationPct: 50 };
-const idxBase = e.computeExtensibilityIndex(base);
-const idxMaxW = e.computeExtensibilityIndex({ ...base, W: 400 });   // wNorm 0.5 → 1.0; peso 0.30
-assert(approx(idxMaxW - idxBase, 0.15, 0.01), `extIdx Δ(W) = 0.15 (peso 30%) — val=${(idxMaxW - idxBase).toFixed(3)}`);
-
-// computeInverseProgram — KB §8 (scaling LINEARE, NON sqrt)
-const ipA = e.computeInverseProgram({
-  targetDurationH: 24, targetMatPct: 85, tempC: 22, agentType: 'fresh_yeast',
-  eaKj: 62, muMaxRef: 12.0, lambdaRef: 1.2, refDosePct: 0.10, asymptote: 100,
-});
-const ipB = e.computeInverseProgram({
-  targetDurationH: 12, targetMatPct: 85, tempC: 22, agentType: 'fresh_yeast',
-  eaKj: 62, muMaxRef: 12.0, lambdaRef: 1.2, refDosePct: 0.10, asymptote: 100,
-});
-const doseRatio = ipB.dosePct / ipA.dosePct;
-const muRatio   = ipB.muMaxScaled / ipA.muMaxScaled;
-assert(approx(doseRatio, muRatio, 0.001), `inverseProgram: scaling LINEARE ratio_dose=${doseRatio.toFixed(3)} ≈ ratio_muMax=${muRatio.toFixed(3)}`);
-assert(Math.abs(doseRatio - Math.sqrt(2)) > 0.5, 'inverseProgram: NON sqrt scaling (raddoppio durata ≠ √2)');
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ S — Two-Clock Enzymatic (v2.4.1)');
@@ -447,10 +418,13 @@ const ssPartial = e.sweetSpotMaturation(ssSession, e.fArrhenius(22) * 6, 4);
 assert(ssPartial.hoursUntilPeak < 48 && ssPartial.hoursUntilPeak > 0,
   `ETA residua dopo 6h@22°C, poi 4°C < 48h — val=${ssPartial.hoursUntilPeak.toFixed(1)}h`);
 
-// Confronto con l'orologio LIEVITO: sweetSpot a 4°C dà ETA enormemente maggiore
+// Confronto con l'orologio LIEVITO: a 4°C il lievito resta più lento della
+// maturazione (i due orologi restano distinti, il lievito non la sorpassa al
+// freddo). Il vecchio ">5×" codificava il penalty freddo da ~27× rimosso in
+// aec1079 (lievito @4°C era ~1484h → ora ~54h, vicino alla maturazione ~48h).
 const ssYeastCold = e.sweetSpot({ ...ssSession, agentMuMax: 12, agentLambda: 1.2, agentAsymptote: 100 }, 0, 4);
-assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak * 5,
-  `orologio lievito @4°C ≫ maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
+assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak,
+  `orologio lievito @4°C > maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
 
 // ─────────────────────────────────────────────────────────────
 // v2.4.19 PARTE B — ricalibrazione anchor W-decay (frame 25°C)
