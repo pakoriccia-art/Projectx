@@ -41,11 +41,14 @@ describe('§D — Core Kinetics', () => {
     expect(k).toBe(0);
   });
 
-  // Tabella KB §2.1.3 (LBF: Ea=47kJ/mol)
-  it('kEffective(35°C) > kEffective(30°C)', () => {
+  // Modello cardinale (CTM), fresh_yeast Topt=28°C: oltre l'ottimo la velocità
+  // DECRESCE verso Tmax=45°C. 30° e 35° sono entrambi post-ottimo → k35 < k30.
+  // (Il vecchio oracolo k35 > k30 rifletteva il doppio conteggio della
+  //  temperatura rimosso in aec1079: senza cardinale la curva saliva oltre 28°.)
+  it('kEffective decresce oltre l\'ottimo: kEffective(35°C) < kEffective(30°C)', () => {
     const k35 = (kEffective as Function)(35, 47, 'fresh_yeast') as number;
     const k30 = (kEffective as Function)(30, 47, 'fresh_yeast') as number;
-    expect(k35).toBeGreaterThan(k30);
+    expect(k35).toBeLessThan(k30);
   });
 });
 
