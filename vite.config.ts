@@ -10,19 +10,29 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/*.png', 'icons/*.svg'],
+      includeAssets: ['icons/*.png', 'favicon.svg'],
       manifest: {
+        id: '/',
         name: 'PizzaMatrix',
         short_name: 'PizzaMatrix',
         description: 'Gestione predittiva degli impasti della pizza',
+        lang: 'it',
+        dir: 'ltr',
+        categories: ['food', 'utilities', 'productivity'],
         theme_color: '#0a0806',
         background_color: '#0a0806',
         display: 'standalone',
         orientation: 'portrait',
+        // issue #28: i file DEVONO esistere in public/icons/, altrimenti Chrome
+        // non mostra il prompt di installazione. Rigenerabili con
+        // `node scripts/generate-icons.mjs`.
         icons: [
-          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          // Variante dedicata: Android ritaglia fino a un cerchio dell'80%, quindi
+          // il soggetto è più piccolo. Usare lo stesso file per 'any' e 'maskable'
+          // (come prima) produce un'icona ritagliata sui bordi.
+          { src: 'icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ]
       },
       workbox: {
