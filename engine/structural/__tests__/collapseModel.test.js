@@ -73,8 +73,19 @@ let eta24;
   const e04 = computeCollapseETA({ trajectory: t04, bubbleThresholdPct: BUBBLE, leavAduRateAt: rateAt });
   assert(e30.reachesPeak && e30.marginH < COLLAPSE_ANCHOR.hoursPastPeak,
     'COL-02a 30°C → marginH < 2h (più caldo → collassa prima)', `marginH=${e30.marginH?.toFixed(3)}`);
-  assert(e04.reachesPeak && e04.marginH != null && e04.marginH > COLLAPSE_ANCHOR.hoursPastPeak * 10,
-    'COL-02b 4°C → marginH ≫ 2h (frigo → collasso lontano)', `marginH=${e04.marginH?.toFixed(1)}`);
+  // Il margine post-picco scala con l'INVERSO del rate di lievitazione: a 4 °C il
+  // rate è rateAt(24)/rateAt(4) volte più lento, quindi il margine è altrettante
+  // volte più lungo. Il vecchio oracolo era `> hoursPastPeak × 10`, un numero
+  // magico che funzionava solo con la cinetica pre-#3: lì il rapporto 24→4 °C era
+  // ~166 (margine ~330 h, due settimane), ora è ~6 (margine ~12 h). Ancorare la
+  // soglia al rate reale rende il test indipendente da future ricalibrazioni.
+  const ratio04 = rateAt(COLLAPSE_ANCHOR.tempC) / rateAt(4);
+  const atteso04 = COLLAPSE_ANCHOR.hoursPastPeak * ratio04;
+  assert(e04.reachesPeak && e04.marginH != null
+         && e04.marginH > COLLAPSE_ANCHOR.hoursPastPeak
+         && approx(e04.marginH, atteso04, atteso04 * 0.15),
+    'COL-02b 4°C → marginH = ancora × (rate24/rate4)',
+    `marginH=${e04.marginH?.toFixed(1)} atteso≈${atteso04.toFixed(1)} (rapporto ${ratio04.toFixed(1)}×)`);
   // monotonia stretta a parità di W: marginH(30) < marginH(24) < marginH(4)
   assert(e30.marginH < eta24.marginH && eta24.marginH < e04.marginH,
     'COL-02c monotonia: marginH(30) < marginH(24) < marginH(4)',

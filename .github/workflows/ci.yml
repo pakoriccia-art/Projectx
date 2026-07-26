@@ -1,7 +1,10 @@
 name: CI
 
+# push solo sui branch integrati: sui feature branch ci pensa pull_request.
+# Con `push:` nudo ogni PR faceva partire DUE run identici.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
