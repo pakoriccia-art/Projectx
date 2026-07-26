@@ -707,54 +707,17 @@ console.log('\n§ ST-PH — pH Combining Logaritmico');
     `ST-PH-03 pH biga+poolish ≈ 5.049 ∈ [5.03,5.07] — val=${r.initialPH.toFixed(4)}`);
 }
 
-// ─────────────────────────────────────────────────────────────
-console.log('\n§ ST-LM — Lievito Madre Dual Population');
-// ─────────────────────────────────────────────────────────────
-
-// ST-LM-01 — phInhibition: rami
-assert(e.phInhibition(5.0, 'saccharomyces') === 1.0,
-  'ST-LM-01a phInhibition(5.0, sacc) = 1.0 (sopra 4.5)');
-assert(e.phInhibition(4.5, 'saccharomyces') === 1.0,
-  'ST-LM-01b phInhibition(4.5, sacc) = 1.0 (threshold non ancora superato per sacc)');
-assert(e.phInhibition(4.0, 'saccharomyces') < 1.0,
-  `ST-LM-01c phInhibition(4.0, sacc) < 1.0 — val=${e.phInhibition(4.0,'saccharomyces').toFixed(3)}`);
-assert(e.phInhibition(3.5, 'saccharomyces') === 0.05,
-  `ST-LM-01d phInhibition(3.5, sacc) = 0.05 — val=${e.phInhibition(3.5,'saccharomyces')}`);
-assert(e.phInhibition(4.0, 'lab') === 1.0,
-  'ST-LM-01e phInhibition(4.0, lab) = 1.0 (sopra 3.5)');
-assert(e.phInhibition(3.5, 'lab') === 0.0,
-  `ST-LM-01f phInhibition(3.5, lab) = 0 — val=${e.phInhibition(3.5,'lab')}`);
-assert(e.phInhibition(3.0, 'lab') === 0.0,
-  'ST-LM-01g phInhibition(3.0, lab) = 0 (inibiti)');
-
-// ST-LM-02 — computeLMState: struttura output
-{
-  const lm = e.computeLMState(2.0, 26, 6.2, 8);
-  assert(typeof lm.saccharomycesMatPct === 'number' && lm.saccharomycesMatPct >= 0,
-    `ST-LM-02a saccharomycesMatPct ≥ 0 — val=${lm.saccharomycesMatPct.toFixed(2)}`);
-  assert(typeof lm.labMatPct === 'number' && lm.labMatPct >= 0,
-    `ST-LM-02b labMatPct ≥ 0 — val=${lm.labMatPct.toFixed(2)}`);
-  assert(lm.estimatedPH < 6.2,
-    `ST-LM-02c pH scende nel tempo — val=${lm.estimatedPH.toFixed(3)}`);
-  assert(between(lm.estimatedPH, 4.5, 6.2),
-    `ST-LM-02d pH ∈ [4.5,6.2] — val=${lm.estimatedPH.toFixed(3)}`);
-}
-
-// ST-LM-03 — matrixFactor 0.6 riduce μmax
-{
-  const { LM_PARAMS } = e;
-  assert(LM_PARAMS.matrixFactor === 0.6,
-    'ST-LM-03a matrixFactor = 0.6');
-  const muSaccEff = LM_PARAMS.saccharomyces.muMax * LM_PARAMS.matrixFactor;
-  assert(approx(muSaccEff, 0.15, 0.001),
-    `ST-LM-03b μmax_sacc_eff = 0.25×0.6 = 0.15 — val=${muSaccEff.toFixed(3)}`);
-}
-
-// § ST-FRICT — RIMOSSA (issue #17). computeFrictionHeat/computeWaterTemp erano
-// una seconda implementazione del bilancio DDT, mai usata da src/ e sbagliata
-// (sottraevano il ΔT grezzo invece del fattore N × ΔT: 7.8 °C sull'acqua).
-// Copertura ora: tests/unit/engine.friction.test.ts (computeWaterTempDDT) e
-// engine/friction-v2.4.24.test.js (computeFrictionRise).
+// ─── Sezioni rimosse: coprivano solo codice morto ────────────────────────────
+//
+// § ST-LM — issue #18. computeLMState/estimatePH/phInhibition erano il dual-pop
+//   v2.0: scala Gompertz incompatibile (85 % = 29 giorni contro 18.3 h) e
+//   feedback pH inerte per costruzione. La cinetica LM reale (computeLabAdu +
+//   computeCurrentPH, v2.4.14) resta coperta da tests/unit/engine.core.test.ts.
+//
+// § ST-FRICT — issue #17. computeFrictionHeat/computeWaterTemp erano una seconda
+//   implementazione del bilancio DDT, sbagliata di 7.8 °C sull'acqua. Copertura
+//   ora: tests/unit/engine.friction.test.ts (computeWaterTempDDT) e
+//   engine/friction-v2.4.24.test.js (computeFrictionRise).
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ ST-DASH — Dashboard W effettivo');

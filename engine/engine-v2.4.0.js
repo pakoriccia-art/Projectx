@@ -89,12 +89,9 @@ const AGENT_GOMPERTZ = {
   sourdough_wheat:   { muMax:  7.0, lambda: 3.5, Ea: 65, asymptote: 100 },
 };
 
-/** Modello LM dual-population — §2.6 */
-const LM_PARAMS = {
-  saccharomyces: { Ea: 65, muMax: 0.25, lambda: 2.5, Topt: 26 },
-  lab:           { Ea: 58, muMax: 0.45, lambda: 1.8, Topt: 32 },
-  matrixFactor:  0.6,   // riduzione muMax in matrice solida
-};
+// LM_PARAMS (modello dual-population v2.0) rimosso — issue #18.
+// Era su una scala Gompertz incompatibile con AGENT_GOMPERTZ (85 % = 29 giorni).
+// Il matrixFactor 0.6 sopravvive dov'è realmente usato: LAB_KINETICS.muMax.
 
 /** Orologio maturazione enzimatica — two-clock v2.4.1 (KB §2.4)
  * Accumulo: enzAdu += fArrhenius(T) × deltaH — senza CTM → attivo a 4°C (~29% ritmo a 22°C).
@@ -877,61 +874,26 @@ function computeCombinedInitialState({ prefermenti, mainFlourGroup, waterHardnes
 // § J — LM DUAL-POPULATION + FRICTION (v2.0)
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Inibizione pH per organismo — §2.6
- * Restituisce moltiplicatore [0, 1]
- */
-function phInhibition(pH, organism) {
-  if (organism === 'saccharomyces') {
-    if (pH < 3.5) return 0.05;
-    if (pH < 4.5) return safeClamp((pH - 3.5) / 1.0 * 0.95 + 0.05, 0.05, 1.0);
-    return 1.0;
-  }
-  if (organism === 'lab') {
-    if (pH < 3.5) return 0;
-    if (pH < 3.8) return safeClamp((pH - 3.5) / 0.3, 0, 1);
-    return 1.0;
-  }
-  return 1.0;
-}
-
-/**
- * pH stimato da produzione acida LAB — §2.6
- * Δ pH = −0.08 per unità di maturazione LAB (a maturazione piena)
- */
-function estimatePH(initialPH, labMatPct, elapsedH) {
-  // LAB producono ~0.08 ΔpH/h × matFactor
-  const drop = 0.08 * (labMatPct / 100);
-  return Math.max(3.5, initialPH - drop);
-}
-
-/**
- * Stato LM dual-population — §2.6 (Gobbetti 2005)
- * Modella saccharomyces + LAB in parallel
- */
-function computeLMState(adu, tempC, initialPH, elapsedH) {
-  const { saccharomyces, lab, matrixFactor } = LM_PARAMS;
-
-  // Saccharomyces
-  const muSacc  = saccharomyces.muMax * matrixFactor;
-  const sacMat  = gompertz(adu, muSacc, saccharomyces.lambda, 100);
-
-  // LAB (pH cresce nel tempo)
-  const pHCurrent = estimatePH(initialPH, sacMat, elapsedH);
-  const labInhib  = phInhibition(pHCurrent, 'lab');
-  const muLab     = lab.muMax * matrixFactor * labInhib;
-  const labMat    = gompertz(adu, muLab, lab.lambda, 100);
-
-  // Saccharomyces inibiti da acidità
-  const saccInhib = phInhibition(pHCurrent, 'saccharomyces');
-
-  return {
-    saccharomycesMatPct: sacMat * saccInhib,
-    labMatPct:           labMat,
-    estimatedPH:         pHCurrent,
-    overallMatPct:       (sacMat * saccInhib * 0.7 + labMat * 0.3),
-  };
-}
+// ─── Dual-population v2.0 — RIMOSSA (issue #18) ─────────────────────────────
+//
+// computeLMState(), estimatePH() e phInhibition() erano il modello dual-pop
+// della v2.0. Mai chiamate da src/, ma esportate — e non funzionanti:
+//
+// 1. SCALA INCOMPATIBILE. computeLMState usava LM_PARAMS invece di
+//    AGENT_GOMPERTZ. Con muMax = 0.25 × matrixFactor 0.6 = 0.15 servivano
+//    693 ADU per l'85 % — 29 giorni a 25 °C, contro le 18.3 h che dà
+//    AGENT_GOMPERTZ.sourdough_wheat (muMax 7.0, lambda 3.5), realmente in uso.
+//
+// 2. FEEDBACK pH INERTE PER COSTRUZIONE. La riga
+//        const pHCurrent = estimatePH(initialPH, sacMat, elapsedH);
+//    passava la maturazione dei SACCAROMICETI al parametro che estimatePH
+//    chiama labMatPct; estimatePH cappava il calo a 0.08 pH e ignorava del
+//    tutto elapsedH. Risultato: phInhibition restituiva sempre 1.0 e
+//    l'inibizione acida non si attivava mai.
+//
+// La cinetica LM reale passa da computeLabAdu() + computeCurrentPH() (v2.4.14
+// §2.6), che modellano i LAB con CTM × Arrhenius e autoinibizione progressiva.
+// Nota: quel modello è a sua volta sotto-calibrato di ~1 unità di pH — issue #9.
 
 // ─── Attrito meccanico e DDT — RIMOSSI in questo modulo (issue #17) ──────────
 //
@@ -1550,7 +1512,6 @@ const _constants = {
   H_AIR,
   CARDINAL_PARAMS,
   AGENT_GOMPERTZ,
-  LM_PARAMS,
   HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS,
   AUTOLYSIS_CALIBRATION,
@@ -1970,9 +1931,6 @@ if (typeof module !== 'undefined' && module.exports) {
     computeCombinedInitialState,
 
     // § J LM + Friction
-    phInhibition,
-    estimatePH,
-    computeLMState,
 
     // § K Dashboard/Tick
     computeDeltaAdu,
@@ -2034,7 +1992,7 @@ if (typeof module !== 'undefined' && module.exports) {
 export {
   // Constants
   DEFAULT_FN, DEFAULT_ASH, EXTREME_W_SPREAD, T_REF_K, R_GAS,
-  CARDINAL_PARAMS, AGENT_GOMPERTZ, LM_PARAMS, HILL_W_DECAY,
+  CARDINAL_PARAMS, AGENT_GOMPERTZ, HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS, AUTOLYSIS_CALIBRATION, PREFERMENTO_CALIBRATION,
   AMYLASE_PH_PARAMS, AMYLASE_DENATURATION_PARAMS, AMYLASE_CORRECTION_PARAMS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
@@ -2050,7 +2008,6 @@ export {
   normalizeAmylaseActivity, fPHAmylase, computeDenaturationFactor, amylaseCorrectedRate,
   blendAmylaseIndex, validateFlourGroup, normalizeFlourGroup,
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
-  phInhibition, estimatePH, computeLMState,
   computeDeltaAdu, sweetSpot, sweetSpotMaturation, computeDashboardEffectiveW,
   computeKprot, computeWEffectiveExp,
   fSaltYeast, fSaltProtease,
