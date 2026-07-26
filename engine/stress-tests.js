@@ -52,23 +52,33 @@ assert(e.cardinalCorrection(44.0, 'instant_dry_yeast') === 0,
     `ST-CTM-03 asimmetria γ(36.5)>γ(14.75): ${g_high.toFixed(3)} > ${g_low.toFixed(3)}`);
 }
 
-// ST-CTM-04 — k_effective = 0 sotto Tmin anche con Arrhenius > 0
+// ST-CTM-04 — separazione crescita / attività fermentativa (issue #3 + #4)
+// Il CTM di crescita tronca a 1.5 °C; l'attività fermentativa no, perché la CO₂
+// non richiede duplicazione cellulare. kEffective usa i cardinali fermentativi.
 {
-  const arrPos = e.fArrhenius(1.0) > 0;
+  const arrPos    = e.fArrhenius(1.0) > 0;
   const gammaZero = e.cardinalCorrection(1.0, 'fresh_yeast') === 0;
-  const kZero = e.kEffective(1.0, 62, 'fresh_yeast') === 0;
-  assert(arrPos,   'ST-CTM-04a fArrhenius(1°C) > 0 (mai zero)');
-  assert(gammaZero,'ST-CTM-04b γ_CTM(1°C, fresh_yeast) = 0');
-  assert(kZero,    'ST-CTM-04c kEffective(1°C) = 0 (CTM tronca)');
+  const kPositive = e.kEffective(1.0, 62, 'fresh_yeast') > 0;
+  const kZeroSub  = e.kEffective(-3.0, 62, 'fresh_yeast') === 0;
+  assert(arrPos,    'ST-CTM-04a fArrhenius(1°C) > 0 (mai zero)');
+  assert(gammaZero, 'ST-CTM-04b γ_crescita(1°C, fresh_yeast) = 0 (Tmin crescita 1.5)');
+  assert(kPositive, 'ST-CTM-04c kEffective(1°C) > 0 (fermentazione attiva sotto Tmin crescita)');
+  assert(kZeroSub,  'ST-CTM-04d kEffective(−3°C) = 0 (sotto congelamento impasto)');
 }
 
-// ST-CTM-05 — kRatio(4°C) molto ridotto vs 25°C
+// ST-CTM-05 — kRatio a freddo dentro la banda Q10 2–3 (issue #3)
+// La soglia precedente (< 0.10) era la firma del doppio conteggio: dava 0.0055,
+// cioè un rallentamento di 181× fra 25 e 4 °C contro i 7–10× della letteratura.
 {
   const kr4 = e.kRatio(4, 62, 'fresh_yeast');
-  assert(kr4 > 0 && kr4 < 0.10,
-    `ST-CTM-05 kRatio(4°C) piccolo ma >0: ${kr4.toFixed(4)}`);
+  const q10 = (T, Q) => 1 / Math.pow(Q, (25 - T) / 10);
+  assert(kr4 >= q10(4, 3) && kr4 <= q10(4, 2),
+    `ST-CTM-05 kRatio(4°C) ∈ banda Q10 2–3 [${q10(4,3).toFixed(3)}, ${q10(4,2).toFixed(3)}]: ${kr4.toFixed(4)}`);
   assert(e.kRatio(25, 62, 'fresh_yeast') > 0,
     'ST-CTM-05b kRatio(25°C) > 0 (attività di riferimento)');
+  // Il declino sopra Topt non deve essere una discontinuità
+  assert(e.kRatio(40, 62, 'fresh_yeast') < e.kRatio(32, 62, 'fresh_yeast'),
+    'ST-CTM-05c inattivazione termica: kRatio(40°C) < kRatio(32°C)');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -900,16 +910,25 @@ console.log('\n§ ST-EDGE — Edge Cases e Robustezza Numerica');
     `ST-EDGE-05c fHydration(100%) ≈ 1.193 — val=${fHyd100.toFixed(4)}`);
 }
 
-// ST-EDGE-06 — LM a T_frigo (4°C): LAB inibiti, saccharomyces residuo
+// ST-EDGE-06 — LM a T_frigo (4°C): crescita ferma, attività fermentativa no
+// I due orologi vanno letti separatamente (issue #4): il CTM di CRESCITA azzera
+// i LAB a 4 °C perché lì non si duplicano, ma il loro METABOLISMO prosegue — ed
+// è il meccanismo che produce l'aroma della maturazione lunga in cella.
 {
-  // sourdough_wheat Tmin=2.0 → γ(4°C) > 0
+  // Crescita: cardinali invariati (sourdough Tmin=2.0, lab_bacteria Tmin=5.0)
   const gSacc4 = e.cardinalCorrection(4.0, 'sourdough_wheat');
   assert(gSacc4 > 0,
-    `ST-EDGE-06a γ_sacc(4°C, sourdough) > 0 — val=${gSacc4.toFixed(4)}`);
-  // lab_bacteria Tmin=5.0 → γ(4°C) = 0
+    `ST-EDGE-06a γ_crescita_sacc(4°C, sourdough) > 0 — val=${gSacc4.toFixed(4)}`);
   const gLab4 = e.cardinalCorrection(4.0, 'lab_bacteria');
   assert(gLab4 === 0,
-    'ST-EDGE-06b γ_lab(4°C) = 0 (Tmin=5°C → inibiti)');
+    'ST-EDGE-06b γ_crescita_lab(4°C) = 0 (Tmin crescita 5°C → non si duplicano)');
+
+  // Attività fermentativa: entrambi attivi a 4 °C
+  assert(e.kEffective(4.0, 65, 'sourdough_wheat') > 0,
+    'ST-EDGE-06c kEffective(4°C, sourdough) > 0 (fermentazione attiva in cella)');
+  const labAdu4 = e.computeLabAdu(0, 5.8, 4.0, 24);
+  assert(labAdu4 > 0,
+    `ST-EDGE-06d labAdu accumula a 4°C in 24h — val=${labAdu4.toFixed(4)}`);
 }
 
 // ST-EDGE-07 — flourFraction=0 non divide per zero in breakdown

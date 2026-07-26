@@ -418,10 +418,13 @@ const ssPartial = e.sweetSpotMaturation(ssSession, e.fArrhenius(22) * 6, 4);
 assert(ssPartial.hoursUntilPeak < 48 && ssPartial.hoursUntilPeak > 0,
   `ETA residua dopo 6h@22°C, poi 4°C < 48h — val=${ssPartial.hoursUntilPeak.toFixed(1)}h`);
 
-// Confronto con l'orologio LIEVITO: sweetSpot a 4°C dà ETA enormemente maggiore
+// Confronto con l'orologio LIEVITO: a 4°C il lievito resta più lento della
+// maturazione (i due orologi restano distinti, il lievito non la sorpassa al
+// freddo). Il vecchio ">5×" codificava il penalty freddo da ~27× rimosso in
+// aec1079 (lievito @4°C era ~1484h → ora ~54h, vicino alla maturazione ~48h).
 const ssYeastCold = e.sweetSpot({ ...ssSession, agentMuMax: 12, agentLambda: 1.2, agentAsymptote: 100 }, 0, 4);
-assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak * 5,
-  `orologio lievito @4°C ≫ maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
+assert(ssYeastCold.hoursUntilPeak > ssCold.hoursUntilPeak,
+  `orologio lievito @4°C > maturazione (${ssYeastCold.hoursUntilPeak.toFixed(0)}h vs ${ssCold.hoursUntilPeak.toFixed(0)}h)`);
 
 // ─────────────────────────────────────────────────────────────
 // v2.4.19 PARTE B — ricalibrazione anchor W-decay (frame 25°C)

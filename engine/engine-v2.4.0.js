@@ -69,14 +69,47 @@ const RHO_DOUGH = 1050;  // kg/m³ densità impasto
 const H_AIR     = 8;     // W/(m²·K) convezione naturale aria (ambiente chiuso)
 
 /**
- * Parametri cardinali CTM per agente — §2.1
- * Tmin/Topt/Tmax in °C
+ * Parametri cardinali della CRESCITA (duplicazione cellulare) — §2.1
+ * Tmin/Topt/Tmax in °C. Fonte: letteratura microbiologica classica.
+ *
+ * ⚠ NON usare per la produzione di gas — issue #4.
+ * A 4 °C S. cerevisiae non si divide (sotto Tmin), ma il metabolismo
+ * fermentativo prosegue: la CO₂ non richiede duplicazione cellulare.
+ * Applicare questi cardinali al tasso di fermentazione azzerava il ramo frigo.
+ * Per l'attività fermentativa vedi FERMENTATIVE_CARDINALS.
+ *
+ * Attualmente consumati solo da cardinalCorrection(), tenuta come primitiva di
+ * riferimento per un futuro modello di crescita della biomassa nel prefermento
+ * (che oggi duplica le proprie costanti in WizardView e FermentationPlannerView).
+ * Se quel modello non arriva, questa coppia va rimossa.
  */
 const CARDINAL_PARAMS = {
   fresh_yeast:      { Tmin: 1.5, Topt: 28.0, Tmax: 45.0 },
   instant_dry_yeast:{ Tmin: 2.0, Topt: 28.0, Tmax: 44.0 },
   sourdough_wheat:  { Tmin: 2.0, Topt: 26.0, Tmax: 43.0 },
   lab_bacteria:     { Tmin: 5.0, Topt: 32.0, Tmax: 48.0 },
+};
+
+/**
+ * Parametri cardinali dell'ATTIVITÀ FERMENTATIVA — issue #3 + #4 (v2.5.0)
+ *
+ * Popolazione sostanzialmente costante (impasto finale), non in crescita.
+ * Topt/Tmax invariati rispetto alla crescita; cambia Tmin.
+ *
+ * Tmin = −2 °C non è arbitrario: è all'incirca il punto di congelamento
+ * dell'impasto (abbassamento crioscopico da sali e zuccheri). Sotto, l'acqua
+ * liquida non è più disponibile e il metabolismo si arresta davvero.
+ *
+ * Verifica: con questi cardinali il rate a 4 °C è 0.150 rispetto a 25 °C
+ * (rallentamento 6.7×), dentro la banda 0.100–0.233 attesa da Q10 = 2–3.
+ * Il modello precedente dava 0.0055, cioè 181× — fuori scala di un ordine
+ * di grandezza rispetto a qualunque dato pubblicato.
+ */
+const FERMENTATIVE_CARDINALS = {
+  fresh_yeast:      { Tmin: -2.0, Topt: 28.0, Tmax: 45.0 },
+  instant_dry_yeast:{ Tmin: -2.0, Topt: 28.0, Tmax: 44.0 },
+  sourdough_wheat:  { Tmin: -2.0, Topt: 26.0, Tmax: 43.0 },
+  lab_bacteria:     { Tmin: -2.0, Topt: 32.0, Tmax: 48.0 },
 };
 
 /**
@@ -239,7 +272,7 @@ const ACID_PRODUCTION_PARAMS = {
 const LAB_KINETICS = {
   muMax:        0.45 * 0.6,  // matrixFactor=0.6 in matrice solida (§2.6)
   Topt:         32,
-  Tmin:         5,
+  Tmin:         -2,        // era 5 (crescita); ora fermentativo — issue #4
   Tmax:         45,
   Ea:           58,           // kJ/mol
   kAcid:        0.030,        // drop pH per unità labAdu
@@ -269,9 +302,11 @@ function _cardinalForParams(tempC, Tmin, Topt, Tmax) {
 }
 
 /**
- * Modello CTM di Rosso (1993) — §2.1
- * Restituisce γ(T) ∈ [0, 1]
- * γ(Topt) = 1.0 ; γ = 0 per T ≤ Tmin o T ≥ Tmax
+ * Modello CTM di Rosso (1993) sulla CRESCITA — §2.1
+ * Restituisce γ(T) ∈ [0, 1]; γ(Topt) = 1.0; γ = 0 per T ≤ Tmin o T ≥ Tmax
+ *
+ * ⚠ NON è più il fattore termico di kEffective — issue #3. Legge
+ * CARDINAL_PARAMS (crescita); vedi la nota su quella costante.
  */
 function cardinalCorrection(tempC, agentType) {
   const p = CARDINAL_PARAMS[agentType];
@@ -280,15 +315,53 @@ function cardinalCorrection(tempC, agentType) {
 }
 
 /**
- * Modello composito CTM × Arrhenius — §2.1.1
- * k_effective(T) = arrhenius(T, Ea) × γ_CTM(T)
- * Restituisce tasso effettivo (non normalizzato)
+ * Envelope di inattivazione termica sopra l'ottimo — issue #3 (v2.5.0)
+ *
+ * decline(T) = 1                          per T ≤ Topt
+ *            = (Tmax − T) / (Tmax − Topt) per Topt < T < Tmax
+ *            = 0                          per T ≥ Tmax
+ *
+ * Sotto Topt il tasso è governato dalla sola cinetica enzimatica (Arrhenius);
+ * sopra Topt subentra la denaturazione. È la struttura classica
+ * "Arrhenius + inattivazione termica" (famiglia Schoolfield), NON il prodotto
+ * CTM × Arrhenius della v2.4.x — lì la temperatura veniva contata due volte,
+ * perché γ_CTM è già di per sé la risposta termica completa.
+ */
+function _thermalDeclineFor(tempC, Topt, Tmax) {
+  if (tempC <= Topt) return 1.0;
+  if (tempC >= Tmax) return 0.0;
+  return (Tmax - tempC) / (Tmax - Topt);
+}
+
+/** Envelope di inattivazione per agente. Ritorna 0 fuori da [Tmin, Tmax]. */
+function thermalDecline(tempC, agentType) {
+  const p = FERMENTATIVE_CARDINALS[agentType];
+  if (!p) return 0;
+  if (tempC <= p.Tmin || tempC >= p.Tmax) return 0;
+  return _thermalDeclineFor(tempC, p.Topt, p.Tmax);
+}
+
+/**
+ * Tasso di attività fermentativa — §2.1.1 (riscritto, issue #3 + #4)
+ *
+ * k_effective(T) = arrhenius(T, Ea) × decline(T)   dentro [Tmin, Tmax]
+ *                = 0                               fuori
+ *
+ * Proprietà verificate rispetto alla banda Q10 = 2–3 della letteratura:
+ *   4 °C  → 0.150 (banda 0.100–0.233)   6 °C  → 0.182 (0.124–0.268)
+ *  10 °C  → 0.266 (0.192–0.354)        16 °C  → 0.459 (0.372–0.536)
+ *  20 °C  → 0.653 (0.577–0.707)        22 °C  → 0.776 (0.719–0.812)
+ * Picco a 32.5 °C; zero sopra Tmax. Ordine fra agenti preservato: a 32 °C il
+ * lievito di birra (Topt 28) resta 1.15× più veloce della pasta madre (Topt 26),
+ * cosa che l'Arrhenius nudo invertiva perché la PM ha Ea maggiore.
  */
 function kEffective(tempC, eaKj, agentType) {
-  const T_K   = tempC + 273.15;
-  const arr   = safeExp((-eaKj * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
-  const gamma = cardinalCorrection(tempC, agentType);
-  return arr * gamma;
+  const p = FERMENTATIVE_CARDINALS[agentType];
+  if (!p) return 0;
+  if (tempC <= p.Tmin || tempC >= p.Tmax) return 0;
+  const T_K = tempC + 273.15;
+  const arr = safeExp((-eaKj * 1000 / R_GAS) * (1 / T_K - 1 / T_REF_K));
+  return arr * _thermalDeclineFor(tempC, p.Topt, p.Tmax);
 }
 
 /**
@@ -1393,7 +1466,14 @@ function computeCurrentPH(initialPH, leavAdu, agentType, labAdu = 0) {
  * CTM(Topt=32) × Arrhenius(Ea=58) × autoinibizione pH (declino lineare 4.8→3.5).
  */
 function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
-  const labCTM = _cardinalForParams(tempC, LAB_KINETICS.Tmin, LAB_KINETICS.Topt, LAB_KINETICS.Tmax);
+  // issue #3: stesso doppio conteggio di kEffective, stessa correzione.
+  // Era `_cardinalForParams(...) × Arrhenius`; ora Arrhenius × envelope, con
+  // Tmin fermentativo. Con il vecchio Tmin = 5 °C i LAB erano azzerati in frigo,
+  // mentre molti eterofermentanti di pasta madre restano attivi a 4–8 °C — ed è
+  // il meccanismo che produce l'aroma della maturazione lunga in cella.
+  const labDecline = (tempC <= LAB_KINETICS.Tmin || tempC >= LAB_KINETICS.Tmax)
+    ? 0
+    : _thermalDeclineFor(tempC, LAB_KINETICS.Topt, LAB_KINETICS.Tmax);
   const labArr = safeExp((-LAB_KINETICS.Ea * 1000 / R_GAS) * (1 / (tempC + 273.15) - 1 / T_REF_K));
   let phInhib = 1.0;
   if (currentPH <= LAB_KINETICS.pHInhibFloor) {
@@ -1402,7 +1482,7 @@ function computeLabAdu(prevLabAdu, currentPH, tempC, subStepH) {
     phInhib = (currentPH - LAB_KINETICS.pHInhibFloor) /
               (LAB_KINETICS.pHInhibStart - LAB_KINETICS.pHInhibFloor);
   }
-  const labRate = LAB_KINETICS.muMax * labCTM * labArr * phInhib;
+  const labRate = LAB_KINETICS.muMax * labDecline * labArr * phInhib;
   return (prevLabAdu ?? 0) + labRate * subStepH;
 }
 
@@ -1431,6 +1511,7 @@ const _constants = {
   RHO_DOUGH,
   H_AIR,
   CARDINAL_PARAMS,
+  FERMENTATIVE_CARDINALS,
   AGENT_GOMPERTZ,
   HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS,
@@ -1811,6 +1892,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // § D Core
     cardinalCorrection,
+    thermalDecline,
     kEffective,
     kRatio,
     gompertz,
@@ -1907,7 +1989,7 @@ if (typeof module !== 'undefined' && module.exports) {
 export {
   // Constants
   DEFAULT_FN, DEFAULT_ASH, EXTREME_W_SPREAD, T_REF_K, R_GAS,
-  CARDINAL_PARAMS, AGENT_GOMPERTZ, HILL_W_DECAY,
+  CARDINAL_PARAMS, FERMENTATIVE_CARDINALS, AGENT_GOMPERTZ, HILL_W_DECAY,
   CONTAINER_THERMAL_PRESETS, AUTOLYSIS_CALIBRATION, PREFERMENTO_CALIBRATION,
   AMYLASE_PH_PARAMS, AMYLASE_DENATURATION_PARAMS, AMYLASE_CORRECTION_PARAMS,
   SALT_INHIBITION_PARAMS, W_BLEND_NONLINEAR_K, MALT_PARAMS,
@@ -1916,7 +1998,7 @@ export {
 
   // Functions
   safeExp, safeDiv, safeClamp,
-  cardinalCorrection, kEffective, kRatio, gompertz, findAduAt,
+  cardinalCorrection, thermalDecline, kEffective, kRatio, gompertz, findAduAt,
   doughSpecificHeat, thermalTimeConstant, applyContainerResistance, doughCoreTemp,
   fArrhenius, fPH, fHydration,
   computeTCritRef, computeTCrit, computeWHill, structuralState,
