@@ -57,10 +57,25 @@ export default defineConfig({
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
+        // issue #32 — manualChunks ridotto a dexie soltanto.
+        //
+        // 'vendor-react' pesava 0.09 kB: non catturava nulla. Con il JSX transform
+        // automatico React entra via 'react/jsx-runtime' e finiva comunque in
+        // index-*.js. Un chunk vuoto e' solo rumore.
+        //
+        // 'vendor-recharts' era peggio che inutile: era ATTIVAMENTE DANNOSO.
+        // Assegnare recharts a un chunk esplicito lo promuove nel grafo iniziale,
+        // e Vite emette <link rel="modulepreload"> per quel chunk in index.html.
+        // Risultato: 149 kB gzip scaricati alla home anche dopo aver reso lazy le
+        // viste che lo usano — il lazy import veniva annullato dal preload.
+        // Senza la forzatura, Rollup lo colloca da se' nel grafo dinamico di
+        // DashboardV4/BakeView e arriva solo quando serve davvero.
+        //
+        // dexie resta esplicito: e' importato staticamente da db.ts -> AppContext,
+        // quindi e' comunque nel primo caricamento, e separarlo aiuta la cache
+        // fra deploy (cambia molto meno del codice applicativo).
         manualChunks: {
-          'vendor-react':   ['react', 'react-dom'],
-          'vendor-recharts':['recharts'],
-          'vendor-dexie':   ['dexie'],
+          'vendor-dexie': ['dexie'],
         },
       },
     },
