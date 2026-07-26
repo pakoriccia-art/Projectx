@@ -14,7 +14,7 @@ import {
   computeMaltAmylaseContrib, maltAlertLevel,
   computeReverseScaling,
   thermalTimeConstant, thermalTimeConstantSphere,
-  estimatePH, blendAmylaseIndex,
+  blendAmylaseIndex,
   HILL_W_DECAY,
 } from '../engine';
 
@@ -294,14 +294,7 @@ describe('§E — Thermal Stack', () => {
   });
 });
 
-// ─── pH ──────────────────────────────────────────────────────────────────────
-describe('§J — estimatePH', () => {
-  it('pH decresce nel tempo (fermentazione)', () => {
-    const ph0  = (estimatePH as Function)(5.8, 0,  0)  as number;
-    const ph24 = (estimatePH as Function)(5.8, 30, 24) as number;
-    expect(ph24).toBeLessThan(ph0);
-  });
-});
+// ─── §J — estimatePH: RIMOSSA (dual-population non funzionante, cfr. issue #19) ──
 
 // ─── blendAmylaseIndex ───────────────────────────────────────────────────────
 describe('§H — blendAmylaseIndex', () => {

@@ -275,12 +275,14 @@ assert(approx(tau_sph_500 / tau_sph_250, Math.pow(2, 1/3), 0.02),
 console.log('\n§ O — Malto Diastatico (v2.4.0)');
 // ─────────────────────────────────────────────────────────────
 
-// dose 0.5% a DP=200 → contrib = (0.5/100) × (200/200) × 1.2 = 0.006
-assert(approx(e.computeMaltAmylaseContrib(0.5, 200), 0.006, 0.0001),
-  'maltContrib(0.5%, 200°L) = 0.006');
-// dose 1% a DP=400 → (1/100) × (400/200) × 1.2 = 0.024
-assert(approx(e.computeMaltAmylaseContrib(1.0, 400), 0.024, 0.0001),
-  'maltContrib(1%, 400°L) = 0.024');
+// dose 0.5% a DP=200 → contrib = (0.5/100) × (200/200) × 60 = 0.30
+// (scala MALT_PARAMS.maltAmylaseScale = 60, cfr. e92cce8: il vecchio oracolo
+//  a scala 1.2 era rimasto indietro rispetto al codice — fattore 50×)
+assert(approx(e.computeMaltAmylaseContrib(0.5, 200), 0.30, 0.0001),
+  'maltContrib(0.5%, 200°L) = 0.30');
+// dose 1% a DP=400 → (1/100) × (400/200) × 60 = 1.20
+assert(approx(e.computeMaltAmylaseContrib(1.0, 400), 1.20, 0.0001),
+  'maltContrib(1%, 400°L) = 1.20');
 
 // computeTotalAmylaseIndex
 assert(approx(e.computeTotalAmylaseIndex(1.0, 0.5), 1.5, 0.001),
