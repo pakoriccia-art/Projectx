@@ -20,7 +20,10 @@ import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 import { startSession } from '../../services/sessionService';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
-import { FLOUR_DATABASE, getFlourBrands, getFloursByBrand, type FlourEntry } from '../../data/flourDatabase';
+import {
+  FLOUR_DATABASE, getFlourBrands, getFloursByBrand, type FlourEntry,
+  DEFAULT_FALLING_NUMBER, resolveFallingNumber,
+} from '../../data/flourDatabase';
 import { STYLE_CONSTRAINTS, hydrationRangeForStyle } from '../../data/styleConstraints';
 
 const TOTAL_STEPS = 8;
@@ -514,6 +517,7 @@ function FlourRow({ flour, idx, total, onChange, onRemove }: {
   onChange: (f: FlourComponent) => void; onRemove: () => void;
 }) {
   const [selectedId, setSelectedId] = useState('');
+  const fnResolved = resolveFallingNumber(flour);
 
   return (
     <Card elevated style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -552,6 +556,17 @@ function FlourRow({ flour, idx, total, onChange, onRemove }: {
         </Row2>
       ) : (
         <NumInput label="Proteine" unit="%" value={flour.protein} step={0.5} onChange={v => onChange({ ...flour, protein: v })} min={7} max={17} />
+      )}
+      {/* Falling Number — issue #7: il default non deve piu' essere silenzioso */}
+      <NumInput
+        label="Falling Number" unit="s"
+        value={flour.FN ?? DEFAULT_FALLING_NUMBER} step={10} min={150} max={450}
+        onChange={v => onChange({ ...flour, FN: v })} />
+      {!fnResolved.measured && (
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+          Indice di caduta non dichiarato dal molino: calcolo amilasico su stima
+          ({DEFAULT_FALLING_NUMBER} s). Se hai la scheda tecnica, inserisci il valore reale.
+        </span>
       )}
     </Card>
   );

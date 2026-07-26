@@ -146,6 +146,55 @@ export const FLOUR_DATABASE: FlourEntry[] = [
   },
 ];
 
+// ─── Falling Number: dato mancante, non dato implicito (issue #7) ────────────
+//
+// Nessuna farina del catalogo dichiara `FN`. Finora il motore cadeva in
+// silenzio su DEFAULT_FN = 340 per tutte, con la conseguenza che
+// normalizeAmylaseActivity restituiva sempre 0.507 e l'intero sottosistema
+// amilasico (indice, denaturazione, alert malto) non discriminava mai fra
+// farine: applicava solo un fattore costante a ogni impasto.
+//
+// I valori NON sono stati inventati. Le schede tecniche dei molini italiani
+// spesso non pubblicano l'indice di caduta, e quelle reperite online sono
+// scansioni senza layer testo: non verificabili su fonte primaria. Finché il
+// dato non arriva da una scheda, resta assente — ma ora l'assenza è
+// ESPLICITA e interrogabile, non un default silenzioso.
+
+/** Falling Number [s] usato quando la farina non dichiara il dato. */
+export const DEFAULT_FALLING_NUMBER = 340;
+
+export interface ResolvedFallingNumber {
+  /** Valore da usare nei calcoli [s]. */
+  fn:       number;
+  /** true se proviene dalla scheda tecnica; false se è DEFAULT_FALLING_NUMBER. */
+  measured: boolean;
+}
+
+/**
+ * Risolve il Falling Number di una farina distinguendo dato misurato da default.
+ * Usare `measured` per segnalare in UI che il calcolo amilasico è su stima.
+ */
+export function resolveFallingNumber(
+  flour: { FN?: number } | undefined,
+): ResolvedFallingNumber {
+  const fn = flour?.FN;
+  return fn != null && Number.isFinite(fn)
+    ? { fn, measured: true }
+    : { fn: DEFAULT_FALLING_NUMBER, measured: false };
+}
+
+/**
+ * Copertura del dato FN nel catalogo — per diagnostica e per il test che
+ * impedisce di dichiarare "risolto" il problema senza aver inserito i dati.
+ */
+export function fallingNumberCoverage(): { measured: number; total: number } {
+  const catalog = FLOUR_DATABASE.filter(f => f.id !== 'custom');
+  return {
+    measured: catalog.filter(f => f.FN != null).length,
+    total:    catalog.length,
+  };
+}
+
 /** Lookup veloce per ID */
 export function getFlourById(id: string): FlourEntry | undefined {
   return FLOUR_DATABASE.find(f => f.id === id);
