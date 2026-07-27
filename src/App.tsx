@@ -3,21 +3,59 @@
  * Routing basato su AppContext (view state machine, no react-router)
  * Hooks globali: persistenza DB, notifiche Capacitor
  */
-import { Component, Suspense, lazy, useLayoutEffect, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useLayoutEffect, type ComponentType, type ReactNode } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 
 // issue #32 — le viste erano importate staticamente e finivano tutte nel bundle
 // iniziale. Il peso vero e' recharts: 519 kB / 149 kB gzip, cioe' PIU' DELLA META'
 // del payload compresso, scaricato anche da chi apre il wizard e non arriva mai a
-// un grafico. I manualChunks lo separavano in un file, ma non ne evitavano il
-// download: bastava un import a livello di modulo.
-// Lo switch di AppRouter e' la frontiera di splitting naturale.
-const WizardView   = lazy(() => import('./components/wizard/WizardView').then(m => ({ default: m.WizardView })));
-const DashboardV4  = lazy(() => import('./components/dashboard/DashboardV4').then(m => ({ default: m.DashboardV4 })));
-const HistoryView  = lazy(() => import('./components/history/HistoryView').then(m => ({ default: m.HistoryView })));
-const RottaView    = lazy(() => import('./components/rotta/RottaView').then(m => ({ default: m.RottaView })));
-const FermentationPlannerView = lazy(() => import('./components/tools/FermentationPlannerView').then(m => ({ default: m.FermentationPlannerView })));
-const BakeView     = lazy(() => import('./components/bake/BakeView').then(m => ({ default: m.BakeView })));
+// un grafico. Lo switch di AppRouter e' la frontiera di splitting naturale.
+
+/**
+ * Import dinamico con recupero dai chunk obsoleti (issue #36).
+ *
+ * Con lo splitting, i nomi dei chunk contengono un hash del contenuto: dopo un
+ * deploy i vecchi non esistono piu'. Un client con l'index.html in cache — cioe'
+ * ogni PWA installata, per costruzione — chiede un chunk che il server non ha, e
+ * la vista non si apre: "Failed to fetch dynamically imported module".
+ *
+ * Non e' un errore da mostrare: e' un'app che ha bisogno di ricaricarsi. Il
+ * service worker e' in autoUpdate, quindi un reload prende index.html e chunk
+ * nuovi e coerenti fra loro.
+ *
+ * Il flag in sessionStorage impedisce il loop: se dopo il reload il chunk manca
+ * ancora, il problema e' un altro e l'errore va mostrato davvero.
+ */
+const CHUNK_RELOAD_KEY = 'pm-chunk-reload';
+
+function lazyView<K extends string, T extends Record<K, ComponentType<any>>>(
+  carica: () => Promise<T>,
+  nome: K,
+) {
+  return lazy(async (): Promise<{ default: T[K] }> => {
+    try {
+      const mod = await carica();
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);   // caricato: la finestra si chiude
+      return { default: mod[nome] };
+    } catch (err) {
+      if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+        sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+        location.reload();
+        // Non risolve mai: la pagina si sta ricaricando. Risolvere qui farebbe
+        // lampeggiare un fallback inutile nei millisecondi prima del reload.
+        return new Promise<never>(() => {});
+      }
+      throw err;   // gia' ricaricato una volta: e' un guasto vero
+    }
+  });
+}
+
+const WizardView   = lazyView(() => import('./components/wizard/WizardView'), 'WizardView');
+const DashboardV4  = lazyView(() => import('./components/dashboard/DashboardV4'), 'DashboardV4');
+const HistoryView  = lazyView(() => import('./components/history/HistoryView'), 'HistoryView');
+const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'RottaView');
+const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
+const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
 
