@@ -25,7 +25,7 @@
 
 'use strict';
 
-import { kEffective, fSaltYeast, amylaseCorrectedRate } from '../engine-v2.4.0.js';
+import { kEffective, fSaltYeast, amylaseCorrectedRate, SALT_INHIBITION_PARAMS } from '../engine-v2.4.0.js';
 
 // === COSTANTI — validationStatus:'hypothesis', per calibration harness ===
 // Unica ancora empirica: contemporanea, ~24°C → collasso ~2h dopo il picco.
@@ -45,9 +45,9 @@ export const COLLAPSE_VALIDATION = 'hypothesis';
  * Il secondo argomento (peakState) è accettato per compat con la firma dello
  * spec e per futura calibrazione stato-dipendente; non usato nel modello base.
  */
-export function makeLeavAduRateAt({ agentEaKj, agentType, salt = 0, amylaseIndex = 1.0, initialPH = 5.8 }) {
+export function makeLeavAduRateAt({ agentEaKj, agentType, salt = 0, amylaseIndex = 1.0, initialPH = 5.8, hydration = SALT_INHIBITION_PARAMS.hydrationRef }) {
   const kRef      = kEffective(25, agentEaKj, agentType);
-  const saltYeast = fSaltYeast(salt);
+  const saltYeast = fSaltYeast(salt, hydration);   // issue #11
   return function leavAduRateAt(tempC, _peakState) {
     // issue #5 — la correzione amilasica DEVE esserci anche qui. La tolleranza di
     // collasso e' rate(24 C) x 2h, mentre l'overshoot si legge dalla trajectory

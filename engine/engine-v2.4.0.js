@@ -221,13 +221,34 @@ const AMYLASE_CORRECTION_PARAMS = {
 // § C — COSTANTI v2.4.0 (NUOVE)
 // ═══════════════════════════════════════════════════════════════
 
-/** Inibizione osmotica sale — §2.14.2 */
+/** Inibizione osmotica sale — §2.14.2 (issue #11)
+ *
+ * Le costanti k agiscono ora sulla concentrazione salina nella FASE ACQUOSA,
+ * non sulla dose in baker's %. L'inibizione osmotica dipende da quanto sale
+ * c'e' per unita' d'acqua: a parita' di 2.8% sul farina, una napoletana a H55
+ * espone i lieviti al 5.09% di sale-in-acqua e una teglia a H80 al 3.50% — il
+ * 45% in meno. Il modello precedente assegnava a entrambe lo stesso valore.
+ *
+ * Ricalibrate per non-regressione a H_REF: k_nuovo = k_vecchio x (65/100),
+ * cosi' a idratazione 65% i fattori sono identici a prima (0.10 -> 0.065,
+ * 0.08 -> 0.052). Sopra H65 l'inibizione si allenta, sotto si stringe.
+ */
 const SALT_INHIBITION_PARAMS = {
-  yeastKSalt:    0.10,
+  hydrationRef:  65,      // idratazione a cui il comportamento e' invariato
+  yeastKSalt:    0.065,   // era 0.10 su baker's %
   yeastFloor:    0.60,
-  proteaseKSalt: 0.08,
+  proteaseKSalt: 0.052,   // era 0.08 su baker's %
   proteaseFloor: 0.70,
 };
+
+/** Concentrazione di sale nella fase acquosa [%] — issue #11.
+ * saltPct e' in baker's % (sul farina), hydrationPct idem: il rapporto da'
+ * i grammi di sale per 100 g d'acqua. Idratazione assente o non plausibile
+ * -> si ricade su hydrationRef, che riproduce il comportamento precedente. */
+function saltInWaterPct(saltPct, hydrationPct) {
+  const H = (hydrationPct != null && hydrationPct > 1) ? hydrationPct : SALT_INHIBITION_PARAMS.hydrationRef;
+  return safeDiv(saltPct, H / 100, saltPct);
+}
 
 /** Blend W non-lineare — §2.14.1 */
 const W_BLEND_NONLINEAR_K = 0.0003;  // da calibrare su alveografo [§10]
@@ -1145,15 +1166,19 @@ function computeWEffectiveExp(W0, kprot, hours) { return W0 * Math.exp(-kprot * 
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Inibizione osmotica sale sui lieviti — §2.14.2
- * f_salt_yeast(s) = max(0.60, 1.0 − 0.10 × s)
- * s = % sale su farina (baker's %)
+ * Inibizione osmotica sale sui lieviti — §2.14.2 (issue #11)
+ * f_salt_yeast(s, H) = max(0.60, 1.0 − 0.065 × saltInWater(s, H))
  *
- * s=0 → 1.000 | s=2 → 0.800 | s=3 → 0.700
+ * A H=65% (riferimento) coincide col modello precedente:
+ *   s=0 → 1.000 | s=2 → 0.800 | s=2.8 → 0.720 | s=3 → 0.700
+ * A parita' di s=2.8: H55 → 0.669, H80 → 0.772.
+ *
+ * @param hydrationPct idratazione [%]; se omessa si assume hydrationRef,
+ *        che riproduce esattamente il comportamento pre-#11.
  */
-function fSaltYeast(saltPct) {
+function fSaltYeast(saltPct, hydrationPct) {
   const { yeastKSalt, yeastFloor } = SALT_INHIBITION_PARAMS;
-  return Math.max(yeastFloor, 1.0 - yeastKSalt * saltPct);
+  return Math.max(yeastFloor, 1.0 - yeastKSalt * saltInWaterPct(saltPct, hydrationPct));
 }
 
 /**
@@ -1163,9 +1188,9 @@ function fSaltYeast(saltPct) {
  *
  * s=0 → 1.000 | s=2 → 0.840 | s=3 → 0.760
  */
-function fSaltProtease(saltPct) {
+function fSaltProtease(saltPct, hydrationPct) {
   const { proteaseKSalt, proteaseFloor } = SALT_INHIBITION_PARAMS;
-  return Math.max(proteaseFloor, 1.0 - proteaseKSalt * saltPct);
+  return Math.max(proteaseFloor, 1.0 - proteaseKSalt * saltInWaterPct(saltPct, hydrationPct));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1945,6 +1970,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // § L Salt (v2.4.0)
     fSaltYeast,
     fSaltProtease,
+    saltInWaterPct,
 
     // § M Blend non-lineare (v2.4.0)
     computeWBlendNonLinear,
@@ -2007,7 +2033,7 @@ export {
   computeAutolysis, validatePrefermentiMix, computeRinfrescoFraction, computeCombinedInitialState,
   computeDeltaAdu, sweetSpot, sweetSpotMaturation, computeDashboardEffectiveW,
   computeKprot, computeWEffectiveExp,
-  fSaltYeast, fSaltProtease,
+  fSaltYeast, fSaltProtease, saltInWaterPct,
   computeWBlendNonLinear,
   currentDoughMassKg, thermalTimeConstantSphere,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,

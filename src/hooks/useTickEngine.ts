@@ -115,8 +115,11 @@ export function useTickEngine() {
 
     // ── Salt + water hardness (v2.4) ──────────────────────────────────────────
     const saltPct      = session.salt ?? 0;
-    const saltYeast    = (fSaltYeast as Function)(saltPct);
-    const saltProtease = (fSaltProtease as Function)(saltPct);
+    // issue #11 — l'inibizione osmotica dipende dal sale nella fase acquosa,
+    // quindi serve l'idratazione: a parita' di 2.8% sul farina, H55 inibisce
+    // il 45% piu' di H80.
+    const saltYeast    = (fSaltYeast as Function)(saltPct, session.hydration);
+    const saltProtease = (fSaltProtease as Function)(saltPct, session.hydration);
     const hardProt     = session.waterHardnessPpm != null
       ? (fHardnessProtease as Function)(session.waterHardnessPpm)
       : 1.0;

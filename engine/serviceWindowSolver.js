@@ -86,8 +86,8 @@ export function simulateTimeline(segments, initial, opts) {
 
   const { totalMassKg, ballMassKg } = massesKg({ totalFlourGrams, hydration, salt, numPanetti });
   const kRef         = kEffective(25, agentEaKj, agentType);
-  const saltYeast    = fSaltYeast(salt);
-  const saltProtease = fSaltProtease(salt);
+  const saltYeast    = fSaltYeast(salt, hydration);      // issue #11
+  const saltProtease = fSaltProtease(salt, hydration);   // issue #11
   const hardProt     = waterHardnessPpm != null ? fHardnessProtease(waterHardnessPpm) : 1.0;
 
   const isLM = agentType === 'sourdough_wheat';

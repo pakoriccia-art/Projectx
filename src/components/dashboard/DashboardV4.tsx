@@ -293,6 +293,7 @@ export function DashboardV4() {
         agentEaKj: session.agentEaKj, agentType: session.agentType, salt: session.salt ?? 0,
         amylaseIndex: (session as any).effectiveAmylaseIndex ?? 1.0,  // issue #5
         initialPH: (session as any).initialPH ?? 5.8,
+        hydration: session.hydration,                                 // issue #11
       });
       return computeCollapseETA({
         trajectory: sim.samples, bubbleThresholdPct, leavAduRateAt,
