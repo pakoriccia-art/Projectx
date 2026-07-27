@@ -26,6 +26,8 @@ interface CoreTempSessionOpts {
   effectiveW_initial?: number; hydration?: number; salt?: number;
   totalFlourGrams?: number; numPanetti?: number; containerPreset?: string;
   initialPH?: number;
+  /** Indice amilasico della sessione — issue #5, parita' col tick loop. */
+  amylaseIndex?: number;
 }
 
 /**
@@ -69,6 +71,7 @@ export function projectCoreTempAtBakeC(args: {
         muMaxScaled: session.agentMuMax, leavLambda: session.agentLambda,
         agentAsymptote: session.agentAsymptote ?? 100,
         W0: session.effectiveW_initial ?? 280, hydration: session.hydration ?? 65,
+        amylaseIndex: session.amylaseIndex ?? 1.0,            // issue #5 — parita' col tick
         salt: session.salt ?? 2, totalFlourGrams: session.totalFlourGrams ?? 1000,
         numPanetti: session.numPanetti ?? 6,
         containerPreset: session.containerPreset ?? 'closed_box',

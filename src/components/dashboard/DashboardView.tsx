@@ -1004,6 +1004,7 @@ function DriftCard({ session, ts }: { session: any; ts: any }) {
           muMaxScaled: session.agentMuMax, leavLambda,
           agentAsymptote: session.agentAsymptote ?? 100,
           W0: session.effectiveW_initial ?? 280, hydration: session.hydration ?? 65,
+          amylaseIndex: session.effectiveAmylaseIndex ?? 1.0,   // issue #5 — parita' col tick
           salt: session.salt ?? 2, totalFlourGrams: session.totalFlourGrams ?? 1000,
           numPanetti: session.numPanetti ?? 6, containerPreset: session.containerPreset ?? 'bare',
         });

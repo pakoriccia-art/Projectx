@@ -25,7 +25,7 @@
 
 'use strict';
 
-import { kEffective, fSaltYeast } from '../engine-v2.4.0.js';
+import { kEffective, fSaltYeast, amylaseCorrectedRate } from '../engine-v2.4.0.js';
 
 // === COSTANTI — validationStatus:'hypothesis', per calibration harness ===
 // Unica ancora empirica: contemporanea, ~24°C → collasso ~2h dopo il picco.
@@ -45,11 +45,18 @@ export const COLLAPSE_VALIDATION = 'hypothesis';
  * Il secondo argomento (peakState) è accettato per compat con la firma dello
  * spec e per futura calibrazione stato-dipendente; non usato nel modello base.
  */
-export function makeLeavAduRateAt({ agentEaKj, agentType, salt = 0 }) {
+export function makeLeavAduRateAt({ agentEaKj, agentType, salt = 0, amylaseIndex = 1.0, initialPH = 5.8 }) {
   const kRef      = kEffective(25, agentEaKj, agentType);
   const saltYeast = fSaltYeast(salt);
   return function leavAduRateAt(tempC, _peakState) {
-    const kT     = kEffective(tempC, agentEaKj, agentType);
+    // issue #5 — la correzione amilasica DEVE esserci anche qui. La tolleranza di
+    // collasso e' rate(24 C) x 2h, mentre l'overshoot si legge dalla trajectory
+    // prodotta da simulateTimeline: se solo una delle due include l'amilasi, le
+    // si confronta con due righelli diversi e marginH sbaglia del fattore
+    // amilasico. Includendola in entrambe, il fattore si semplifica e marginH
+    // resta invariante — che e' il comportamento corretto.
+    const kT     = amylaseCorrectedRate(
+      kEffective(tempC, agentEaKj, agentType), amylaseIndex, 0, initialPH);
     const kRatio = kRef > 1e-6 ? Math.min(10, Math.max(0, kT / kRef)) : 0;
     return kRatio * saltYeast; // ADU/ora
   };

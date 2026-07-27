@@ -55,6 +55,7 @@ export function buildPiecewiseData(
     initialMaturationOffset?: number;
     numPanetti?: number; hydration?: number; containerPreset?: string;
     totalFlourGrams?: number; salt?: number; initialPH?: number;
+    effectiveAmylaseIndex?: number;
     prefermenti?: any[];
     tLaboratorio?: number;
     style?: string;
@@ -232,6 +233,7 @@ export function buildPiecewiseData(
         muMaxScaled: session.agentMuMax, leavLambda: session.agentLambda,
         agentAsymptote: session.agentAsymptote ?? 100,
         W0: 280, hydration: session.hydration ?? 65, salt: session.salt ?? 2,
+        amylaseIndex: session.effectiveAmylaseIndex ?? 1.0,   // issue #5 — parita' col tick
         totalFlourGrams: session.totalFlourGrams ?? 1000,
         numPanetti: session.numPanetti ?? 6,
         containerPreset: session.containerPreset ?? 'bare',

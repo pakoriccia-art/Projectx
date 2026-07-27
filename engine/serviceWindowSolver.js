@@ -23,6 +23,7 @@ import {
   thermalTimeConstantForPhase,
   computeTCrit, computeWHill, structuralState,
   fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH, computeLabAdu,
+  amylaseCorrectedRate,
   getStyleProfile,
 } from './engine-v2.4.0.js';
 
@@ -76,6 +77,11 @@ export function simulateTimeline(segments, initial, opts) {
     W0 = 280, hydration = 65, salt = 0, waterHardnessPpm,
     totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare',
     initialPH = 5.8, subStepH = 0.05,
+    // issue #5 — il tick applica la correzione amilasica al rate di lievitazione,
+    // il solver no: con la farina di default il monitor correva il 21.5% piu'
+    // lento del piano. Default 1.0 = allineato al fallback del tick
+    // (useTickEngine: session.effectiveAmylaseIndex ?? 1.0).
+    amylaseIndex = 1.0,
   } = opts;
 
   const { totalMassKg, ballMassKg } = massesKg({ totalFlourGrams, hydration, salt, numPanetti });
@@ -123,7 +129,13 @@ export function simulateTimeline(segments, initial, opts) {
     for (let i = 0; i < nSteps; i++) {
       tempDough = doughCoreTemp(tempDough, seg.ambientTempC, stepSec, tau);
       // Lievitazione (orologio lievito, cardinale) — v2.4.14: guard 1e-6 + clamp [0,10]
-      const kT     = kEffective(tempDough, agentEaKj, agentType);
+      // issue #5 — correzione amilasica, identica al tick loop. Il pH e' quello
+      // PRE-step (da leavAdu non ancora aggiornato), come in useTickEngine dove
+      // currentPH deriva da prevAdu: usare quello post-step introdurrebbe una
+      // dipendenza circolare rate -> pH -> rate.
+      const phPre  = computeCurrentPH(initialPH, leavAdu, agentType, labAdu);
+      const kT     = amylaseCorrectedRate(
+        kEffective(tempDough, agentEaKj, agentType), amylaseIndex, elapsedH, phPre);
       const kRatio = kRef > 1e-6 ? Math.min(10, Math.max(0, kT / kRef)) : 0;
       leavAdu += kRatio * saltYeast * stepH;
       // Maturazione (orologio enzimatico, fArrhenius senza CTM)
@@ -357,6 +369,7 @@ export function solveNowAnchoredWindow(input) {
     agentType, agentEaKj, agentMuMax, agentLambda, agentAsymptote = 100,
     agentDosePct = 0.3,
     W0 = 280, hydration = 65, salt = 0, waterHardnessPpm, initialPH = 5.8,
+    amylaseIndex = 1.0,
     totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare',
     prefermenti = [], initialMaturationOffset = 0,
     style,
@@ -408,6 +421,7 @@ export function solveNowAnchoredWindow(input) {
     agentEaKj, agentType, leavLambda, agentAsymptote,
     W0, hydration, salt, waterHardnessPpm, initialPH,
     totalFlourGrams, numPanetti, containerPreset, subStepH,
+    amylaseIndex,                                    // issue #5 — parita' col tick
   };
 
   // v2.4.5: puntata cap — calcolato una volta prima di scheduleFor e della bisezione
@@ -708,6 +722,7 @@ export function solveServiceWindow(input) {
     agentType, agentEaKj, agentMuMax, agentLambda, agentAsymptote = 100,
     agentDosePct = 0.3,
     W0 = 280, hydration = 65, salt = 0, waterHardnessPpm, initialPH = 5.8,
+    amylaseIndex = 1.0,
     totalFlourGrams = 1000, numPanetti = 1, containerPreset = 'bare',
     prefermenti = [], initialMaturationOffset = 0,
     thermalServiceTargetC = SERVICE_WINDOW_DEFAULTS.thermalServiceTargetC,
@@ -746,6 +761,7 @@ export function solveServiceWindow(input) {
     agentEaKj, agentType, leavLambda, agentAsymptote,
     W0, hydration, salt, waterHardnessPpm, initialPH,
     totalFlourGrams, numPanetti, containerPreset, subStepH,
+    amylaseIndex,                                    // issue #5 — parita' col tick
   };
 
   const mitigations = (reason, maxSafe) => {
