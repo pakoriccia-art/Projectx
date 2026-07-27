@@ -23,7 +23,7 @@ import {
   thermalTimeConstantForPhase,
   computeTCrit, computeWHill, structuralState,
   fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH, computeLabAdu,
-  amylaseCorrectedRate,
+  amylaseCorrectedRate, scaleMuMaxByDose,
   getStyleProfile,
 } from './engine-v2.4.0.js';
 
@@ -48,8 +48,10 @@ function defaultDoseRef(agentType) {
 }
 
 function muMaxScaledFor(dose, agentMuMax, doseRefPct) {
-  if (doseRefPct == null) return agentMuMax;
-  return agentMuMax * Math.max(0.1, Math.min(2, dose / doseRefPct));
+  // issue #8 — delega alla sorgente unica nell'engine. Il clamp era [0.1, 2],
+  // che confinava il lievito di birra a 0.025-0.5% contro i 0.05-3.0% che
+  // DOUGH_LIMITS dichiara.
+  return scaleMuMaxByDose(agentMuMax, dose, doseRefPct);
 }
 
 // ─── Masse per fase (bulk = totale, altrimenti per-pallina) ──────────────────

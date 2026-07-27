@@ -24,6 +24,7 @@ import {
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
   computeFrictionRise,
 } from '../../engine';
+import { scaleMuMaxByDose, doseFactorSaturated } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
@@ -202,8 +203,8 @@ function computeAllProtocols(params: {
   // 1. Effective dose & initial ADU
   const doseRef = agentType === 'fresh_yeast' ? 0.3 : agentType === 'instant_dry_yeast' ? 0.1 : null;
   const { effectiveDose, initialAdu } = computeEffectiveDoseAndAdu(pref, agentDosePct, aParams.Ea, agentType);
-  const doseFactor = doseRef != null ? effectiveDose / doseRef : 1.0;
-  const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseFactor));
+  // issue #8 — sorgente unica nell'engine (era clamp [0.1, 2] duplicato)
+  const muMax = (scaleMuMaxByDose as Function)(aParams.muMax, effectiveDose, doseRef) as number;
 
   // 2. ADU_target at 85%
   const aduTarget  = invertGompertz(85, muMax, aParams.lambda, 100);
@@ -1337,7 +1338,7 @@ export function FermentationPlannerView() {
     () => computeEffectiveDoseAndAdu(pref, dosePct, aParams.Ea, agentType),
     [pref, dosePct, aParams.Ea, agentType],
   );
-  const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseRef != null ? effectiveDose / doseRef : 1.0));
+  const muMax = (scaleMuMaxByDose as Function)(aParams.muMax, effectiveDose, doseRef) as number;
 
   // Massa panetto — usata per riscaldo e integrazione ramp tc_appreto
   const panMassKg = (totalFlourG * (1 + hydration / 100 + salt / 100)) / 1000 / Math.max(1, numPanetti);
@@ -1805,6 +1806,16 @@ export function FermentationPlannerView() {
               {computeGrammiLievito(totalFlourG, dosePct, agentType)}
             </strong>
           </div>
+          {/* issue #8 — la saturazione non deve piu' avvenire in silenzio */}
+          {(doseFactorSaturated as Function)(effectiveDose, doseRef) && (
+          <div role="status" style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.7rem', lineHeight: 1.45,
+            color: 'var(--accent-warning)', marginTop: 6,
+          }}>
+            Dose fuori dal dominio calibrato del modello: la previsione e' saturata
+            al limite e sara' ottimistica. Riferimento {doseRef ?? '—'}%.
+          </div>
+          )}
         </div>
       </Card>
 

@@ -12,6 +12,7 @@ import {
 import {
   normalizeFlourGroup, computeCombinedInitialState,
   computeMaltAmylaseContrib, computeTotalAmylaseIndex, maltAlertLevel,
+  scaleMuMaxByDose, doseFactorSaturated,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective, getStyleProfile,
   KNEADING_METHODS_FRICTION, computeWaterTempDDT, type KneadingMethod,
   computeEffectiveMixHydration,
@@ -279,8 +280,9 @@ function buildSession(draft: WizardDraft): Session {
   const { effectiveDosePct, prefInitialAdu } = computeEffectiveDose(
     prefermenti, mainDose, aParams, aType,
   );
-  const doseFactor = doseRef != null ? effectiveDosePct / doseRef : 1.0;
-  const muMax = aParams.muMax * Math.max(0.1, Math.min(2, doseFactor));
+  // issue #8 — sorgente unica nell'engine. Il clamp era [0.1, 2] duplicato in
+  // cinque punti fra questo file, il Planner e il solver.
+  const muMax = (scaleMuMaxByDose as Function)(aParams.muMax, effectiveDosePct, doseRef) as number;
 
   const combined = (computeCombinedInitialState as Function)({
     prefermenti,
@@ -1074,6 +1076,10 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const baseAmyl  = draft.mainFlourGroup?.effectiveAmylaseIndex ?? 1.0;
   const totalAmyl = (computeTotalAmylaseIndex as Function)(baseAmyl, maltAmyl) as number;
   const maltLevel = (maltAlertLevel as Function)(totalAmyl) as string;
+  // issue #8 — dose di riferimento per rilevare la saturazione del modello
+  const doseRefStep = draft.agentType === 'fresh_yeast' ? 0.3
+    : draft.agentType === 'instant_dry_yeast' ? 0.1
+    : draft.agentType === 'sourdough_wheat' ? 20 : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1094,6 +1100,16 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           onChange={v => update({ agentDosePct: v })}
           min={doseRange[0]} max={doseRange[1]}
           step={draft.agentType === 'sourdough_wheat' ? 1 : 0.05} unit="%" />
+        {/* issue #8 — la saturazione non deve piu' avvenire in silenzio */}
+        {(doseFactorSaturated as Function)(draft.agentDosePct ?? doseRange[0], doseRefStep) && (
+          <div role="status" style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.7rem', lineHeight: 1.45,
+            color: 'var(--accent-warning)', marginTop: -4,
+          }}>
+            Dose fuori dal dominio calibrato: la previsione e' saturata al limite
+            e sara' ottimistica.
+          </div>
+        )}
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -8 }}>
           {draft.agentDosePct ?? doseRange[0]}% su {draft.totalFlourGrams ?? 1000}g farina ={' '}
           <strong style={{ color: 'var(--accent-brand)' }}>
@@ -1225,7 +1241,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     const aT2   = draft.agentType ?? 'fresh_yeast';
     const aP2   = (AGENT_GOMPERTZ as any)[aT2] as { Ea: number; lambda: number; muMax: number };
     const dRef2 = aT2 === 'fresh_yeast' ? 0.3 : aT2 === 'instant_dry_yeast' ? 0.1 : 1.0;
-    const muMax2 = aP2.muMax * Math.max(0.1, Math.min(2, (draft.agentDosePct ?? dRef2) / dRef2));
+    const muMax2 = (scaleMuMaxByDose as Function)(aP2.muMax, draft.agentDosePct ?? dRef2, dRef2) as number;
     const totalDG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panKg2  = totalDG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
@@ -1414,7 +1430,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     const aT8   = draft.agentType ?? 'fresh_yeast';
     const aP8   = (AGENT_GOMPERTZ as any)[aT8] as { Ea: number; lambda: number; muMax: number };
     const dRef8 = aT8 === 'fresh_yeast' ? 0.3 : aT8 === 'instant_dry_yeast' ? 0.1 : 1.0;
-    const muMax8 = aP8.muMax * Math.max(0.1, Math.min(2, (draft.agentDosePct ?? dRef8) / dRef8));
+    const muMax8 = (scaleMuMaxByDose as Function)(aP8.muMax, draft.agentDosePct ?? dRef8, dRef8) as number;
     const puntataMax8 = puntataMaxHForStyle(
       draft.style ?? 'napoletana', muMax8, aP8.lambda, aP8.Ea, aT8,
     );

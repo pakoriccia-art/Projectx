@@ -279,6 +279,47 @@ const WATER_HARDNESS_PARAMS = {
   proteaseKHard: 0.0004,
 };
 
+/** Scaling della dose sul muMax del lievito — §2.3 (issue #8)
+ *
+ * Il tasso di produzione di gas e' approssimativamente proporzionale alla massa
+ * di lievito, quindi muMax scala linearmente con dose/doseRef.
+ *
+ * I limiti sono una GUARDIA NUMERICA, non un vincolo biologico: servono a
+ * impedire che una dose assurda produca un muMax che manda in overflow la
+ * Gompertz. Erano [0.1, 2], che con doseRef 0.25 confinava il lievito di birra
+ * a 0.025-0.5% — mentre DOUGH_LIMITS dichiara 0.05-3.0%. L'app contraddiceva
+ * se stessa, e la saturazione avveniva in silenzio.
+ *
+ * I nuovi estremi coprono tutti i domini dichiarati in src/constants/limits.ts:
+ *   fresh_yeast        0.05-3.0 % / ref 0.25  ->  fattore 0.20 - 12.0
+ *   instant_dry_yeast  0.05-2.0 % / ref 0.10  ->  fattore 0.50 - 20.0
+ *   sourdough_wheat    10-40 %    / ref 20.0  ->  fattore 0.50 -  2.0
+ *
+ * NOTA: lo scaling agisce solo su muMax. Piu' lievito accorcia anche la fase
+ * lag, che qui resta invariata — vedi #8 per il seguito.
+ */
+const DOSE_SCALING_LIMITS = { factorMin: 0.05, factorMax: 20 };
+
+/** Fattore di scala grezzo dose/doseRef, senza clamp. */
+function doseFactor(dose, doseRefPct) {
+  if (doseRefPct == null || !(doseRefPct > 0)) return 1.0;
+  return safeDiv(dose, doseRefPct, 1.0);
+}
+
+/** true se la dose esce dal dominio calibrato: la UI deve avvisare, non subire. */
+function doseFactorSaturated(dose, doseRefPct) {
+  const f = doseFactor(dose, doseRefPct);
+  return f < DOSE_SCALING_LIMITS.factorMin || f > DOSE_SCALING_LIMITS.factorMax;
+}
+
+/** muMax scalato sulla dose. Sorgente unica: prima l'espressione era duplicata
+ *  in cinque punti fra WizardView, FermentationPlannerView e il solver. */
+function scaleMuMaxByDose(agentMuMax, dose, doseRefPct) {
+  if (doseRefPct == null) return agentMuMax;
+  const { factorMin, factorMax } = DOSE_SCALING_LIMITS;
+  return agentMuMax * safeClamp(doseFactor(dose, doseRefPct), factorMin, factorMax);
+}
+
 // pH drop per unità di leavAdu — v2.4.11 §2.6.1
 // kAcid calibrato su dati fermentativi: LBF ≈ 0.0035 pH/ADU, LM ≈ 0.020 pH/ADU
 const ACID_PRODUCTION_PARAMS = {
@@ -1554,6 +1595,7 @@ const _constants = {
   ENZYMATIC_CLOCK_PARAMS,
   // v2.4.11
   ACID_PRODUCTION_PARAMS,
+  DOSE_SCALING_LIMITS,
   // v2.4.14
   LAB_KINETICS,
   SACC_ACID_CONTRIB,
@@ -2042,6 +2084,7 @@ export {
   computeReverseScaling,
   computeCurrentPH,
   computeLabAdu, thermalTimeConstantForPhase,
+  DOSE_SCALING_LIMITS, doseFactor, doseFactorSaturated, scaleMuMaxByDose,
   LAB_KINETICS, SACC_ACID_CONTRIB,
   STYLE_PROFILES, getStyleProfile, computeStyleAwareAlertLevel,
   checkPuntataTarget, checkWMinimoStesura,
