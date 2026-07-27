@@ -1,0 +1,465 @@
+/**
+ * PizzaMatrix Engine — TypeScript re-export + tipi
+ * Wrappa engine-v2.4.0.js (pure JS) con types per l'app React/TypeScript
+ */
+
+// Re-export tutto dall'engine JS
+export * from '../../engine/engine-v2.4.0.js';
+// v2.4.24 — modello attrito meccanico unificato (§2.7). Sorgente unica di verità.
+export * from '../../engine/friction-v2.4.24.js';
+import {
+  computeFrictionRise,
+  FRICTION_PARAMS,
+} from '../../engine/friction-v2.4.24.js';
+
+// ─── Tipi TypeScript per le funzioni principali ──────────────────────────────
+
+export type AgentType = 'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat';
+export type ContainerPreset = 'bare' | 'film' | 'open_box' | 'glass_covered' | 'plastic_bag' | 'closed_box' | 'closed_box_double';
+export type StructuralStatus = 'OK' | 'WARNING' | 'CRITICAL' | 'COLLAPSED';
+export type MaltAlertLevel = 'OK' | 'ADVISORY' | 'CRITICAL' | 'BLOCKED';
+export type DoughPhase = 'bulk_room' | 'bulk_fridge' | 'balled_room' | 'balled_fridge' | 'proofing' | 'baking';
+export type PrefermType = 'poolish' | 'biga' | 'autolysis';
+
+/**
+ * Ordine canonico delle fasi (monotòno nel tempo), 'baking' terminale.
+ * Sorgente condivisa per validare le transizioni forward-only della timeline v4
+ * (v2.4.16 Bug #94). Da NON usare per vincolare il PhaseStepper di v3.1, che
+ * resta a navigazione libera.
+ */
+export const PHASE_ORDER: readonly DoughPhase[] = [
+  'bulk_room', 'bulk_fridge', 'balled_room', 'balled_fridge', 'proofing', 'baking',
+];
+
+export interface DashboardWResult {
+  W_current:        number;
+  W_initial:        number;
+  decayPct:         number;
+  tRatio:           number;
+  tCritHours:       number;
+  structuralStatus: StructuralStatus;
+  breakdown: {
+    prefermenti: Array<{
+      id:        string;
+      type:      PrefermType;
+      fraction:  number;
+      W_initial: number;
+      label:     string;
+    }>;
+    rinfresco: {
+      fraction:  number;
+      W_initial: number;
+    };
+  };
+}
+
+export interface CombinedInitialState {
+  effectiveW_initial:      number;
+  effectivePl_initial:     number;
+  effectiveProtein:        number;
+  effectiveAsh:            number;
+  effectiveAmylaseIndex:   number;
+  initialMaturationOffset: number;
+  initialPH:               number;
+  rinfrescoFraction:       number;
+  breakdown: {
+    prefermenti: Array<{
+      id:                  string;
+      type:                PrefermType;
+      fraction:            number;
+      W_contrib:           number;
+      pl_contrib:          number;
+      protein_contrib:     number;
+      ash_contrib:         number;
+      amylase_contrib:     number;
+      denaturation_factor: number;
+      mat_contrib:         number;
+      pH:                  number;
+    }>;
+    rinfresco: {
+      fraction:        number;
+      W_contrib:       number;
+      pl_contrib:      number;
+      protein_contrib: number;
+      ash_contrib:     number;
+      amylase_contrib: number;
+      pH:              number;
+    };
+  };
+}
+
+export interface ReverseScalingResult {
+  totalFlourKg:     number;
+  rinfrescoFlourKg: number;
+  rinfrescoWaterKg: number;
+  totalDoughKg:     number;
+  numPanetti:       number;
+  panWeight:        number;
+  prefermType:      PrefermType;
+}
+
+export interface SweetSpotResult {
+  status:           'upcoming' | 'past_peak';
+  hoursUntilPeak:   number;
+  peakPct:          number;
+}
+
+// ─── Bilancio Termico Acqua di Impastamento (§2.7 DDT) ───────────────────────
+
+/** Metodo di impastamento: determina il coefficiente di attrito C_attrito. */
+export type KneadingMethod = 'hand' | 'spiral' | 'planetary' | 'diving_arm';
+
+export interface KneadingMethodSpec {
+  /** Etichetta italiana breve. */
+  label:        string;
+  /** Limite inferiore C_attrito [°C] — sessione leggera / bassa velocità. */
+  cFrictionLo:  number;
+  /** Limite superiore C_attrito [°C] — sessione intensa / alta velocità. */
+  cFrictionHi:  number;
+  /** Valore medio consigliato [°C]. */
+  cFrictionMid: number;
+  /** Note tecniche. */
+  notes:        string;
+}
+
+/**
+ * Coefficienti di attrito meccanico per categoria di impastatrice — §2.7
+ *
+ * C_attrito [°C] = aumento totale di temperatura dell'impasto per effetto
+ * dell'energia meccanica, in una sessione tipica da pizzeria (10–15 min
+ * a regime per 1–5 kg di farina).
+ *
+ * Fonte: consensus letteratura professionale italiana e internazionale:
+ *   • Calvel R. (1994) "Le Goût du Pain" — formula DDT originale
+ *   • Suas M. (2009) "Advanced Bread and Pastry" — valori per macchina
+ *   • Giorilli P. "Il Grande Libro del Pane" — valori per macchina
+ *   • Standard AVPN (Associazione Verace Pizza Napoletana)
+ *   • SFBI (San Francisco Baking Institute) — reference table
+ *
+ * ┌──────────────────────┬──────────────────────────────┐
+ * │ Metodo di Impasto    │ C_attrito medio [°C]         │
+ * ├──────────────────────┼──────────────────────────────┤
+ * │ A mano               │  1 –  2  (mid 1.5)           │
+ * │ Spirale              │ 10 – 12  (mid 11)            │
+ * │ Planetaria           │  8 – 10  (mid  9)            │
+ * │ Bracci tuffanti      │  6 –  8  (mid  7)            │
+ * └──────────────────────┴──────────────────────────────┘
+ *
+ * NOTA Spirale: 10–12°C calibrato su 2ª velocità (regime tipico pizzeria
+ * napoletana). A 1ª velocità / uso domestico applicare 6–8°C.
+ *
+ * NOTA Pianetaria: valore per gancio (hook); con frusta a filo: +2°C.
+ *
+ * Verifica: i valori sono coerenti con le misure sperimentali pubblicate
+ * da Calvel (±1°C) per sessioni standard. L'approccio a coefficiente fisso
+ * è preferito all'interpolazione continua per la riproducibilità operativa.
+ */
+// Bug #93 v2.4.15: satisfies valida la struttura senza widening a Record<K,V>,
+// preservando l'inferenza letterale delle chiavi. Richiede TS >= 4.9.
+export const KNEADING_METHODS_FRICTION = {
+  hand: {
+    label:        'A mano',
+    cFrictionLo:  1,
+    cFrictionHi:  2,
+    cFrictionMid: 1.5,
+    notes: 'Attrito trascurabile; solo per piccoli impasti (<500 g farina). Temperatura quasi ininfluente.',
+  },
+  spiral: {
+    label:        'Spirale',
+    cFrictionLo:  10,
+    cFrictionHi:  12,
+    cFrictionMid: 11,
+    notes: 'Valore per 2ª velocità/regime pizzeria. A 1ª velocità o uso domestico: 6–8°C.',
+  },
+  planetary: {
+    label:        'Planetaria',
+    cFrictionLo:  8,
+    cFrictionHi:  10,
+    cFrictionMid: 9,
+    notes: 'Gancio standard (hook). Con frusta a filo aggiungere 1–2°C. Attrito uniforme tra velocità.',
+  },
+  diving_arm: {
+    label:        'Bracci tuffanti',
+    cFrictionLo:  6,
+    cFrictionHi:  8,
+    cFrictionMid: 7,
+    notes: 'Azione delicata; preserva strutture proteiche. Tempi di impasto più lunghi (20–30 min).',
+  },
+} satisfies Record<KneadingMethod, KneadingMethodSpec>;
+
+/** Threshold sotto cui si attiva la modalità ghiaccio [°C]. */
+export const ICE_THRESHOLD_C = 3;
+
+/** Input per il calcolo DDT — bilancio termico acqua di impastamento. */
+export interface WaterTempInput {
+  /** Temperatura Desiderata Finale (DDT) dell'impasto [°C]. Napoletana ~24°C. */
+  ddtTarget:          number;
+  /** Temperatura ambiente del laboratorio [°C]. */
+  tempAmbient:        number;
+  /** Temperatura della farina [°C]. Se omessa, si assume = tempAmbient. */
+  tempFlour?:         number;
+  /** Temperatura del pre-impasto [°C]. Richiesta per formula indiretta. */
+  tempPreferment?:    number;
+  /** Metodo di impastamento (seleziona C_attrito). */
+  kneadingMethod:     KneadingMethod;
+  /** Variante del C_attrito: 'lo' | 'mid' | 'hi'. Default 'mid'. */
+  cFrictionVariant?:  'lo' | 'mid' | 'hi';
+  /** Massa totale di acqua della ricetta [g]. Necessaria per il calcolo ghiaccio. */
+  waterTotalGrams:    number;
+  /** Temperatura dell'acqua corrente disponibile [°C]. Default ICE_THRESHOLD_C. */
+  waterAvailableTempC?: number;
+  /**
+   * Temperatura reale del ghiaccio [°C]. Default -18 (congelatore professionale).
+   * Passa 0 per ghiaccio tritato/scaglie già a 0°C (equivalente alla formula precedente).
+   * Bug #92 v2.4.15 — aggiunge il termine c_s × |T_ice| al bilancio entalpico.
+   */
+  iceTempC?: number;
+
+  // ── v2.4.24 — modello attrito unificato (§2.7) ──────────────────────────────
+  /**
+   * Durata di impastamento [min]. Se presente (> 0), attiva il modello attrito
+   * UNIFICATO: C_attrito = N × ΔT(mixer, durata, H_eff, massa). Se omessa, si usa
+   * il C_attrito LEGACY (KNEADING_METHODS_FRICTION lo/mid/hi) — backward compat.
+   */
+  kneadDurationMin?: number;
+  /** Idratazione efficace di impastamento [%] per f_hyd. Default = hydrationRef (65). */
+  hydrationEff?: number;
+  /** Massa totale impasto [kg] per f_mass. Default 1. */
+  doughMassKg?: number;
+  /**
+   * Temperatura acqua di rubinetto disponibile [°C] per il bilancio ghiaccio.
+   * Se presente vince su waterAvailableTempC. Default: waterAvailableTempC.
+   */
+  tapWaterC?: number;
+}
+
+/** Risultato del calcolo DDT — bilancio termico acqua di impastamento. */
+export interface WaterTempResult {
+  /** Temperatura acqua calcolata per raggiungere DDT [°C] (può essere <0). */
+  tWaterCalc:      number;
+  /**
+   * 'liquid' → acqua normale; 'ice' → ghiaccio tritato;
+   * 'unreachable' (v2.4.24) → target irraggiungibile anche con tutto ghiaccio.
+   */
+  mode:            'liquid' | 'ice' | 'unreachable';
+  /** [mode=liquid] Temperatura consigliata acqua liquida [°C], clamped [1,35]. */
+  tWaterLiquid?:   number;
+  /** [mode=ice] Grammi di ghiaccio [g]. */
+  iceGrams?:       number;
+  /** [mode=ice] Grammi di acqua liquida residua [g]. */
+  liquidGrams?:    number;
+  /** [mode=ice] Temperatura fissa acqua liquida [°C]. */
+  tWaterEffective?: number;
+  /** C_attrito applicato [°C]. */
+  cFriction:       number;
+  /** Numero di fattori: 3 (diretto) | 4 (indiretto con pre-impasto). */
+  factors:         3 | 4;
+  /** Temperatura farina usata nel calcolo [°C] — per formula completa. */
+  tempFlour:       number;
+  /** Massa totale acqua della ricetta [g] — per mostrare le dosi. */
+  waterTotalGrams: number;
+
+  // ── v2.4.24 — modello attrito unificato (§2.7) ──────────────────────────────
+  /** Sorgente del C_attrito applicato: 'unified' (rate×durata) | 'legacy' (lo/mid/hi). */
+  frictionModel?:   'unified' | 'legacy';
+  /** [unified] Salita attrito ΔT [°C] sopra la media-N (C_attrito = N × ΔT). */
+  frictionRiseC?:   number;
+  /** [unified] T uscita impasto prevista [°C] col setpoint raccomandato. */
+  exitTempC?:       number;
+  /** [unified] true se exitTempC > exitWarnC (glutine tende a slegarsi). Advisory. */
+  exitWarning?:     boolean;
+  /** [mode=unreachable] T acqua richiesta, impossibile anche col ghiaccio [°C]. */
+  requiredWaterTempC?: number;
+  /** [mode=unreachable] leve suggerite per rientrare nel target. */
+  levers?:          string[];
+}
+
+// ─── v2.4.11 §2.6.1 — pH biochimicamente corretto da leavAdu ─────────────────
+// computeCurrentPH — auto-exported via `export *` from engine JS.
+// Signature: (initialPH: number | undefined, leavAdu: number, agentType: string) => number
+
+// ─── Alert Level Result — ritornato da computeStyleAwareAlertLevel ────────────
+
+export type AlertLevel =
+  | 'OK'
+  | 'APPROACHING'
+  | 'SWEET_SPOT'
+  | 'STRUCTURAL_WARNING'
+  | 'STRUCTURAL_CRITICAL'
+  | 'STRUCTURAL_COLLAPSED';
+
+export interface AlertLevelResult {
+  level:          AlertLevel;
+  bindingSignal?: 'maturation' | 'structural' | 'bubble' | 'dual';
+  message:        string;
+}
+
+// ─── Style Profile — ritornato da getStyleProfile ─────────────────────────────
+export type PizzaStyle = 'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle';
+
+export interface StyleProfile {
+  alertThreshold:         number;
+  alertThreshold_range:   [number, number];
+  bubbleThresholdPct:     number;
+  primarySignal:          'maturation' | 'structural' | 'dual';
+  W_minimo_stesura:       number;
+  puntataMatPct_target:   number;
+  [key: string]: unknown;
+}
+
+/**
+ * Calcola la temperatura ottimale dell'acqua per raggiungere la DDT — §2.7
+ *
+ * Formula diretto (senza pre-impasto, 3 fattori variabili):
+ *   T_acqua = DDT × 3 − T_amb − T_farina − C_attrito
+ *
+ * Formula indiretto (con pre-impasto, 4 fattori variabili):
+ *   T_acqua = DDT × 4 − T_amb − T_farina − T_preimpasto − C_attrito
+ *
+ * Se T_acqua < ICE_THRESHOLD_C (3°C): attiva sostituzione parziale con ghiaccio.
+ *
+ * Bilancio entalpico ghiaccio (calore latente = 80 cal/g a 0°C):
+ *   M_ghiaccio = M_acqua × (T_disponibile − T_acqua_calc) / (80 + T_disponibile)
+ *   M_liquida  = M_acqua − M_ghiaccio
+ *
+ * Derivazione: conservazione dell'energia tra acqua a T_disponibile che si
+ * raffredda e ghiaccio a 0°C che fonde + si scalda fino a T_acqua_calc,
+ * con calore specifico cp = 1 cal/(g·°C) per entrambe le fasi liquide.
+ *
+ * @see Suas M. (2009) "Advanced Bread and Pastry", ch. 3 — DDT formula
+ */
+export function computeWaterTempDDT(input: WaterTempInput): WaterTempResult {
+  const {
+    ddtTarget,
+    tempAmbient,
+    tempFlour           = tempAmbient,
+    tempPreferment,
+    kneadingMethod,
+    cFrictionVariant    = 'mid',
+    waterTotalGrams,
+    waterAvailableTempC = ICE_THRESHOLD_C,
+    iceTempC            = -18,  // Bug #92: default congelatore professionale
+    kneadDurationMin,
+    hydrationEff,
+    doughMassKg,
+    tapWaterC,
+  } = input;
+
+  const factors: 3 | 4 = tempPreferment != null ? 4 : 3;
+
+  // ── C_attrito: modello UNIFICATO (v2.4.24) se durata fornita, altrimenti LEGACY.
+  // Unified: C_attrito = N × ΔT(mixer, durata, H_eff, massa) — sorgente unica §2.7.
+  // Legacy:  KNEADING_METHODS_FRICTION lo/mid/hi (backward compat per i call-site
+  // che non passano la durata: Dashboard, Planner, vecchie sessioni).
+  let cFriction: number;
+  let frictionModel: 'unified' | 'legacy';
+  let frictionRiseC: number | undefined;
+  if (kneadDurationMin != null && kneadDurationMin > 0) {
+    const Heff   = hydrationEff ?? FRICTION_PARAMS.hydrationRef;
+    const massKg = doughMassKg ?? 1;
+    frictionRiseC = computeFrictionRise(kneadingMethod, kneadDurationMin, Heff, massKg);
+    cFriction     = factors * frictionRiseC;
+    frictionModel = 'unified';
+  } else {
+    const spec = KNEADING_METHODS_FRICTION[kneadingMethod] ?? KNEADING_METHODS_FRICTION.spiral;
+    cFriction =
+      cFrictionVariant === 'lo' ? spec.cFrictionLo :
+      cFrictionVariant === 'hi' ? spec.cFrictionHi :
+      spec.cFrictionMid;
+    frictionModel = 'legacy';
+  }
+
+  // ── Calcolo temperatura acqua ─────────────────────────────────────────────
+  const tWaterCalc = factors === 4
+    ? ddtTarget * 4 - tempAmbient - tempFlour - tempPreferment! - cFriction
+    : ddtTarget * 3 - tempAmbient - tempFlour - cFriction;
+
+  // Somma delle (N−1) temperature non-acqua — per la predizione T uscita.
+  const sumOthers = tempAmbient + tempFlour + (factors === 4 ? tempPreferment! : 0);
+  // T uscita prevista dato il setpoint acqua EFFETTIVO. Solo in modello unified
+  // (la salita ΔT è nota); legacy → undefined (nessuna predizione).
+  const exitFor = (effWaterC: number): number | undefined =>
+    frictionRiseC == null ? undefined : (sumOthers + effWaterC) / factors + frictionRiseC;
+
+  // ── Acqua liquida ─────────────────────────────────────────────────────────
+  if (tWaterCalc >= ICE_THRESHOLD_C) {
+    const tWaterLiquid = Math.min(35, Math.max(1, tWaterCalc));
+    const exitTempC    = exitFor(tWaterLiquid);
+    return {
+      tWaterCalc,
+      mode:            'liquid',
+      tWaterLiquid,
+      cFriction,
+      factors,
+      tempFlour,
+      waterTotalGrams,
+      frictionModel,
+      frictionRiseC,
+      exitTempC,
+      exitWarning: exitTempC != null && exitTempC > FRICTION_PARAMS.exitWarnC,
+    };
+  }
+
+  // ── Sostituzione ghiaccio (§2.21 — fisica INVARIATA) ────────────────────────
+  // Bug #92 v2.4.15: bilancio entalpico corretto per ghiaccio alla sua T reale.
+  // ΔH_ice [cal/g] = c_s × |T_ice| + λ_f
+  //   c_s = 0.5 cal/(g·°C) — calore specifico ghiaccio solido
+  //   λ_f = 80 cal/g        — calore latente di fusione
+  // M_ghiaccio = M_acqua × (T_avail − T_calc) / ΔH_ice
+  // v2.4.24: tapWaterC (se fornita) vince su waterAvailableTempC come T disponibile.
+  const C_S_ICE = 0.5;     // cal/(g·°C)
+  const LAMBDA_FUSION = 80; // cal/g
+  const tAvail    = Math.max(ICE_THRESHOLD_C, tapWaterC ?? waterAvailableTempC);
+  const deltaH    = C_S_ICE * Math.abs(iceTempC) + LAMBDA_FUSION;
+  const iceNeeded = Math.max(0, waterTotalGrams * (tAvail - tWaterCalc) / deltaH);  // grezzo, pre-clamp
+
+  // ── Irraggiungibile anche con TUTTO ghiaccio (v2.4.24) ──────────────────────
+  // Se servirebbe più ghiaccio dell'acqua totale, il target è fuori portata: l'acqua
+  // più fredda ottenibile (tutto ghiaccio) è tAvail − ΔH_ice. Esponi leve, non crashare.
+  if (iceNeeded > waterTotalGrams) {
+    const coldestWaterC = tAvail - deltaH;
+    const exitTempC     = exitFor(coldestWaterC);
+    return {
+      tWaterCalc,
+      mode:            'unreachable',
+      cFriction,
+      factors,
+      tempFlour,
+      waterTotalGrams,
+      frictionModel,
+      frictionRiseC,
+      requiredWaterTempC: tWaterCalc,
+      exitTempC,
+      exitWarning:        true,
+      levers: [
+        'Riduci la durata di impastamento',
+        'Prefermento / farina più freddi',
+        'Abbassa la T ambiente',
+        'Alza la TMD target',
+        'Riduci la pezzatura',
+      ],
+    };
+  }
+
+  // Bug #91 v2.4.15: liquidGrams per differenza → invariante massa garantita.
+  const roundedIce    = Math.min(waterTotalGrams, Math.round(iceNeeded));
+  const roundedLiquid = waterTotalGrams - roundedIce;  // ≥ 0 per costruzione
+  // Il mix ghiaccio+acqua raggiunge l'equivalente tWaterCalc → uscita ≈ TMD.
+  const exitTempC = exitFor(tWaterCalc);
+
+  return {
+    tWaterCalc,
+    mode:            'ice',
+    iceGrams:        roundedIce,
+    liquidGrams:     roundedLiquid,
+    tWaterEffective: tAvail,
+    cFriction,
+    factors,
+    tempFlour,
+    waterTotalGrams,
+    frictionModel,
+    frictionRiseC,
+    exitTempC,
+    exitWarning: exitTempC != null && exitTempC > FRICTION_PARAMS.exitWarnC,
+  };
+}

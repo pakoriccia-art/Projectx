@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0806" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Gestione predittiva degli impasti della pizza" />
+
+    <!-- Preconnect per font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+
+    <title>PizzaMatrix</title>
+
+    <style>
+      /* Reset base + variabili design system */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        /* Background tiers */
+        --bg-primary:      #0a0806;
+        --bg-base:         #0a0806;   /* alias --bg-primary, usato nelle action-bar */
+        --bg-surface:      #141008;
+        --bg-elevated:     #1e1810;
+
+        --state-cold:           #74b9ff;
+        --state-underfermented: #00b894;
+        --state-approaching:    #55efc4;
+        --state-optimal-lo:     #ffd166;
+        --state-optimal-hi:     #ff8c32;
+        --state-danger:         #e17055;
+        --state-critical:       #ff7675;
+        --state-collapsed:      #d63031;
+
+        --accent-brand:   #ff8c32;
+        --accent-warning: #ffd166;
+        --accent-info:    #74b9ff;
+
+        --pref-poolish:  #ffd166;
+        --pref-biga:     #ff8c32;
+        --pref-autolisi: #74b9ff;
+
+        --text-primary:   #e8d5b0;
+        --text-secondary: #a09070;
+        --text-muted:     #9d8a5e;   /* a11y: 5.9:1 su bg (era #5a4a30, 2.3:1 — fail AA) */
+        --text-disabled:  #3a2a10;
+
+        /* Layout */
+        --padding-h: 18px;
+        --padding-v: 22px;
+        --radius-sm: 8px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+
+        /* Font */
+        --font-display: 'Fraunces', serif;
+        --font-mono: 'JetBrains Mono', monospace;
+        --font-body: -apple-system, 'Roboto', sans-serif;
+      }
+
+      /* ── P2: Border / Shadow / Opacity tokens ─────────────────────────────── */
+      :root {
+        --border-subtle:    rgba(255,255,255,0.06);
+        --border-normal:    rgba(255,255,255,0.10);
+        --border-emphasis:  rgba(255,255,255,0.18);
+        --shadow-card:      0 2px 12px rgba(0,0,0,0.35);
+        --shadow-elevated:  0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+        --shadow-brand:     0 4px 18px rgba(255,140,50,0.28);
+        --shadow-critical:  0 4px 16px rgba(255,118,117,0.22);
+        --opacity-disabled: 0.38;
+        --opacity-muted:    0.55;
+        --ease-spring:      cubic-bezier(0.34, 1.4, 0.64, 1);
+        --ease-out:         cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      /* ── P4: Animazioni ─────────────────────────────────────────────────────── */
+      @keyframes pm-card-reveal {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pm-fade-up {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pm-num-flash {
+        0%   { filter: brightness(1); }
+        35%  { filter: brightness(1.5); color: var(--accent-brand); }
+        100% { filter: brightness(1); }
+      }
+      @keyframes pm-glow-pulse {
+        0%, 100% { text-shadow: 0 0 8px rgba(255,118,117,0.4); }
+        50%       { text-shadow: 0 0 18px rgba(255,118,117,0.75); }
+      }
+
+      /* ── P4: Card staggered reveal ──────────────────────────────────────────── */
+      .pm-card { animation: pm-card-reveal 0.22s var(--ease-out) both; }
+      .pm-card:nth-child(2) { animation-delay: 0.06s; }
+      .pm-card:nth-child(3) { animation-delay: 0.12s; }
+      .pm-card:nth-child(4) { animation-delay: 0.17s; }
+      .pm-card:nth-child(5) { animation-delay: 0.21s; }
+      .pm-card:nth-child(n+6) { animation-delay: 0.25s; }
+
+      /* ── P1: Button interactions ─────────────────────────────────────────────── */
+      .pm-btn-primary {
+        transition: transform 0.13s var(--ease-spring), box-shadow 0.13s ease, opacity 0.15s ease;
+      }
+      .pm-btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-brand);
+      }
+      .pm-btn-primary:active:not(:disabled) { transform: translateY(0); box-shadow: none; opacity: 0.85; }
+      .pm-btn-secondary {
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      }
+      .pm-btn-secondary:hover:not(:disabled) {
+        background: rgba(255,255,255,0.07) !important;
+        border-color: rgba(255,255,255,0.2) !important;
+        color: var(--text-primary) !important;
+      }
+      .pm-btn-secondary:active:not(:disabled) { transform: scale(0.98); }
+      .pm-btn-danger {
+        transition: transform 0.13s ease, box-shadow 0.13s ease, opacity 0.15s ease;
+      }
+      .pm-btn-danger:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-critical); }
+      .pm-btn-danger:active:not(:disabled) { transform: translateY(0); opacity: 0.85; }
+
+      /* ── P1: Input focus ────────────────────────────────────────────────────── */
+      .pm-input { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+      .pm-input:focus { border-color: var(--accent-brand) !important; box-shadow: 0 0 0 3px rgba(255,140,50,0.15); }
+
+      /* ── P1: SnapButton interactions ─────────────────────────────────────────── */
+      .pm-snap-btn { transition: background 0.12s ease, transform 0.1s ease, box-shadow 0.1s ease; }
+      .pm-snap-btn:not(.pm-snap-active):hover {
+        background: rgba(255,255,255,0.09) !important;
+        border-color: rgba(255,255,255,0.18) !important;
+      }
+      .pm-snap-btn:active { transform: scale(0.97); }
+      .pm-snap-active { box-shadow: 0 2px 10px rgba(255,140,50,0.2); }
+
+      /* ── P1: Number flash (live values) ─────────────────────────────────────── */
+      .pm-num-flash { animation: pm-num-flash 0.38s ease both; }
+
+      /* ── P3: State glows ─────────────────────────────────────────────────────── */
+      .pm-glow-critical {
+        text-shadow: 0 0 12px rgba(255,118,117,0.5);
+        animation: pm-glow-pulse 2.5s ease-in-out infinite;
+      }
+      .pm-glow-danger  { text-shadow: 0 0 8px rgba(225,112,85,0.4); }
+      .pm-glow-optimal { text-shadow: 0 0 10px rgba(255,140,50,0.3); }
+
+      /* ── Accessibility: contenuto per sole tecnologie assistive (issue #31) ──── */
+      /* Usata dagli <h1> di vista: la skin BANCO non prevede intestazioni visibili,
+         ma senza h1 l'albero di accessibilità è piatto e non si può navigare. */
+      .sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ── Accessibility: focus ring ───────────────────────────────────────────── */
+      :focus-visible { outline: 2px solid var(--accent-brand); outline-offset: 3px; border-radius: 4px; }
+      button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
+
+      /* ── Accessibility: prefers-reduced-motion ───────────────────────────────── */
+      /* Neutralizza pulse infiniti (pm4-crit/beat/pip, pm-glow-pulse) e reveal:
+         tutte le keyframes hanno stato finale = stato "visibile", quindi azzerare
+         la durata mostra direttamente il risultato senza movimento. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
+      /* ── Range slider custom ─────────────────────────────────────────────────── */
+      /* issue #30 — l'area di tap era 4px.
+         Il thumb si vede a 20px, ma gli eventi li riceve la scatola dell'input,
+         che era alta quanto la traccia. Su un'app in cui idratazione, sale, dose
+         e temperature si impostano tutti con slider, e che si usa con le mani
+         infarinate, era il difetto d'uso piu' concreto. WCAG 2.5.5 chiede 44px.
+
+         Soluzione per padding invece che per height: `box-sizing: content-box`
+         (deroga al border-box globale) tiene l'altezza VISIVA a 4px, il padding
+         porta la scatola a 44px, e `background-clip: content-box` confina lo
+         sfondo alla traccia. Cosi' l'aspetto non cambia di un pixel — incluse le
+         due varianti spesse che impostano height:22 e un gradiente inline
+         (BakeView, DashboardV4): li' il padding si somma ai loro 22px e il
+         gradiente resta confinato al content box. */
+      input[type="range"] {
+        box-sizing: content-box;
+        height: 4px;
+        padding: 20px 0;
+        background-clip: content-box;
+        -webkit-appearance: none;
+        appearance: none;
+        border-radius: 2px;
+        outline: none;
+        cursor: pointer;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        background: var(--accent-brand);
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        transition: transform 0.12s var(--ease-spring), box-shadow 0.12s ease;
+      }
+      input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.3);
+        box-shadow: 0 0 0 5px rgba(255,140,50,0.18), 0 2px 6px rgba(0,0,0,0.5);
+      }
+      input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.1); }
+      input[type="range"]::-moz-range-thumb {
+        width: 20px; height: 20px;
+        border: none;
+        border-radius: 50%;
+        background: var(--accent-brand);
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      }
+
+      /* ── Scrollbar minimal ──────────────────────────────────────────────────── */
+      ::-webkit-scrollbar { width: 3px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+      /* ── Grain texture overlay ──────────────────────────────────────────────── */
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+        opacity: 0.028;
+        z-index: 9000;
+      }
+
+      /* Elimina delay 300ms tap su mobile (WebView Android/iOS) */
+      a, button, input[type="range"], input[type="checkbox"], label, [role="button"] {
+        touch-action: manipulation;
+      }
+
+      html, body {
+        height: 100%;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+      }
+
+      /* Safe area per notch iOS/Android — issue #29.
+         Va su UN SOLO elemento. Prima era dichiarata su `html, body, #root`,
+         che sono annidati: con viewport-fit=cover l'inset veniva sommato tre
+         volte (iPhone con notch: ~47px x3 = ~141px di banda morta in cima).
+         In piu' box-sizing:border-box e' globale e tutti e tre avevano
+         height:100%, quindi ogni livello sottraeva il proprio padding
+         dall'altezza disponibile → overflow verticale.
+         min-height invece di height: il contenuto piu' alto della viewport
+         scrolla invece di essere tagliato. */
+      #root {
+        min-height: 100%;
+        max-width: 430px;
+        margin: 0 auto;
+        overflow-x: hidden;
+        padding:
+          env(safe-area-inset-top)
+          env(safe-area-inset-right)
+          env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
+      }
+
+      /* ══════════════════════════════════════════════════════════════════════
+         Dashboard v4 — skin "BANCO" (strumento di fermentazione)
+         Tutto scoped .pm4-* : la dashboard v3.1 non usa queste classi.
+         ══════════════════════════════════════════════════════════════════════ */
+      :root {
+        --pm4-panel-hi:  #1c140b;
+        --pm4-panel-lo:  #100b07;
+        --pm4-line:        rgba(255,206,150,0.085);
+        --pm4-line-strong: rgba(255,206,150,0.16);
+        --pm4-flour: #e8d5b0;
+        --pm4-tan:   #a99a76;
+        --pm4-umber: #9a855a;   /* a11y: 5.6:1 (era #6a5836, 2.9:1 — fail AA) */
+        --pm4-faint: #837049;   /* a11y: 4.2:1 (era #4a3c24, 1.9:1 — fail AA) */
+        --pm4-ember:    #ff8c32;
+        --pm4-ember-lo: #ffd166;
+        --pm4-ember-glow: rgba(255,140,50,0.5);
+        --pm4-green: #3ddc97;
+      }
+      @keyframes pm4-rise   { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none} }
+      @keyframes pm4-draw   { from{transform:scaleX(0); opacity:0} to{transform:scaleX(1); opacity:1} }
+      @keyframes pm4-pip    { 0%,100%{box-shadow:0 0 0 3px rgba(255,140,50,0.30),0 0 16px var(--pm4-ember)} 50%{box-shadow:0 0 0 6px rgba(255,140,50,0.12),0 0 24px var(--pm4-ember)} }
+      @keyframes pm4-crit   { 0%,100%{text-shadow:0 0 16px rgba(255,118,117,0.5)} 50%{text-shadow:0 0 28px rgba(255,118,117,0.85)} }
+      @keyframes pm4-beat   { 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.45; transform:scale(.7)} }
+      @keyframes pm4-segfill{ from{background:rgba(255,255,255,0.05); box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)} to{background:var(--seg,var(--pm4-green)); box-shadow:0 0 9px var(--seg,var(--pm4-green))} }
+
+      /* substrate: brace dal basso + griglia incisa mascherata in alto */
+      .pm4-root { position: relative;
+        background:
+          radial-gradient(120% 70% at 50% -8%, rgba(255,140,50,0.08), transparent 55%),
+          radial-gradient(90% 50% at 50% 118%, rgba(120,60,20,0.10), transparent 60%),
+          var(--bg-primary);
+      }
+      .pm4-root::before { content:""; position:absolute; inset:0; pointer-events:none; z-index:0; opacity:.5;
+        background-image:
+          linear-gradient(var(--pm4-line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--pm4-line) 1px, transparent 1px);
+        background-size:30px 30px, 30px 30px;
+        -webkit-mask-image:radial-gradient(120% 58% at 50% 2%, #000 22%, transparent 72%);
+                mask-image:radial-gradient(120% 58% at 50% 2%, #000 22%, transparent 72%);
+      }
+      .pm4-stack { position: relative; z-index: 1; }
+
+      /* pannello fresato caldo */
+      .pm4-panel { position:relative; border-radius:12px;
+        background:linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo));
+        border:1px solid var(--pm4-line);
+        box-shadow:0 1px 0 rgba(255,220,170,0.05) inset, 0 -1px 0 rgba(0,0,0,0.5) inset, 0 10px 26px -16px rgba(0,0,0,0.9);
+        animation:pm4-rise .5s cubic-bezier(.22,1,.36,1) both;
+      }
+      .pm4-panel.pm4-crit { border-color:rgba(255,118,117,0.32);
+        box-shadow:0 1px 0 rgba(255,220,170,0.05) inset, 0 0 0 1px rgba(255,118,117,0.10), 0 12px 30px -14px rgba(214,48,49,0.4);
+      }
+
+      /* etichetta-canale incisa */
+      .pm4-chan { display:flex; align-items:center; gap:9px; margin-bottom:11px; }
+      .pm4-chan-idx  { font-size:10px; color:var(--pm4-ember); font-weight:700; letter-spacing:.1em; font-family:var(--font-mono); }
+      .pm4-chan-name { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--pm4-tan); white-space:nowrap; font-family:var(--font-mono); }
+      .pm4-chan-rule { flex:1; height:1px; transform-origin:left;
+        background:linear-gradient(90deg, var(--pm4-line-strong), transparent);
+        animation:pm4-draw .55s cubic-bezier(.4,0,.2,1) both .15s; }
+      .pm4-chan-tick { font-size:9px; color:var(--pm4-umber); letter-spacing:.08em; white-space:nowrap; font-family:var(--font-mono); }
+
+      /* meter a segmenti */
+      .pm4-seg { display:flex; gap:3px; height:10px; }
+      .pm4-seg i { flex:1; border-radius:2px; background:rgba(255,255,255,0.05); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.4); }
+      .pm4-seg i.on { animation:pm4-segfill .45s cubic-bezier(.4,0,.2,1) both; }
+
+      /* celle readout secondarie */
+      .pm4-cells { display:grid; grid-template-columns:repeat(var(--n,4),1fr); }
+      .pm4-cell { padding:2px 8px; text-align:center; position:relative; }
+      .pm4-cell + .pm4-cell::before { content:""; position:absolute; left:0; top:5px; bottom:5px; width:1px; background:var(--pm4-line); }
+      .pm4-cell-k { font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--pm4-umber); font-family:var(--font-mono); }
+      .pm4-cell-v { font-size:17px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:3px; font-family:var(--font-mono); line-height:1; }
+      .pm4-cell-v small { font-size:.6em; color:var(--pm4-umber); font-weight:700; }
+
+      /* readout glows */
+      .pm4-glow-ember { color:#ffe6c2 !important; text-shadow:0 0 18px var(--pm4-ember-glow); }
+      .pm4-glow-green { color:#d8fff0 !important; text-shadow:0 0 14px rgba(0,184,148,0.5); }
+      .pm4-glow-crit  { animation:pm4-crit 2.2s ease-in-out infinite; }
+
+      .pm4-live { width:6px; height:6px; border-radius:50%; display:inline-block;
+        background:var(--pm4-green); box-shadow:0 0 8px var(--pm4-green); animation:pm4-beat 1.8s ease-in-out infinite; }
+      .pm4-pip-cur { animation:pm4-pip 1.8s ease-in-out infinite; }
+      .pm4-halo { animation:pm4-beat 2.2s ease-in-out infinite; }
+
+      .pm4-btn { transition: all .18s ease; }
+      .pm4-btn-ghost:hover  { border-color:var(--pm4-ember) !important; color:var(--pm4-ember-lo) !important; }
+      .pm4-btn-warm:hover   { filter:brightness(1.08); }
+      .pm4-tap:hover .pm4-pip-tap { box-shadow:0 0 0 2px var(--pm4-ember) !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

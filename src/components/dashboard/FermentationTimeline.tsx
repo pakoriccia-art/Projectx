@@ -1,0 +1,289 @@
+/**
+ * PizzaMatrix — FermentationTimeline (Dashboard v4)
+ * Timeline orizzontale delle fasi, derivata da session.thermalTimeline (fonte di verità).
+ * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
+ */
+import { useMemo, useState, useEffect, useRef } from 'react';
+import type React from 'react';
+import type { PhaseSegment, Session } from '../../db/db';
+import { buildInitialTimeline } from '../../db/db';
+import {
+  deriveCanonicalPhases, canonicalDisplayLabel, type CanonicalPhase,
+} from '../../engine/canonicalPhases';
+import { SEMAFORO_COLORS, type SemaforoState } from './SemaforoCard';
+import { useReducedMotion, shakeElement } from '../ui';
+import { haptics } from '../../lib/haptics';
+
+export interface TimelinePhase {
+  phaseType:    string;
+  label:        string;
+  absoluteTime: Date;
+  isCompleted:  boolean;
+  isCurrent:    boolean;
+  isFuture:     boolean;
+  isBake:       boolean;
+  hoursFromNow: number;
+}
+
+/**
+ * Mappa un PhaseSegment → label timeline (Bug #76).
+ * L'ultimo proofing è la COTTURA; i proofing precedenti con durata > 0.1h
+ * sono TEMPERING. Nessuna fase 'LIEVITAZIONE' (non esiste in PhaseSegment[]).
+ */
+export function buildTimelinePhases(
+  timeline: PhaseSegment[] | undefined,
+  session: Session,
+  now: Date,
+): TimelinePhase[] {
+  const rawSegs = (timeline && timeline.length > 0)
+    ? timeline
+    : buildInitialTimeline(session as any);
+  // Resilienza record Dexie corrotti: scarta segmenti null/non-oggetto o senza
+  // phaseType valido — un solo segmento corrotto faceva crashare l'intera dashboard.
+  const segs = (Array.isArray(rawSegs) ? rawSegs : []).filter(
+    (s): s is PhaseSegment => !!s && typeof s.phaseType === 'string',
+  );
+  if (segs.length === 0) return [];
+
+  const startMs = session.startedAt
+    ? new Date(session.startedAt).getTime()
+    : Date.now();
+  const nowMs = now.getTime();
+
+  const lastProofingIdx = segs.reduce(
+    (acc, s, i) => (s.phaseType === 'proofing' ? i : acc), -1);
+
+  const phases: TimelinePhase[] = [];
+  segs.forEach((seg, i) => {
+    let label: string;
+    let isBake = false;
+    switch (seg.phaseType) {
+      case 'bulk_room':     label = 'PUNTATA · TA'; break;
+      case 'bulk_fridge':   label = 'PUNTATA · TC'; break;
+      case 'balled_room':   label = 'STAGLIO';      break;
+      case 'balled_fridge': label = 'APPRETO · TC'; break;
+      case 'baking':        label = 'COTTURA'; isBake = true; break;
+      case 'proofing': {
+        const dur = (seg.endElapsedH ?? seg.startElapsedH) - seg.startElapsedH;
+        if (i === lastProofingIdx) { label = 'COTTURA'; isBake = true; }
+        else if (dur > 0.1)        { label = 'TEMPERING'; }
+        else return; // proofing intermedio a durata nulla → non mostrare
+        break;
+      }
+      default: label = seg.phaseType.toUpperCase();
+    }
+    const absMs = startMs + seg.startElapsedH * 3_600_000;
+    phases.push({
+      phaseType:    seg.phaseType,
+      label,
+      absoluteTime: new Date(absMs),
+      isCompleted:  seg.status === 'completed',
+      isCurrent:    seg.status === 'current',
+      // Bug #94: usa margine 5min per evitare che la fase corrente risulti "futura"
+      // di pochi secondi. Solo fasi con start > now + 5min sono tappabili.
+      isFuture:     (absMs - nowMs) > 5 * 60 * 1000,
+      isBake,
+      hoursFromNow: (absMs - nowMs) / 3_600_000,
+    });
+  });
+
+  return phases;
+}
+
+function formatAbsoluteTime(d: Date): string {
+  return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatCountdown(h: number): string {
+  if (h <= 0) return 'ora';
+  if (h < 1) return `${Math.round(h * 60)}min`;
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return mm > 0 ? `${hh}h${mm.toString().padStart(2, '0')}` : `${hh}h`;
+}
+
+// v2.4.20: marker derivato da una fase CANONICA (single source of truth).
+function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
+  phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
+  onTransition?: (phaseType: string) => void;
+}) {
+  const isCurrent    = phase.state === 'current';
+  const isCompleted  = phase.state === 'past';
+  const hoursFromNow = (phase.startMs - nowMs) / 3_600_000;
+
+  const dotColor = isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : '#2a8f74';
+
+  const showBadge = phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4;
+  // Bug #94 / v2.4.20: la tappabilità è decisa a monte (state==='future' && start>now+5min).
+  const canTransition = phase.tappable && !!onTransition;
+  // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
+  // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
+  const isLocked = !canTransition && (isCompleted || isCurrent);
+
+  const reduced = useReducedMotion();
+  const markerRef = useRef<HTMLDivElement>(null);
+  const [coachmark, setCoachmark] = useState(false);
+  const [flash, setFlash] = useState(false);
+
+  // WP-5(A): tap su fase bloccata → shake/flash + haptics + coachmark, NESSUN dispatch.
+  // La guardia di transizione resta intatta: questo ramo non chiama mai onTransition.
+  const handleLockedTap = () => {
+    if (reduced) { setFlash(true); setTimeout(() => setFlash(false), 220); }
+    else         { shakeElement(markerRef.current); }
+    haptics('Light');
+    setCoachmark(true);
+    setTimeout(() => setCoachmark(false), 2600);
+  };
+
+  const pipBase: React.CSSProperties = {
+    width: isCurrent ? 15 : 11,
+    height: isCurrent ? 15 : 11,
+    borderRadius: phase.isBake ? 2 : '50%',
+    transform: phase.isBake ? 'rotate(45deg)' : 'none',
+  };
+  const pipStyle: React.CSSProperties = isCurrent
+    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
+    : isCompleted
+      ? { ...pipBase, background: '#2a8f74' }
+      : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
+
+  return (
+    <div
+      ref={markerRef}
+      onClick={canTransition ? () => onTransition!(phase.transitionTo) : (isLocked ? handleLockedTap : undefined)}
+      className={canTransition ? 'pm4-tap' : undefined}
+      role={canTransition || isLocked ? 'button' : undefined}
+      aria-label={isLocked ? `${canonicalDisplayLabel(phase)} — fase bloccata, il tempo va solo avanti` : undefined}
+      style={{
+        position: 'relative', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: 5, minWidth: 56,
+        cursor: canTransition ? 'pointer' : (isLocked ? 'not-allowed' : 'default'),
+        opacity: isCompleted ? 0.6 : 1,
+        borderRadius: 8,
+        outline: flash ? '1px solid var(--pm4-ember-lo)' : 'none',
+        transition: 'outline 0.1s',
+      }}
+    >
+      {/* WP-5(A): coachmark transitorio sul tap di una fase bloccata */}
+      {coachmark && (
+        <div role="status" style={{
+          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+          marginBottom: 6, zIndex: 5, width: 150,
+          background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)',
+          borderRadius: 6, padding: '6px 8px', fontSize: 9, lineHeight: 1.35,
+          color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', textAlign: 'center',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+        }}>
+          🔒 Le fasi passate sono bloccate: il tempo va solo avanti.
+        </div>
+      )}
+      {/* Lucchetto sulle fasi consolidate (affordance visiva prima del tap) */}
+      {isLocked && isCompleted && (
+        <div aria-hidden="true" style={{
+          position: 'absolute', top: 16, right: 6, fontSize: 8, opacity: 0.7,
+        }}>🔒</div>
+      )}
+      {/* Affordance tap (teal) sui marker tappabili */}
+      {canTransition && (
+        <div style={{
+          position: 'absolute', top: 16, right: 6,
+          width: 6, height: 6, borderRadius: '50%',
+          background: '#14b8a6', boxShadow: '0 0 6px #14b8a6',
+        }} />
+      )}
+      {showBadge ? (
+        <div style={{
+          background: 'rgba(255,209,102,0.12)', border: '1px solid rgba(255,209,102,0.4)', borderRadius: 5,
+          padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 8, letterSpacing: '0.04em',
+          marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)',
+        }}>
+          tra {formatCountdown(hoursFromNow)}
+        </div>
+      ) : (
+        <div style={{ height: 18 }} />
+      )}
+
+      <div className={isCurrent ? 'pm4-pip-cur' : (canTransition ? 'pm4-pip-tap' : undefined)} style={pipStyle} />
+
+      <div style={{
+        color: isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
+        fontSize: 8, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
+        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 52,
+      }}>
+        {canonicalDisplayLabel(phase)}
+      </div>
+
+      <div style={{
+        color: isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
+        fontSize: 9, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
+      }}>
+        {formatAbsoluteTime(new Date(phase.startMs))}
+      </div>
+    </div>
+  );
+}
+
+export function FermentationTimeline({
+  session, currentSemaforoState, onPhaseTransition,
+}: {
+  session: Session; currentSemaforoState: SemaforoState;
+  onPhaseTransition?: (phaseType: string) => void;
+}) {
+  // now è locale — non causa re-render del parent ogni secondo
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+  const nowMs       = now.getTime();
+  const temperingH  = (session as any).temperingH as number | undefined;
+
+  // v2.4.20: fasi CANONICHE dalla timeline effettiva (stessa sorgente di chip header
+  // e stringa header grafico). Sempre PUNTATA→STAGLIO→APPRETTO→COTTURA (+TEMPERING),
+  // anche con segmenti a durata ~0. Fallback alla timeline iniziale se assente.
+  const phases = useMemo(
+    () => {
+      const tl = (session.thermalTimeline && session.thermalTimeline.length > 0)
+        ? session.thermalTimeline
+        : buildInitialTimeline(session as any);
+      return deriveCanonicalPhases(tl, startedAtMs, nowMs, { temperingH });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Re-calcola ogni minuto (countdown badge) + su cambio timeline o sessione
+    [session.thermalTimeline, session.id, startedAtMs, temperingH, Math.floor(nowMs / 60_000)],
+  );
+
+  if (phases.length === 0) return null;
+
+  // R7: con molte fasi la timeline scrolla in orizzontale; mostra un fade a destra
+  // come affordance di scroll (euristica: ≥6 marker superano il viewport ~430px).
+  const scrollable = phases.length >= 6;
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
+        <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
+          background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
+          {phases.map((phase) => (
+            <CanonicalMarker
+              key={phase.key}
+              phase={phase}
+              nowMs={nowMs}
+              currentSemaforoState={currentSemaforoState}
+              onTransition={onPhaseTransition}
+            />
+          ))}
+        </div>
+      </div>
+      {scrollable && (
+        <div aria-hidden style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none',
+          background: 'linear-gradient(90deg, transparent, var(--pm4-panel-lo))',
+        }} />
+      )}
+    </div>
+  );
+}
