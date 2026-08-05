@@ -29,7 +29,7 @@ if errorlevel 1 goto :err
 
 if not exist "android\" (
   echo.
-  echo [info] Progetto nativo android\ assente: lo genero una tantum (cap add android)...
+  echo [info] Progetto nativo android\ assente: lo genero con: npx cap add android
   call npx cap add android
   if errorlevel 1 goto :err
 )
