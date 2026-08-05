@@ -8,3 +8,10 @@ android/
 # Playwright artifacts
 playwright-report/
 test-results/
+
+# Android signing & build artifacts (difensivo: mai committare segreti/binari)
+*.keystore
+*.jks
+key.properties
+*.apk
+*.aab

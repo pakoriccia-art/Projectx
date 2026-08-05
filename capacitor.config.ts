@@ -14,9 +14,11 @@ const config: CapacitorConfig = {
   },
   plugins: {
     LocalNotifications: {
-      smallIcon: 'ic_stat_icon_config_sample',
-      iconColor: '#ff8c32',
-      sound: 'beep.wav'
+      // smallIcon/sound custom RIMOSSI: erano risorse native (drawable + raw)
+      // assenti in un `cap add android` fresco → notifica senza icona / crash.
+      // Con solo iconColor si usa l'icona di default dell'app e il suono di
+      // sistema. Per notifiche brandizzate vedi docs/BUILD_ANDROID.md.
+      iconColor: '#ff8c32'
     },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert']

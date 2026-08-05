@@ -13,7 +13,7 @@
     "test:integration": "vitest run --config vitest.config.ts tests/integration",
     "test:e2e": "playwright test",
     "test:all": "vitest run --config vitest.config.ts",
-    "cap:sync": "npm run build && npx cap copy android",
+    "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
     "cap:run": "npx cap run android"
   },

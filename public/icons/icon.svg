@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect x="0" y="0" width="512" height="512" fill="#0a0806"/>
+  <!-- brace glow dietro la fetta -->
+  <radialGradient id="ember" cx="50%" cy="42%" r="52%">
+    <stop offset="0%" stop-color="#ff8c32" stop-opacity="0.20"/>
+    <stop offset="100%" stop-color="#ff8c32" stop-opacity="0"/>
+  </radialGradient>
+  <rect x="0" y="0" width="512" height="512" fill="url(#ember)"/>
+  <!-- corpo fetta (formaggio) -->
+  <path d="M 112 176 Q 256 104 400 176 L 256 428 Z" fill="#ffd166"/>
+  <!-- crosta (arco superiore) -->
+  <path d="M 112 176 Q 256 104 400 176" fill="none" stroke="#ff8c32"
+        stroke-width="36" stroke-linecap="round"/>
+  <!-- pepperoni -->
+  <circle cx="214" cy="228" r="21" fill="#d63031"/>
+  <circle cx="304" cy="236" r="21" fill="#d63031"/>
+  <circle cx="256" cy="312" r="19" fill="#d63031"/>
+  <circle cx="228" cy="356" r="14" fill="#d63031"/>
+  <!-- basilico -->
+  <circle cx="300" cy="316" r="10" fill="#3ddc97"/>
+  <circle cx="196" cy="292" r="9" fill="#3ddc97"/>
+</svg>
