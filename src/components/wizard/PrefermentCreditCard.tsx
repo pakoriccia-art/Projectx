@@ -47,7 +47,7 @@ export function PrefermentCreditCard({ prefLabel, enzymatic, thermal }: Preferme
           style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: '#eab308' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: '#ffd166' }}>
               🟡 Enzimatico
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
@@ -59,11 +59,11 @@ export function PrefermentCreditCard({ prefLabel, enzymatic, thermal }: Preferme
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>
               {enzymatic.puntataBefore.toFixed(1)}h
             </span>
-            <span style={{ color: '#eab308' }}>→</span>
+            <span style={{ color: '#ffd166' }}>→</span>
             <AnimatedNumber
               from={enzymatic.puntataBefore} to={enzymatic.puntataAfter}
               decimals={1} suffix="h"
-              style={{ fontSize: '1.3rem', fontWeight: 800, color: '#eab308' }}
+              style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffd166' }}
             />
             <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)' }}>puntata TA</span>
           </div>
@@ -86,19 +86,19 @@ export function PrefermentCreditCard({ prefLabel, enzymatic, thermal }: Preferme
           style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
         >
           <summary style={{ listStyle: 'none', cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: '#60a5fa' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: '#74b9ff' }}>
               🔵 Termico
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-muted)' }}>
               temperatura acqua · °C
             </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 800, color: '#60a5fa', marginLeft: 'auto' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 800, color: '#74b9ff', marginLeft: 'auto' }}>
               {thermal.prefTempC}°C
             </span>
           </summary>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--text-secondary)', lineHeight: 1.5, paddingTop: 8 }}>
             La temperatura del prefermento è il <strong>4° fattore</strong> nel bilancio DDT:
-            <div style={{ marginTop: 6, color: '#60a5fa' }}>
+            <div style={{ marginTop: 6, color: '#74b9ff' }}>
               T_acqua = DDT×4 − T_amb − T_farina − T_pref − C_attrito
             </div>
           </div>

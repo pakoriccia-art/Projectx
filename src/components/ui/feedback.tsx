@@ -35,14 +35,14 @@ type BadgeTone =
 
 const BADGE_TONES: Record<BadgeTone, { bg: string; fg: string; bd: string }> = {
   manual:    { bg: 'rgba(116,185,255,0.14)', fg: '#74b9ff', bd: 'rgba(116,185,255,0.35)' },
-  advanced:  { bg: 'rgba(34,197,94,0.14)',   fg: '#22c55e', bd: 'rgba(34,197,94,0.35)' },
+  advanced:  { bg: 'rgba(61,220,151,0.14)',  fg: '#3ddc97', bd: 'rgba(61,220,151,0.35)' },
   base:      { bg: 'rgba(255,255,255,0.06)', fg: 'var(--text-muted)', bd: 'rgba(255,255,255,0.12)' },
-  derived:   { bg: 'rgba(45,212,191,0.14)',  fg: '#2dd4bf', bd: 'rgba(45,212,191,0.35)' },
-  too_early: { bg: 'rgba(107,114,128,0.18)', fg: '#9ca3af', bd: 'rgba(107,114,128,0.4)' },
-  ok:        { bg: 'rgba(34,197,94,0.14)',   fg: '#22c55e', bd: 'rgba(34,197,94,0.35)' },
-  warning:   { bg: 'rgba(234,179,8,0.14)',   fg: '#eab308', bd: 'rgba(234,179,8,0.35)' },
-  critical:  { bg: 'rgba(239,68,68,0.14)',   fg: '#ef4444', bd: 'rgba(239,68,68,0.35)' },
-  collapsed: { bg: 'rgba(127,29,29,0.20)',   fg: '#fca5a5', bd: 'rgba(127,29,29,0.5)' },
+  derived:   { bg: 'rgba(116,185,255,0.14)', fg: '#74b9ff', bd: 'rgba(116,185,255,0.35)' },
+  too_early: { bg: 'rgba(169,154,118,0.14)', fg: '#a99a76', bd: 'rgba(169,154,118,0.4)' },
+  ok:        { bg: 'rgba(61,220,151,0.14)',  fg: '#3ddc97', bd: 'rgba(61,220,151,0.35)' },
+  warning:   { bg: 'rgba(255,209,102,0.14)', fg: '#ffd166', bd: 'rgba(255,209,102,0.35)' },
+  critical:  { bg: 'rgba(255,118,117,0.14)', fg: '#ff7675', bd: 'rgba(255,118,117,0.35)' },
+  collapsed: { bg: 'rgba(214,48,49,0.20)',   fg: '#ff7675', bd: 'rgba(214,48,49,0.5)' },
 };
 
 export function Badge({
@@ -80,14 +80,14 @@ export function Advisory({
   const [open, setOpen] = useState(true);
   if (!open) return null;
   const c = tone === 'amber'
-    ? { fg: '#eab308', bg: 'rgba(234,179,8,0.10)', bd: 'rgba(234,179,8,0.4)', icon: '⚠' }
-    : { fg: '#2dd4bf', bg: 'rgba(45,212,191,0.10)', bd: 'rgba(45,212,191,0.4)', icon: 'ℹ' };
+    ? { fg: 'var(--accent-warning)', bg: 'rgba(255,209,102,0.10)', bd: 'rgba(255,209,102,0.45)', icon: '⚠' }
+    : { fg: 'var(--accent-info)',    bg: 'rgba(116,185,255,0.10)', bd: 'rgba(116,185,255,0.45)', icon: 'ℹ' };
   return (
     <div
       role={tone === 'amber' ? 'alert' : 'status'}
       style={{
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        background: c.bg, border: `1px solid ${c.bd}`, borderLeft: `4px solid ${c.fg}`,
+        background: c.bg, border: `1px solid ${c.bd}`,
         borderRadius: 'var(--radius-sm)', padding: '10px 12px',
       }}
     >
@@ -160,7 +160,7 @@ export function CoverageBar({
 }: {
   fraction: number; tone?: 'enzymatic' | 'thermal' | 'neutral'; label?: string;
 }) {
-  const color = tone === 'enzymatic' ? '#eab308' : tone === 'thermal' ? '#60a5fa' : 'var(--text-secondary)';
+  const color = tone === 'enzymatic' ? '#e6c84a' : tone === 'thermal' ? '#74b9ff' : 'var(--text-secondary)';
   const pct = Math.max(0, Math.min(1, fraction)) * 100;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -223,7 +223,7 @@ export function ExpandableReward({
     setMaxH('0px');
   }, [unlocked, reduced, children]);
 
-  const borderColor = tone === 'amber' ? '#eab308' : 'rgba(255,255,255,0.18)';
+  const borderColor = tone === 'amber' ? '#ffd166' : 'rgba(255,255,255,0.18)';
 
   if (!unlocked) {
     return (

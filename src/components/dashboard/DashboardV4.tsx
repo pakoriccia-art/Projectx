@@ -140,14 +140,14 @@ function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | nul
   let label: string;
   let color = 'var(--pm4-umber)';
   if (!info || info.reachesPeak === false) {
-    label = 'sotto-proof · nessuna sbollatura prevista';
+    label = 'nessuna prevista · sotto-proof';
   } else if (info.collapseTime == null || info.marginH == null) {
     label = `picco oltre la finestra · stabile a ${ambientTempC.toFixed(0)}°C`;
     color = 'var(--pm4-green)';
   } else {
     const m = info.marginH;
-    color = m < 1 ? '#ff7675' : m < 3 ? '#ffd166' : 'var(--pm4-tan)';
-    label = `sbollatura +${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
+    color = m < 1 ? 'var(--state-critical)' : m < 3 ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)';
+    label = `+${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
   }
   return (
     <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -514,7 +514,7 @@ export function DashboardV4() {
                   </div>
                 </div>
               </div>
-              <div style={{ color: 'var(--pm4-umber)', fontSize: 9, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ color: 'var(--pm4-umber)', fontSize: 10, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
                 t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
               </div>
               <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
@@ -536,7 +536,7 @@ export function DashboardV4() {
                   <div style={{ color: 'var(--state-cold)', fontSize: 24, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{ambientTempC.toFixed(1)}°</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8.5, color: 'var(--pm4-faint)', letterSpacing: '0.08em', marginBottom: 7, fontFamily: 'var(--font-mono)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--pm4-faint)', letterSpacing: '0.08em', marginBottom: 7, fontFamily: 'var(--font-mono)' }}>
                 <span>16°</span><span>T ambiente di servizio</span><span>32°</span>
               </div>
               <input type="range" min={16} max={32} step={0.5} value={ambientTempC}
@@ -631,7 +631,7 @@ export function DashboardV4() {
               Forno
             </button>
             <button onClick={() => setConfirmEnd(true)}
-              className="pm4-btn pm4-btn-warm" style={BTN_DANGER}>
+              className="pm4-btn pm4-btn-danger-quiet" style={BTN_DANGER_QUIET}>
               ■ Termina sessione
             </button>
           </div>
@@ -646,6 +646,11 @@ const BTN_GHOST: React.CSSProperties = {
   flex: 1, background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
   border: '1px solid var(--pm4-line-strong)', borderRadius: 9, padding: 13,
   fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', cursor: 'pointer',
+};
+// L'uscita è distruttiva ma non è l'azione del momento: contorno rosato, il
+// pieno caldo resta alla conferma.
+const BTN_DANGER_QUIET: React.CSSProperties = {
+  ...BTN_GHOST, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)',
 };
 const BTN_DANGER: React.CSSProperties = {
   flex: 1, background: 'linear-gradient(180deg, #e0463f, #b3231d)', color: '#fff',

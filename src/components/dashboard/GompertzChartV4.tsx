@@ -545,7 +545,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           />
           <YAxis yAxisId="right" orientation="right"
             domain={[0, 50]}
-            tick={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: 'var(--state-cold)' }}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--state-cold)' }}
             tickFormatter={(v: number) => `${v}°`}
             width={32}
           />
@@ -562,7 +562,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           />
           {/* Linea "ora": separa il passato congelato dal futuro proiettato */}
           <ReferenceLine yAxisId="left" x={elapsedH} stroke="var(--accent-brand)" strokeDasharray="4 4"
-            label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 9, fontFamily: 'var(--font-mono)' }} />
+            label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 10, fontFamily: 'var(--font-mono)' }} />
           {effectiveTargetBakeH != null && (
             <ReferenceLine yAxisId="left" x={effectiveTargetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
@@ -571,7 +571,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           <ReferenceLine yAxisId="left" y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
           {transitions.map(t => (
             <ReferenceLine yAxisId="left" key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
-              label={{ value: t.label, position: 'top', fill: t.color, fontSize: 8, fontFamily: 'var(--font-mono)' }} />
+              label={{ value: t.label, position: 'top', fill: t.color, fontSize: 10, fontFamily: 'var(--font-mono)' }} />
           ))}
           <Line yAxisId="left" type="monotone" dataKey="pct" name="pct" stroke="var(--accent-brand)" strokeWidth={2}
             strokeDasharray="5 3" dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />

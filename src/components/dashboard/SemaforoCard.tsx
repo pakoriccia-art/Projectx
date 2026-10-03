@@ -91,7 +91,7 @@ export function SemaforoCard({
     <div className={`pm4-panel${isCollapsed ? ' pm4-crit' : ''}`}
       style={{ flex: half ? 1 : undefined, padding: '13px 14px 15px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 }}>
-        <span style={{ color: 'var(--pm4-tan)', fontSize: 9.5, letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{label}</span>
+        <span style={{ color: 'var(--pm4-tan)', fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{label}</span>
         <StateBadge state={state} color={color} pulsing={isCollapsed} />
       </div>
 
@@ -107,7 +107,7 @@ export function SemaforoCard({
         </span>
       </div>
       {caption && (
-        <div style={{ color: 'var(--pm4-umber)', fontSize: 8.5, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
+        <div style={{ color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
           {caption}
         </div>
       )}
@@ -116,7 +116,7 @@ export function SemaforoCard({
 
       {target != null && target > 0 && (
         <div style={{ marginTop: 9, display: 'flex', justifyContent: 'flex-end' }}>
-          <span style={{ color: 'var(--pm4-umber)', fontSize: 9, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
+          <span style={{ color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
             target {Math.round(target)}%
           </span>
         </div>

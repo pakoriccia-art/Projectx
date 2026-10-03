@@ -73,8 +73,8 @@ export function WaterTempResultCard({
   // ── Stringa formula completa (valori sostituiti) ──────────────────────────
   const formulaStr = ddtTarget != null && tAmbient != null
     ? result.factors === 4
-      ? `${ddtTarget}×4 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − T_pref − ${result.cFriction}`
-      : `${ddtTarget}×3 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − ${result.cFriction}`
+      ? `${ddtTarget}×4 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − T_pref − ${result.cFriction.toFixed(1)}`
+      : `${ddtTarget}×3 − ${tAmbient} − ${result.tempFlour.toFixed(0)} − ${result.cFriction.toFixed(1)}`
     : null;
 
   // ── Modalità compact: riga orizzontale inline ─────────────────────────────

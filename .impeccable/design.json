@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-03T21:04:25.554Z",
+  "generatedAt": "2026-10-03T21:19:23.258Z",
   "title": "Design System: PizzaMatrix",
   "extensions": {
     "colorMeta": {
@@ -442,7 +442,10 @@
       "Don't usare un secondo accento caldo accanto alla brace per l'azione.",
       "Don't usare Fraunces fuori da wordmark e titoli.",
       "Don't usare bianco puro o grigi freddi per superfici e testi. I neutri sono sempre bruni o color farina.",
-      "Don't creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro."
+      "Don't creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro.",
+      "Don't usare barre laterali colorate (border-left > 1px) su card, avvisi o pannelli. Lo stato si esprime con un bordo pieno tinto.",
+      "Don't lasciare un bottone disabilitato senza spiegare cosa manca.",
+      "Don't scendere sotto 10px con il testo, nemmeno nelle etichette."
     ]
   }
 }

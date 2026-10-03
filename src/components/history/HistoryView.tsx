@@ -62,7 +62,7 @@ function SessionCard({
             background: 'rgba(255,255,255,0.06)',
             padding: '2px 6px', borderRadius: 4,
           }}>
-            {session.status}
+            {STATUS_LABEL[session.status] ?? session.status}
           </span>
         </div>
         <button
@@ -134,6 +134,10 @@ function SessionCard({
     </Card>
   );
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  planning: 'pianificata', active: 'in corso', completed: 'completata', aborted: 'interrotta',
+};
 
 export function HistoryView() {
   const { dispatch } = useApp();

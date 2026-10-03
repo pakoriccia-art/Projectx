@@ -594,7 +594,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
   const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
 
   return (
-    <Card elevated style={{ borderLeft: `4px solid ${color}`, paddingLeft: 12 }}>
+    <Card elevated style={{ border: `1px solid ${color}55` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ ...S.label, color }}>Pre-fermento {idx + 1}</span>
         <button onClick={onRemove} style={{
@@ -899,7 +899,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {draft.salt !== undefined && (
         <Card style={{ padding: '10px 14px' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            Sale v2.4: −{((1 - Math.max(0.6, 1 - 0.1 * draft.salt)) * 100).toFixed(0)}% velocità lievitazione · −{((1 - Math.max(0.7, 1 - 0.08 * draft.salt)) * 100).toFixed(0)}% velocità proteolisi
+            Effetto sale: −{((1 - Math.max(0.6, 1 - 0.1 * draft.salt)) * 100).toFixed(0)}% velocità lievitazione · −{((1 - Math.max(0.7, 1 - 0.08 * draft.salt)) * 100).toFixed(0)}% velocità proteolisi
           </span>
         </Card>
       )}
@@ -989,7 +989,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                         T uscita prevista
                       </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 800, color: wResult.exitWarning ? '#eab308' : 'var(--text-primary)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 800, color: wResult.exitWarning ? '#ffd166' : 'var(--text-primary)' }}>
                         {wResult.exitTempC!.toFixed(1)}°C
                       </span>
                       <Badge tone={wResult.frictionModel === 'unified' ? 'advanced' : 'base'}>
@@ -1120,9 +1120,10 @@ function Step5({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
       <button
         onClick={() => { setShowMalt(s => !s); if (showMalt) update({ maltDosePct: undefined }); }}
-        style={{ background: 'none', border: 'none', color: 'var(--pref-biga)', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', cursor: 'pointer', padding: '4px 0', textAlign: 'left' }}
+        aria-expanded={showMalt}
+        style={{ background: 'none', border: 'none', color: 'var(--pref-biga)', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', cursor: 'pointer', padding: '4px 0', minHeight: 44, textAlign: 'left' }}
       >
-        {showMalt ? '▾' : '▸'} Malto diastatico (v2.4.0)
+        {showMalt ? '▾' : '▸'} Malto diastatico
       </button>
 
       {showMalt && (
@@ -1712,6 +1713,17 @@ export function WizardView() {
     return true;
   };
 
+  // Un Continua disabilitato deve dire cosa manca: niente blocchi muti.
+  const blockedReason = (): string => {
+    if (step === 1) return draft.style ? 'Indica farina totale e numero di panetti' : 'Scegli uno stile per continuare';
+    if (step === 2) return 'Scegli il tipo di impasto per continuare';
+    if (step === 3) return draft.mainFlourGroup ? 'Aggiungi almeno un pre-fermento' : 'Scegli la farina per continuare';
+    if (step === 4) return 'Imposta idratazione e sale';
+    if (step === 5) return draft.agentType ? 'Imposta la dose di lievito' : 'Scegli l\'agente lievitante per continuare';
+    if (step === 6) return 'Scegli un contenitore per continuare';
+    return '';
+  };
+
   const StepComponent = [Step1, Step2, Step3, Step4, Step5, Step6, Step7, Step8][step - 1];
 
   return (
@@ -1745,7 +1757,16 @@ export function WizardView() {
             ⚠ {buildError}
           </div>
         )}
-        <Btn onClick={next} disabled={!canProceed()}>
+        {!canProceed() && (
+          <p id="wizard-blocked-hint" role="status" style={{
+            margin: 0, textAlign: 'center', fontSize: '0.75rem',
+            color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)',
+          }}>
+            {blockedReason()}
+          </p>
+        )}
+        <Btn onClick={next} disabled={!canProceed()}
+          aria-describedby={!canProceed() ? 'wizard-blocked-hint' : undefined}>
           {step < TOTAL_STEPS ? 'Continua →' : '🍕 Avvia sessione'}
         </Btn>
         <Btn variant="secondary" onClick={prev}>

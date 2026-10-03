@@ -69,7 +69,7 @@ export function LiveHeader({
   const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
   const phaseLabel = currentPhaseLabel ?? PHASE_LABELS[currentPhase] ?? currentPhase;
 
-  const K: React.CSSProperties = { fontSize: 8.5, letterSpacing: '0.16em', color: 'var(--pm4-umber)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' };
+  const K: React.CSSProperties = { fontSize: 10, letterSpacing: '0.16em', color: 'var(--pm4-umber)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' };
   const V: React.CSSProperties = { fontSize: 13, fontWeight: 700, color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 };
 
   return (
@@ -96,7 +96,7 @@ export function LiveHeader({
         <div><div style={K}>Trascorso</div><div style={V}>+{elapsedH.toFixed(1)}h</div></div>
         <div><div style={K}>Alla cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
         <span style={{
-          marginLeft: 'auto', flexShrink: 0, fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+          marginLeft: 'auto', flexShrink: 0, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
           fontFamily: 'var(--font-mono)',
           color: isCold ? 'var(--state-cold)' : 'var(--pm4-ember-lo)',
           border: `1px solid ${isCold ? 'rgba(116,185,255,0.35)' : 'rgba(255,209,102,0.3)'}`,

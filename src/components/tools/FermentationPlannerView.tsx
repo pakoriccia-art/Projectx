@@ -622,7 +622,7 @@ function DerivedField({
             color, fontVariantNumeric: 'tabular-nums',
           }}
         >
-          <span aria-hidden="true" style={{ fontSize: '0.75rem', color: '#2dd4bf' }}>∑</span>
+          <span aria-hidden="true" style={{ fontSize: '0.75rem', color: '#74b9ff' }}>∑</span>
           {value}
         </span>
       </div>
@@ -1166,7 +1166,7 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
         <PlanRow label="Puntata TA" value={`${result.puntataH.toFixed(1)}h`} />
         {result.breakdown.capped && (
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: '#2dd4bf',
+            fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: '#74b9ff',
             lineHeight: 1.45, paddingLeft: 2,
           }}>
             Cappata a {result.breakdown.puntataCapped.toFixed(1)}h dal profilo stile
@@ -1885,7 +1885,7 @@ export function FermentationPlannerView() {
             <label style={{ fontSize: 13, color: '#a09070', display: 'block', marginBottom: 4 }}>
               Target maturazione (enzimatica)
               {userTargetMatPct == null && (
-                <span style={{ color: '#555', marginLeft: 6 }}>
+                <span style={{ color: 'var(--pm4-umber)', marginLeft: 6 }}>
                   Profilo {style}: {getStyleProfile(style).alertThreshold}%
                 </span>
               )}
@@ -1909,7 +1909,7 @@ export function FermentationPlannerView() {
                 </button>
               )}
             </div>
-            <p style={{ fontSize: 11, color: '#555', margin: '4px 0 0', fontFamily: 'var(--font-mono)' }}>
+            <p style={{ fontSize: 11, color: 'var(--pm4-umber)', margin: '4px 0 0', fontFamily: 'var(--font-mono)' }}>
               Abbassa per accettare maturazione parziale · Alza per spingere al massimo
             </p>
           </div>

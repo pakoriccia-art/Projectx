@@ -114,7 +114,9 @@ export function buildHeaderTempString(
   if (fridgeSeg) parts.push(`${fridgeSeg.ambientTempC.toFixed(0)}°C TC`);
 
   // Label protocollo derivata dalle fasi reali (non da apprettoProtocol/profilo)
-  parts.push(deriveProtoLabel(segs));
+  // Protocollo tutto-TA: la clausola "TA" è già nella temperatura, non ripeterla.
+  const proto = deriveProtoLabel(segs);
+  if (proto !== 'TA') parts.push(proto);
   return parts.join(' · ');
 }
 

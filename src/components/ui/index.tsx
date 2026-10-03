@@ -121,7 +121,7 @@ export function Metric({
           className={`${flash ? 'pm-num-flash' : ''}${glowClass}`}
           style={{ ...S.value, color: color ?? 'var(--text-primary)' }}
         >
-          {typeof value === 'number' ? value.toFixed(1) : value}
+          {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(1)) : value}
         </span>
         {unit && <span style={S.unit}>{unit}</span>}
       </div>
@@ -254,10 +254,11 @@ export function SnapButtons<T extends string>({
 
 // ─── Button ───────────────────────────────────────────────────────────────────
 export function Btn({
-  children, onClick, variant = 'primary', disabled,
+  children, onClick, variant = 'primary', disabled, ...aria
 }: {
   children: ReactNode; onClick?: () => void;
   variant?: 'primary' | 'secondary' | 'danger'; disabled?: boolean;
+  'aria-describedby'?: string;
 }) {
   const base = variant === 'primary' ? S.btn
              : variant === 'danger'
@@ -265,7 +266,7 @@ export function Btn({
                : S.btnSecondary;
   return (
     <button
-      onClick={onClick} disabled={disabled}
+      onClick={onClick} disabled={disabled} {...aria}
       className={`pm-btn-${variant}`}
       style={{ ...base, opacity: disabled ? 0.38 : 1 }}
     >
@@ -298,8 +299,7 @@ export function AlertBadge({ level, message }: { level: string; message: string 
   return (
     <div style={{
       background: `${colors[level] ?? colors.info}18`,
-      border: `1px solid ${colors[level] ?? colors.info}44`,
-      borderLeft: `4px solid ${colors[level] ?? colors.info}`,
+      border: `1px solid ${colors[level] ?? colors.info}66`,
       borderRadius: 'var(--radius-sm)',
       padding: '10px 14px',
       fontFamily: 'var(--font-body)',

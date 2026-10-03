@@ -219,17 +219,17 @@ export function BakeView() {
         {validation && (
           <div className="pm4-panel" style={{
             padding: '14px 14px', marginBottom: 12,
-            borderLeft: `3px solid ${validation.feasible ? '#22c55e' : '#ef4444'}`,
+            borderColor: validation.feasible ? 'rgba(61,220,151,0.35)' : 'rgba(255,118,117,0.4)',
           }}>
             <div style={{
               fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 800,
               letterSpacing: '0.06em', marginBottom: validation.feasible && validation.advice.length === 0 ? 0 : 8,
-              color: validation.feasible ? '#22c55e' : '#ef4444',
+              color: validation.feasible ? '#3ddc97' : '#ff7675',
             }}>
               {validation.feasible ? '✓ FATTIBILE' : '✗ NON FATTIBILE'}
             </div>
             {!validation.feasible && (
-              <div style={{ ...LABEL_MONO, fontSize: 11, marginBottom: 8, color: '#ef4444' }}>
+              <div style={{ ...LABEL_MONO, fontSize: 11, marginBottom: 8, color: '#ff7675' }}>
                 {REASON_LABEL[validation.reason ?? ''] ?? validation.reason}
               </div>
             )}
@@ -248,8 +248,7 @@ export function BakeView() {
         {coldAtBake && (
           <div className="pm4-panel" style={{
             padding: '12px 14px', marginBottom: 12,
-            borderLeft: '3px solid #74b9ff',
-            background: 'linear-gradient(90deg, rgba(116,185,255,0.10), transparent)',
+            borderColor: 'rgba(116,185,255,0.4)',
           }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 800, color: '#bcd9ff', marginBottom: 6, letterSpacing: '0.04em' }}>
               ❄ IMPASTO FREDDO
@@ -265,7 +264,7 @@ export function BakeView() {
 
         {/* ── 2. CONSIGLIATO (blocco primario, effusività attiva) ── */}
         {validation && (
-          <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12, borderLeft: '3px solid var(--accent-brand)' }}>
+          <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12, borderColor: 'rgba(255,140,50,0.35)' }}>
             <div style={{ ...LABEL_MONO, marginBottom: 10, color: 'var(--accent-brand)' }}>CONSIGLIATO</div>
             <div className="pm4-cells" style={{ gridTemplateColumns: validation.recommendation.cieloC != null ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)' }}>
               <div className="pm4-cell">
@@ -295,7 +294,7 @@ export function BakeView() {
             }}>
               {validation.recommendation.stoneNote}
             </p>
-            <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 8, opacity: 0.55 }}>
+            <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, opacity: 0.55 }}>
               ⚠ Valori indicativi — validationStatus: hypothesis
             </div>
           </div>
@@ -417,7 +416,7 @@ export function BakeView() {
                       {W_proj != null ? Math.round(W_proj) : '—'}
                     </div>
                     {session.bakeTargetElapsedH != null && (
-                      <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 2, opacity: 0.7 }}>
+                      <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 2, opacity: 0.7 }}>
                         t = {session.bakeTargetElapsedH.toFixed(1)}h da inizio
                       </div>
                     )}
@@ -437,7 +436,7 @@ export function BakeView() {
                     </span>
                   </div>
                 ))}
-                <div style={{ ...LABEL_MONO, fontSize: 9, marginTop: 8, opacity: 0.55 }}>
+                <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, opacity: 0.55 }}>
                   ⚠ Soglie indicative — validationStatus: hypothesis
                 </div>
               </div>

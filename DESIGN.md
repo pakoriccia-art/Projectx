@@ -198,7 +198,7 @@ Il sistema non è piatto: è fresato. Il pannello BANCO sembra ricavato da un bl
 
 ## Shapes
 
-Gli angoli sono gentili ma non morbidi: 8px per input e chip, 10px per i bottoni, 12px per i pannelli, 14px per le card Classic. Le pill (999px) sono riservate ai badge e alla fase nell'header. I LED del meter sono piccoli rettangoli da 2px di raggio, 10 segmenti con 3px di gap. Gli avvisi usano un bordo sinistro d'accento da 3–4px.
+Gli angoli sono gentili ma non morbidi: 8px per input e chip, 10px per i bottoni, 12px per i pannelli, 14px per le card Classic. Le pill (999px) sono riservate ai badge e alla fase nell'header. I LED del meter sono piccoli rettangoli da 2px di raggio, 10 segmenti con 3px di gap. Gli avvisi e i pannelli di esito usano un bordo pieno da 1px tinto nel colore di stato più un fondo leggermente tinto. Niente barre laterali colorate.
 
 ## Components
 
@@ -208,7 +208,8 @@ Tattili, pieni e robusti, sempre alti almeno 44px.
 - **Primary:** fondo brace, testo carbone, JetBrains Mono 700 a 0.9rem, padding 12×20, a tutta larghezza.
 - **Hover / Focus:** sale di 2px e prende il bagliore brace. `:focus-visible` mostra un anello visibile.
 - **Ghost (BANCO):** fondo bianco al 4%, bordo `line-strong`, testo crusca, 13px/700.
-- **Danger:** fondo con gradiente caldo #e0463f → #b3231d e ombra rossa (BANCO), oppure `--state-critical` pieno (Classic).
+- **Danger quieto:** contorno rosato e testo `--state-critical` su fondo ghost. Si usa per azioni distruttive che non sono l'azione del momento, come "Termina sessione".
+- **Danger pieno:** fondo con gradiente caldo #e0463f → #b3231d e ombra rossa. È riservato alla conferma di un'azione distruttiva.
 - **Disabled:** opacità 0.38.
 
 ### Chips
@@ -266,3 +267,6 @@ Ci sono anche linee di riferimento per "ora", per il target di cottura e per le 
 - **Don't** usare Fraunces fuori da wordmark e titoli.
 - **Don't** usare bianco puro o grigi freddi per superfici e testi. I neutri sono sempre bruni o color farina.
 - **Don't** creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro.
+- **Don't** usare barre laterali colorate (border-left > 1px) su card, avvisi o pannelli. Lo stato si esprime con un bordo pieno tinto.
+- **Don't** lasciare un bottone disabilitato senza spiegare cosa manca.
+- **Don't** scendere sotto 10px con il testo, nemmeno nelle etichette.

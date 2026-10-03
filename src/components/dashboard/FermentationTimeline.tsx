@@ -170,7 +170,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
           position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
           marginBottom: 6, zIndex: 5, width: 150,
           background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)',
-          borderRadius: 6, padding: '6px 8px', fontSize: 9, lineHeight: 1.35,
+          borderRadius: 6, padding: '6px 8px', fontSize: 10, lineHeight: 1.35,
           color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', textAlign: 'center',
           boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
         }}>
@@ -180,7 +180,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
       {/* Lucchetto sulle fasi consolidate (affordance visiva prima del tap) */}
       {isLocked && isCompleted && (
         <div aria-hidden="true" style={{
-          position: 'absolute', top: 16, right: 6, fontSize: 8, opacity: 0.7,
+          position: 'absolute', top: 16, right: 6, fontSize: 10, opacity: 0.7,
         }}>🔒</div>
       )}
       {/* Affordance tap (teal) sui marker tappabili */}
@@ -188,13 +188,13 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
         <div style={{
           position: 'absolute', top: 16, right: 6,
           width: 6, height: 6, borderRadius: '50%',
-          background: '#14b8a6', boxShadow: '0 0 6px #14b8a6',
+          background: '#3ddc97', boxShadow: '0 0 6px #3ddc97',
         }} />
       )}
       {showBadge ? (
         <div style={{
           background: 'rgba(255,209,102,0.12)', border: '1px solid rgba(255,209,102,0.4)', borderRadius: 5,
-          padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 8, letterSpacing: '0.04em',
+          padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 10, letterSpacing: '0.04em',
           marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)',
         }}>
           tra {formatCountdown(hoursFromNow)}
@@ -207,7 +207,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
 
       <div style={{
         color: isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
-        fontSize: 8, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
+        fontSize: 10, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
         lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 52,
       }}>
         {canonicalDisplayLabel(phase)}
@@ -215,7 +215,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
 
       <div style={{
         color: isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
-        fontSize: 9, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
+        fontSize: 10, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
         {formatAbsoluteTime(new Date(phase.startMs))}
       </div>

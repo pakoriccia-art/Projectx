@@ -161,6 +161,11 @@
       /* ── Accessibility: contenuto per sole tecnologie assistive (issue #31) ──── */
       /* Usata dagli <h1> di vista: la skin BANCO non prevede intestazioni visibili,
          ma senza h1 l'albero di accessibilità è piatto e non si può navigare. */
+      /* superfici del browser: anche selezione, caret e controlli nativi parlano brace */
+      ::selection { background: rgba(255,140,50,0.35); color: var(--text-primary); }
+      input, textarea { caret-color: var(--accent-brand); }
+      :root { accent-color: var(--accent-brand); color-scheme: dark; }
+
       .sr-only {
         position: absolute;
         width: 1px; height: 1px;
@@ -347,7 +352,7 @@
       .pm4-chan-rule { flex:1; height:1px; transform-origin:left;
         background:linear-gradient(90deg, var(--pm4-line-strong), transparent);
         animation:pm4-draw .55s cubic-bezier(.4,0,.2,1) both .15s; }
-      .pm4-chan-tick { font-size:9px; color:var(--pm4-umber); letter-spacing:.08em; white-space:nowrap; font-family:var(--font-mono); }
+      .pm4-chan-tick { font-size:10px; color:var(--pm4-umber); letter-spacing:.08em; white-space:nowrap; font-family:var(--font-mono); }
 
       /* meter a segmenti */
       .pm4-seg { display:flex; gap:3px; height:10px; }
@@ -358,7 +363,7 @@
       .pm4-cells { display:grid; grid-template-columns:repeat(var(--n,4),1fr); }
       .pm4-cell { padding:2px 8px; text-align:center; position:relative; }
       .pm4-cell + .pm4-cell::before { content:""; position:absolute; left:0; top:5px; bottom:5px; width:1px; background:var(--pm4-line); }
-      .pm4-cell-k { font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--pm4-umber); font-family:var(--font-mono); }
+      .pm4-cell-k { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--pm4-umber); font-family:var(--font-mono); }
       .pm4-cell-v { font-size:17px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:3px; font-family:var(--font-mono); line-height:1; }
       .pm4-cell-v small { font-size:.6em; color:var(--pm4-umber); font-weight:700; }
 
@@ -375,6 +380,7 @@
       .pm4-btn { transition: all .18s ease; }
       .pm4-btn-ghost:hover  { border-color:var(--pm4-ember) !important; color:var(--pm4-ember-lo) !important; }
       .pm4-btn-warm:hover   { filter:brightness(1.08); }
+      .pm4-btn-danger-quiet:hover { background:rgba(255,118,117,0.08) !important; border-color:var(--state-critical) !important; }
       .pm4-tap:hover .pm4-pip-tap { box-shadow:0 0 0 2px var(--pm4-ember) !important; }
     </style>
   </head>
