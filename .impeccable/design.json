@@ -1,0 +1,448 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-03T21:04:25.554Z",
+  "title": "Design System: PizzaMatrix",
+  "extensions": {
+    "colorMeta": {
+      "ember": {
+        "role": "primary",
+        "displayName": "Brace Viva",
+        "canonical": "oklch(75.2% 0.169 53.7)",
+        "tonalRamp": [
+          "oklch(15% 0.102 53.7)",
+          "oklch(25% 0.102 53.7)",
+          "oklch(35% 0.169 53.7)",
+          "oklch(45% 0.169 53.7)",
+          "oklch(55% 0.169 53.7)",
+          "oklch(65% 0.169 53.7)",
+          "oklch(80% 0.169 53.7)",
+          "oklch(95% 0.102 53.7)"
+        ]
+      },
+      "ember-lo": {
+        "role": "primary",
+        "displayName": "Brace Bassa",
+        "canonical": "oklch(88% 0.135 86.1)",
+        "tonalRamp": [
+          "oklch(15% 0.081 86.1)",
+          "oklch(25% 0.081 86.1)",
+          "oklch(35% 0.135 86.1)",
+          "oklch(45% 0.135 86.1)",
+          "oklch(55% 0.135 86.1)",
+          "oklch(65% 0.135 86.1)",
+          "oklch(80% 0.135 86.1)",
+          "oklch(95% 0.081 86.1)"
+        ]
+      },
+      "cold": {
+        "role": "secondary",
+        "displayName": "Freddo di Frigo",
+        "canonical": "oklch(76.8% 0.123 250)",
+        "tonalRamp": [
+          "oklch(15% 0.074 250)",
+          "oklch(25% 0.074 250)",
+          "oklch(35% 0.123 250)",
+          "oklch(45% 0.123 250)",
+          "oklch(55% 0.123 250)",
+          "oklch(65% 0.123 250)",
+          "oklch(80% 0.123 250)",
+          "oklch(95% 0.074 250)"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "Lievito Pronto",
+        "canonical": "oklch(79.7% 0.164 159.7)",
+        "tonalRamp": [
+          "oklch(15% 0.098 159.7)",
+          "oklch(25% 0.098 159.7)",
+          "oklch(35% 0.164 159.7)",
+          "oklch(45% 0.164 159.7)",
+          "oklch(55% 0.164 159.7)",
+          "oklch(65% 0.164 159.7)",
+          "oklch(80% 0.164 159.7)",
+          "oklch(95% 0.098 159.7)"
+        ]
+      },
+      "critical": {
+        "role": "tertiary",
+        "displayName": "Allarme Rosato",
+        "canonical": "oklch(72.8% 0.168 22.5)",
+        "tonalRamp": [
+          "oklch(15% 0.101 22.5)",
+          "oklch(25% 0.101 22.5)",
+          "oklch(35% 0.168 22.5)",
+          "oklch(45% 0.168 22.5)",
+          "oklch(55% 0.168 22.5)",
+          "oklch(65% 0.168 22.5)",
+          "oklch(80% 0.168 22.5)",
+          "oklch(95% 0.101 22.5)"
+        ]
+      },
+      "collapsed": {
+        "role": "tertiary",
+        "displayName": "Crollo",
+        "canonical": "oklch(57.4% 0.202 26.1)",
+        "tonalRamp": [
+          "oklch(15% 0.121 26.1)",
+          "oklch(25% 0.121 26.1)",
+          "oklch(35% 0.202 26.1)",
+          "oklch(45% 0.202 26.1)",
+          "oklch(55% 0.202 26.1)",
+          "oklch(65% 0.202 26.1)",
+          "oklch(80% 0.202 26.1)",
+          "oklch(95% 0.121 26.1)"
+        ]
+      },
+      "maturation-gold": {
+        "role": "tertiary",
+        "displayName": "Oro di Maturazione",
+        "canonical": "oklch(83.6% 0.145 95.6)",
+        "tonalRamp": [
+          "oklch(15% 0.087 95.6)",
+          "oklch(25% 0.087 95.6)",
+          "oklch(35% 0.145 95.6)",
+          "oklch(45% 0.145 95.6)",
+          "oklch(55% 0.145 95.6)",
+          "oklch(65% 0.145 95.6)",
+          "oklch(80% 0.145 95.6)",
+          "oklch(95% 0.087 95.6)"
+        ]
+      },
+      "char": {
+        "role": "neutral",
+        "displayName": "Carbone",
+        "canonical": "oklch(13.6% 0.006 71.3)",
+        "tonalRamp": [
+          "oklch(15% 0.004 71.3)",
+          "oklch(25% 0.004 71.3)",
+          "oklch(35% 0.006 71.3)",
+          "oklch(45% 0.006 71.3)",
+          "oklch(55% 0.006 71.3)",
+          "oklch(65% 0.006 71.3)",
+          "oklch(80% 0.006 71.3)",
+          "oklch(95% 0.004 71.3)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Fondo Teglia",
+        "canonical": "oklch(17.5% 0.017 84.6)",
+        "tonalRamp": [
+          "oklch(15% 0.01 84.6)",
+          "oklch(25% 0.01 84.6)",
+          "oklch(35% 0.017 84.6)",
+          "oklch(45% 0.017 84.6)",
+          "oklch(55% 0.017 84.6)",
+          "oklch(65% 0.017 84.6)",
+          "oklch(80% 0.017 84.6)",
+          "oklch(95% 0.01 84.6)"
+        ]
+      },
+      "elevated": {
+        "role": "neutral",
+        "displayName": "Teglia Rialzata",
+        "canonical": "oklch(21.4% 0.018 74.6)",
+        "tonalRamp": [
+          "oklch(15% 0.011 74.6)",
+          "oklch(25% 0.011 74.6)",
+          "oklch(35% 0.018 74.6)",
+          "oklch(45% 0.018 74.6)",
+          "oklch(55% 0.018 74.6)",
+          "oklch(65% 0.018 74.6)",
+          "oklch(80% 0.018 74.6)",
+          "oklch(95% 0.011 74.6)"
+        ]
+      },
+      "panel-hi": {
+        "role": "neutral",
+        "displayName": "Pannello Alto",
+        "canonical": "oklch(19.9% 0.021 69.4)",
+        "tonalRamp": [
+          "oklch(15% 0.013 69.4)",
+          "oklch(25% 0.013 69.4)",
+          "oklch(35% 0.021 69.4)",
+          "oklch(45% 0.021 69.4)",
+          "oklch(55% 0.021 69.4)",
+          "oklch(65% 0.021 69.4)",
+          "oklch(80% 0.021 69.4)",
+          "oklch(95% 0.013 69.4)"
+        ]
+      },
+      "panel-lo": {
+        "role": "neutral",
+        "displayName": "Pannello Basso",
+        "canonical": "oklch(15.5% 0.012 62.5)",
+        "tonalRamp": [
+          "oklch(15% 0.007 62.5)",
+          "oklch(25% 0.007 62.5)",
+          "oklch(35% 0.012 62.5)",
+          "oklch(45% 0.012 62.5)",
+          "oklch(55% 0.012 62.5)",
+          "oklch(65% 0.012 62.5)",
+          "oklch(80% 0.012 62.5)",
+          "oklch(95% 0.007 62.5)"
+        ]
+      },
+      "flour": {
+        "role": "neutral",
+        "displayName": "Farina",
+        "canonical": "oklch(87.9% 0.053 84)",
+        "tonalRamp": [
+          "oklch(15% 0.032 84)",
+          "oklch(25% 0.032 84)",
+          "oklch(35% 0.053 84)",
+          "oklch(45% 0.053 84)",
+          "oklch(55% 0.053 84)",
+          "oklch(65% 0.053 84)",
+          "oklch(80% 0.053 84)",
+          "oklch(95% 0.032 84)"
+        ]
+      },
+      "tan": {
+        "role": "neutral",
+        "displayName": "Crusca",
+        "canonical": "oklch(69% 0.053 88)",
+        "tonalRamp": [
+          "oklch(15% 0.032 88)",
+          "oklch(25% 0.032 88)",
+          "oklch(35% 0.053 88)",
+          "oklch(45% 0.053 88)",
+          "oklch(55% 0.053 88)",
+          "oklch(65% 0.053 88)",
+          "oklch(80% 0.053 88)",
+          "oklch(95% 0.032 88)"
+        ]
+      },
+      "umber": {
+        "role": "neutral",
+        "displayName": "Terra d'Ombra",
+        "canonical": "oklch(62.5% 0.065 84.6)",
+        "tonalRamp": [
+          "oklch(15% 0.039 84.6)",
+          "oklch(25% 0.039 84.6)",
+          "oklch(35% 0.065 84.6)",
+          "oklch(45% 0.065 84.6)",
+          "oklch(55% 0.065 84.6)",
+          "oklch(65% 0.065 84.6)",
+          "oklch(80% 0.065 84.6)",
+          "oklch(95% 0.039 84.6)"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Cenere",
+        "canonical": "oklch(55.4% 0.06 84.6)",
+        "tonalRamp": [
+          "oklch(15% 0.036 84.6)",
+          "oklch(25% 0.036 84.6)",
+          "oklch(35% 0.06 84.6)",
+          "oklch(45% 0.06 84.6)",
+          "oklch(55% 0.06 84.6)",
+          "oklch(65% 0.06 84.6)",
+          "oklch(80% 0.06 84.6)",
+          "oklch(95% 0.036 84.6)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Solo il wordmark PizzaMatrix."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Titoli di passo e brand nel LiveHeader."
+      },
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Valore protagonista del semaforo, cifre tabulari."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Bottoni, form, contenuto."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Nomi canale, chiavi cella, badge; maiuscolo tracciato."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel-milled",
+        "value": "0 1px 0 rgba(255,220,170,0.05) inset, 0 -1px 0 rgba(0,0,0,0.5) inset, 0 10px 26px -16px rgba(0,0,0,0.9)",
+        "purpose": "Ogni pannello BANCO: profondità incisa."
+      },
+      {
+        "name": "panel-critical",
+        "value": "0 1px 0 rgba(255,220,170,0.05) inset, 0 0 0 1px rgba(255,118,117,0.10), 0 12px 30px -14px rgba(214,48,49,0.4)",
+        "purpose": "Pannello in stato critico."
+      },
+      {
+        "name": "shadow-brand",
+        "value": "0 4px 18px rgba(255,140,50,0.28)",
+        "purpose": "Hover del bottone primario."
+      },
+      {
+        "name": "shadow-critical",
+        "value": "0 4px 16px rgba(255,118,117,0.22)",
+        "purpose": "Azioni critiche."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Entrate dei pannelli e transizioni di stato."
+      },
+      {
+        "name": "ease-spring",
+        "value": "cubic-bezier(0.34, 1.4, 0.64, 1)",
+        "purpose": "Rimbalzi brevi su feedback tattile."
+      },
+      {
+        "name": "panel-rise",
+        "value": "500ms ease-out",
+        "purpose": "Entrata pannello pm4-rise."
+      },
+      {
+        "name": "led-segfill",
+        "value": "450ms, delay 250ms + 45ms/segmento",
+        "purpose": "Riempimento sequenziale del meter a 10 LED."
+      },
+      {
+        "name": "press",
+        "value": "100-180ms",
+        "purpose": "Hover/press dei controlli."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "column-max",
+        "value": "430px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Azione principale: brace piena, a tutta larghezza.",
+      "html": "<button class=\"ds-btn-primary\">🍕 Avvia sessione</button>",
+      "css": ".ds-btn-primary{width:100%;min-height:44px;background:#ff8c32;color:#0a0806;font:700 0.9rem 'JetBrains Mono',monospace;padding:12px 20px;border:none;border-radius:10px;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1),box-shadow .15s}.ds-btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 18px rgba(255,140,50,0.28)}.ds-btn-primary:focus-visible{outline:2px solid #ffd166;outline-offset:2px}.ds-btn-primary:active{transform:translateY(0)}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Azioni secondarie nel footer BANCO.",
+      "html": "<button class=\"ds-btn-ghost\">⚙ Aggiusta Rotta</button>",
+      "css": ".ds-btn-ghost{min-height:44px;background:rgba(255,255,255,0.04);color:#a99a76;border:1px solid rgba(255,206,150,0.16);border-radius:9px;padding:13px;font:700 13px 'JetBrains Mono',monospace;cursor:pointer;transition:background .15s,color .15s}.ds-btn-ghost:hover{background:rgba(255,255,255,0.08);color:#e8d5b0}.ds-btn-ghost:focus-visible{outline:2px solid #ff8c32;outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Azioni distruttive o di emergenza.",
+      "html": "<button class=\"ds-btn-danger\">Cuoci subito</button>",
+      "css": ".ds-btn-danger{min-height:44px;background:linear-gradient(180deg,#e0463f,#b3231d);color:#fff;border:none;border-radius:10px;padding:12px 20px;font:700 0.9rem 'JetBrains Mono',monospace;box-shadow:0 6px 18px -8px rgba(214,48,49,.6);cursor:pointer}.ds-btn-danger:hover{filter:brightness(1.08)}.ds-btn-danger:focus-visible{outline:2px solid #ff7675;outline-offset:2px}"
+    },
+    {
+      "name": "BANCO Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Pannello fresato con canale numerato.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-chan\"><span class=\"ds-chan-idx\">01</span><span class=\"ds-chan-name\">Maturazione</span><i></i></div><div class=\"ds-readout\">72<small>%</small></div></section>",
+      "css": ".ds-panel{border-radius:12px;background:linear-gradient(180deg,#1c140b,#100b07);border:1px solid rgba(255,206,150,0.085);box-shadow:0 1px 0 rgba(255,220,170,0.05) inset,0 -1px 0 rgba(0,0,0,0.5) inset,0 10px 26px -16px rgba(0,0,0,0.9);padding:13px 14px 14px;color:#e8d5b0;font-family:'JetBrains Mono',monospace}.ds-chan{display:flex;align-items:center;gap:9px;margin-bottom:11px}.ds-chan-idx{font-size:10px;color:#ff8c32;font-weight:700;letter-spacing:.1em}.ds-chan-name{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#a99a76}.ds-chan i{flex:1;height:1px;background:rgba(255,206,150,0.16)}.ds-readout{font-size:35px;font-weight:800;line-height:.82;font-variant-numeric:tabular-nums;color:#3ddc97;text-shadow:0 0 18px #3ddc975a}.ds-readout small{font-size:.5em;color:#9a855a;margin-left:2px}"
+    },
+    {
+      "name": "Number Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Input numerico con focus brace.",
+      "html": "<input class=\"ds-input\" type=\"number\" value=\"65\" aria-label=\"Idratazione %\">",
+      "css": ".ds-input{min-height:44px;background:#1e1810;color:#e8d5b0;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px 16px;font:400 1rem 'JetBrains Mono',monospace;transition:border-color .15s,box-shadow .15s}.ds-input:focus-visible{outline:none;border-color:#ff8c32;box-shadow:0 0 0 3px rgba(255,140,50,0.15)}"
+    },
+    {
+      "name": "Snap Chips",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Scelta singola (radiogroup).",
+      "html": "<div class=\"ds-chips\" role=\"radiogroup\"><button class=\"ds-chip\" role=\"radio\" aria-checked=\"true\">Napoletana</button><button class=\"ds-chip\" role=\"radio\" aria-checked=\"false\">Teglia</button></div>",
+      "css": ".ds-chips{display:flex;gap:8px}.ds-chip{min-height:44px;padding:10px 14px;border-radius:8px;background:#1e1810;color:#a99a76;border:1px solid rgba(255,255,255,0.1);font:700 0.75rem 'JetBrains Mono',monospace;cursor:pointer;transition:background .15s,color .15s}.ds-chip:hover{color:#e8d5b0}.ds-chip[aria-checked=true]{background:#ff8c32;color:#0a0806;border-color:#ff8c32;box-shadow:0 0 12px rgba(255,140,50,0.35)}.ds-chip:focus-visible{outline:2px solid #ffd166;outline-offset:2px}"
+    },
+    {
+      "name": "State Badge",
+      "kind": "chip",
+      "refersTo": "state-badge",
+      "description": "Stato del semaforo.",
+      "html": "<span class=\"ds-badge\">OK</span>",
+      "css": ".ds-badge{display:inline-block;padding:2px 7px;border-radius:5px;font:700 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:#3ddc97;background:#3ddc972a}"
+    },
+    {
+      "name": "LED Meter",
+      "kind": "custom",
+      "description": "Meter a 10 segmenti del semaforo.",
+      "html": "<div class=\"ds-seg\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i></i><i></i></div>",
+      "css": ".ds-seg{display:flex;gap:3px;height:10px;width:220px}.ds-seg i{flex:1;border-radius:2px;background:rgba(255,255,255,0.05);box-shadow:inset 0 0 0 1px rgba(0,0,0,0.4)}.ds-seg i.on{background:#3ddc97;box-shadow:0 0 9px #3ddc97}"
+    }
+  ],
+  "narrative": {
+    "northStar": "La Brace che Misura",
+    "overview": "**Creative North Star: \"La Brace che Misura\"**\n\nPizzaMatrix è uno strumento di misura che vive nel buio caldo di un forno spento. Tutto riposa su bruni carbone e testi color farina, finché la brace non si accende: l'arancio segnala l'azione da compiere o lo stato ottimale, l'oro la maturazione che sale, il blu il freddo del frigo, il rosso il pericolo. La scienza (Gompertz, Arrhenius, decadimento della W) arriva calda e leggibile, non clinica.",
+    "keyCharacteristics": [
+      "Solo tema scuro, a base bruno-carbone. Nessun grigio freddo e nessun bianco puro sulle superfici.",
+      "La brace (`ember`) è l'unico accento caldo d'azione. Il colore significa stato, non decorazione.",
+      "JetBrains Mono è la voce dello strumento: etichette, valori, bottoni. Fraunces resta solo per il wordmark e i titoli.",
+      "La profondità è fresata: luce incisa in alto, ombra in basso, una caduta morbida sotto il pannello.",
+      "Il movimento è funzionale: i pannelli emergono, i LED si riempiono in sequenza, l'alert critico pulsa."
+    ],
+    "rules": [
+      {
+        "name": "The Ember Speaks Rule",
+        "body": "L'arancio brace compare solo sull'azione primaria o su uno stato ottimale. Se tutto è arancio, niente lo è.",
+        "section": "colors"
+      },
+      {
+        "name": "The Color Is State Rule",
+        "body": "Ogni colore saturo corrisponde a uno stato del processo: freddo, ok, attenzione, critico, crollo. Non si aggiungono colori decorativi.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Green Rule",
+        "body": "Il verde \"ok\" è #3ddc97. Gli altri verdi presenti nel codice Classic (#00b894, #55efc4, #22c55e, #2dd4bf) sono debito da far convergere, non varianti da riusare.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Truth Rule",
+        "body": "Ogni valore che cambia nel tempo usa `font-variant-numeric: tabular-nums`, così le cifre non ballano mentre il motore avanza.",
+        "section": "typography"
+      },
+      {
+        "name": "The Fraunces Is a Signature Rule",
+        "body": "Fraunces non entra mai in etichette, dati o bottoni.",
+        "section": "typography"
+      },
+      {
+        "name": "The Milled Panel Rule",
+        "body": "La profondità è incisa nel materiale (inset), non sollevata. Un pannello non fluttua: è scavato nel banco.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do usare i token `var(--…)` di `index.html` invece degli hex scritti a mano. #0a0806 ripetuto 15 volte è debito.",
+      "Do costruire le nuove schermate con il linguaggio BANCO: `.pm4-panel`, canali numerati, celle, LED.",
+      "Do mantenere ogni target toccabile ad almeno 44px.",
+      "Do usare cifre tabulari su ogni valore live.",
+      "Do rispettare `prefers-reduced-motion`, sia in CSS sia con `useReducedMotion` in JS."
+    ],
+    "donts": [
+      "Don't introdurre nuove palette (Tailwind, flat-UI). Bisogna far convergere i verdi, i gialli e i grigi caldi duplicati sui token esistenti.",
+      "Don't usare un secondo accento caldo accanto alla brace per l'azione.",
+      "Don't usare Fraunces fuori da wordmark e titoli.",
+      "Don't usare bianco puro o grigi freddi per superfici e testi. I neutri sono sempre bruni o color farina.",
+      "Don't creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro."
+    ]
+  }
+}
