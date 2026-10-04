@@ -264,6 +264,14 @@ Scelte dell'utente: scarto dal piano in un solo punto con un'azione, Storico com
 
 **Verifica nel browser:** dopo una ricarica la sessione riprende; con 3h simulate ad app chiusa la maturazione passa da 4,5% a 20,6%; dopo Termina la sessione non risorge e nello Storico c'è un solo record.
 
+## Passaggio 13: critique del ramo "Pianifica fermentazione" (15/40)
+
+Primo giro sul planner e sul passaggio planner → wizard → dashboard.
+- **P0-1:** la modalità Servizio non avvia la sessione. Il planner passa `temperingH` e la validazione del wizard lo rifiuta, mostrando un errore Zod grezzo in inglese.
+- **P0-2:** la soglia scelta nel planner viene ignorata dalla dashboard, e PRONTO "Inforna ORA" si accende con l'impasto in frigo a 4°C, 20 ore prima del piano.
+- **P1:** il piano si deforma nel passaggio (riscaldo 2.4 → 5.9h, "modificato manualmente", modale fuori protocollo su un piano col frigo). Nel planner il risultato sta in fondo, ci sono 4 CTA uguali e lo stato si perde tornando dal wizard.
+- **P2/P3:** testi incoerenti ("3/-1", "90%" scritto nel codice, poolish chiamato biga), slider senza nome accessibile, token Classic.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
