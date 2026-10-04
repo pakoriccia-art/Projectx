@@ -385,8 +385,10 @@ export function buildRealizedSeries(
 // il chiamante (DashboardV4) passa già la versione che le 3 viste devono mostrare.
 // `horizonH` (v2.4.19 A3): quando valorizzato, accorcia l'orizzonte del grafico al
 // piano reale (Σ durate all-TA) invece di estenderlo — overshoot mostrato onestamente.
-export function GompertzChartV4({ session, ts, horizonH = null }: {
+export function GompertzChartV4({ session, ts, horizonH = null, bakeForecastH = null }: {
   session: any; ts: any; horizonH?: number | null;
+  /** Ore trascorse all'orario di cottura previsto (stesso del blocco centrale): il 🍕 va lì. */
+  bakeForecastH?: number | null;
 }) {
   const [log, setLog] = useState<ProcessLogEntry[]>([]);
 
@@ -562,8 +564,8 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           {/* Linea "ora": separa il passato congelato dal futuro proiettato */}
           <ReferenceLine yAxisId="left" x={elapsedH} stroke="var(--accent-brand)" strokeDasharray="4 4"
             label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 11, fontFamily: 'var(--font-mono)' }} />
-          {effectiveTargetBakeH != null && (
-            <ReferenceLine yAxisId="left" x={effectiveTargetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
+          {(bakeForecastH ?? effectiveTargetBakeH) != null && (
+            <ReferenceLine yAxisId="left" x={parseFloat((bakeForecastH ?? effectiveTargetBakeH)!.toFixed(2))} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
           {/* stessa soglia del semaforo (profilo di stile), così "target N%" e la linea coincidono */}

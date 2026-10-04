@@ -313,10 +313,10 @@
       }
       @keyframes pm4-rise   { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none} }
       @keyframes pm4-draw   { from{transform:scaleX(0); opacity:0} to{transform:scaleX(1); opacity:1} }
-      @keyframes pm4-pip    { 0%,100%{box-shadow:0 0 0 3px rgba(255,140,50,0.30),0 0 16px var(--pm4-ember)} 50%{box-shadow:0 0 0 6px rgba(255,140,50,0.12),0 0 24px var(--pm4-ember)} }
+      @keyframes pm4-pip    { 0%,100%{box-shadow:0 0 0 3px var(--pip-ring, rgba(255,140,50,0.30))} 50%{box-shadow:0 0 0 6px var(--pip-ring, rgba(255,140,50,0.12))} }
       @keyframes pm4-crit   { 0%,100%{text-shadow:0 0 16px rgba(255,118,117,0.5)} 50%{text-shadow:0 0 28px rgba(255,118,117,0.85)} }
       @keyframes pm4-beat   { 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.45; transform:scale(.7)} }
-      @keyframes pm4-segfill{ from{background:rgba(255,255,255,0.05); box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)} to{background:var(--seg,var(--pm4-green)); box-shadow:0 0 9px var(--seg,var(--pm4-green))} }
+      @keyframes pm4-segfill{ from{background:rgba(255,255,255,0.05); box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)} to{background:var(--seg,var(--pm4-green)); box-shadow:none} }
 
       /* substrate: brace dal basso + griglia incisa mascherata in alto */
       .pm4-root { position: relative;
@@ -375,8 +375,6 @@
       .pm4-cell-v small { font-size:.6em; color:var(--pm4-umber); font-weight:700; }
 
       /* readout glows */
-      .pm4-glow-ember { color:#ffe6c2 !important; text-shadow:0 0 18px var(--pm4-ember-glow); }
-      .pm4-glow-green { color:#d8fff0 !important; text-shadow:0 0 14px rgba(0,184,148,0.5); }
       .pm4-glow-crit  { animation:pm4-crit 2.2s ease-in-out infinite; }
 
       .pm4-live { width:6px; height:6px; border-radius:50%; display:inline-block;

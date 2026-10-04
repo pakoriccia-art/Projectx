@@ -38,6 +38,57 @@ const STATUS_LABEL: Record<string, string> = {
 
 const MONO: React.CSSProperties = { fontFamily: 'var(--font-mono)' };
 
+const RATING_SCORE: Record<string, number> = { excellent: 4, good: 3, ok: 2, poor: 1 };
+const SCORE_LABEL = ['', 'da rivedere', 'ok', 'buona', 'ottima'];
+
+/** Minuti tra "pronta" (primo PRONTO) e infornata reale; null se manca un dato. */
+function bakeDelayMin(s: Session): number | null {
+  if (!s.bakedAt || !s.readyAt) return null;
+  return Math.round((new Date(s.bakedAt).getTime() - new Date(s.readyAt).getTime()) / 60_000);
+}
+const fmtDelay = (m: number) => m <= 1 ? 'subito' : m < 60 ? `+${m} min` : `+${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+
+/**
+ * Calibrazione minima per stile: quanto dopo il "pronto" inforni di solito e
+ * come ti è venuta. Solo sessioni con infornata registrata.
+ */
+function Calibration({ sessions }: { sessions: Session[] }) {
+  const byStyle = new Map<string, Session[]>();
+  for (const s of sessions) {
+    if (bakeDelayMin(s) == null) continue;
+    const list = byStyle.get(s.style) ?? [];
+    if (list.length < 5) list.push(s);
+    byStyle.set(s.style, list);
+  }
+  const rows = [...byStyle.entries()].slice(0, 3);
+  if (rows.length === 0) return null;
+  return (
+    <section className="pm4-panel" aria-label="Come ti viene di solito" style={{ padding: '13px 14px 14px' }}>
+      <div className="pm4-chan" style={{ marginBottom: 9 }}>
+        <span className="pm4-chan-name">Come ti viene di solito</span>
+        <span className="pm4-chan-rule" />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {rows.map(([style, list]) => {
+          const delays = list.map(bakeDelayMin).filter((m): m is number => m != null);
+          const avg = Math.round(delays.reduce((a, b) => a + b, 0) / delays.length);
+          const rated = list.filter(s => s.outcomeRating).map(s => RATING_SCORE[s.outcomeRating!]);
+          const avgRating = rated.length ? SCORE_LABEL[Math.round(rated.reduce((a, b) => a + b, 0) / rated.length)] : null;
+          return (
+            <div key={style} style={{ ...MONO, fontSize: 12, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
+              <span style={{ color: 'var(--pm4-flour)', fontWeight: 700 }}>
+                {list.length === 1 ? 'Ultima' : `Ultime ${list.length}`} {STYLE_LABELS[style] ?? style}
+              </span>
+              {' · '}{avg <= 1 ? 'inforni appena è pronta' : `inforni in media ${fmtDelay(avg).slice(1)} dopo il pronto`}
+              {avgRating && <> · voto medio {avgRating}</>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 function fmtDuration(h: number): string {
   const totalMin = Math.max(0, Math.round(h * 60));
@@ -67,6 +118,8 @@ function SessionCard({
   onRate: (id: number, rating: NonNullable<Session['outcomeRating']>) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (confirmDelete) cancelDeleteRef.current?.focus(); }, [confirmDelete]);
   const [editRating, setEditRating] = useState(false);
 
   const start = session.startedAt instanceof Date
@@ -100,7 +153,7 @@ function SessionCard({
         {session.outcomeRating && !editRating && (
           <button type="button" onClick={() => setEditRating(true)}
             aria-label={`Esito: ${OUTCOME_LABEL[session.outcomeRating]}. Cambia voto`}
-            style={{ ...BTN, minHeight: 32, padding: '4px 9px', fontSize: 11, color: 'var(--pm4-flour)' }}>
+            style={{ ...BTN, padding: '6px 10px', fontSize: 12, color: 'var(--pm4-flour)' }}>
             🍕 {OUTCOME_LABEL[session.outcomeRating]} · cambia
           </button>
         )}
@@ -112,10 +165,10 @@ function SessionCard({
       </div>
 
       {confirmDelete && (
-        <div role="group" aria-label="Conferma eliminazione"
+        <div role="alertdialog" aria-label="Conferma eliminazione"
           style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
           <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
-          <button type="button" onClick={() => setConfirmDelete(false)} style={{ ...BTN, flex: 1 }}>Annulla</button>
+          <button ref={cancelDeleteRef} type="button" onClick={() => setConfirmDelete(false)} style={{ ...BTN, flex: 1 }}>Annulla</button>
           <button type="button" onClick={() => { setConfirmDelete(false); onDelete(session); }}
             className="pm4-btn-danger-quiet"
             style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
@@ -128,7 +181,7 @@ function SessionCard({
       <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
         {dateStr} · {hhmm(start)}
         {baked && <> → infornata {hhmm(baked)}</>}
-        {baked && readySince && <> · pronta dalle {hhmm(readySince)}</>}
+        {baked && readySince && <> · pronta dalle {hhmm(readySince)} ({fmtDelay(bakeDelayMin(session)!)})</>}
         {durationH != null && <> · {fmtDuration(durationH)}</>}
       </div>
 
@@ -177,6 +230,8 @@ export function HistoryView() {
   const [pendingDelete, setPendingDelete] = useState<Session | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef  = useRef<Session | null>(null);
+  const undoRef     = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (pendingDelete) undoRef.current?.focus(); }, [pendingDelete]);
 
   useEffect(() => {
     loadSessionHistory(30)
@@ -278,6 +333,8 @@ export function HistoryView() {
         </div>
       )}
 
+      {!loading && <Calibration sessions={sessions} />}
+
       {sessions.map(s => (
         <SessionCard key={s.id} session={s} onDelete={handleDelete} onRate={handleRate} />
       ))}
@@ -307,7 +364,7 @@ export function HistoryView() {
           ...MONO, fontSize: 12, color: 'var(--pm4-tan)',
         }}>
           <span style={{ flex: 1 }}>Sessione eliminata</span>
-          <button type="button" onClick={undoDelete} style={{ ...BTN, color: 'var(--pm4-ember-lo)' }}>↶ Annulla</button>
+          <button ref={undoRef} type="button" onClick={undoDelete} style={{ ...BTN, color: 'var(--pm4-ember-lo)' }}>↶ Annulla</button>
         </div>
       )}
     </div>

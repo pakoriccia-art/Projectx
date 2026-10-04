@@ -224,6 +224,31 @@ Aperti:
 - **P1-b.** Il 🍕 del grafico usa ancora il target del wizard; lo scarto dal piano è ripetuto tre volte già dal minuto zero.
 - **P2.** Restano i glow dei LED e del pallino corrente; lo Storico non confronta previsione e realtà; il focus si perde dopo alcune azioni.
 
+## Passaggio 11: correzioni P1–P3 della quarta critique
+
+Scelte dell'utente: scarto dal piano in un solo punto con un'azione, Storico come calibrazione minima, perimetro P1–P3. Motore non toccato.
+
+- **P1-a, bug della transizione di fase (confermato e corretto).** La sessione partiva in memoria senza timeline e senza `id`, che venivano scritti solo nel database. Gli effetti:
+  - ogni cambio di fase ricostruiva la timeline dall'orologio, per cui lo staglio durava 4h invece di 30 min;
+  - l'annulla ripartiva da un'altra timeline;
+  - i cambi di fase non venivano mai salvati;
+  - la chiusura creava un secondo record.
+
+  Ora `WizardView` avvia la sessione con la sua timeline e riceve l'`id` da `startSession`. Verificato nel browser: staglio di 30 min, l'annulla ripristina la banda, la timeline è in IndexedDB, un solo record.
+- **P1-b, orario unico.** Il 🍕 del grafico va sulla previsione. Lo scarto dal piano esce da header e timeline e resta solo sotto l'orario grande, con "Aggiusta rotta →". Le anteprime dicono "L'orario di cottura non cambia: ~03:05". L'aiuto spiega cosa guardare nel panetto.
+- **P2:**
+  - niente più alone sul pallino della fase corrente e sui LED; tolte due classi CSS morte;
+  - il pannello di conferma si apre sotto la timeline toccata;
+  - il focus non si perde mai: dopo "Fatto ora" va su "↶ Annulla", dopo "Ho infornato" sul titolo "Infornata alle", dopo l'annulla su "Ho infornato", nello Storico su "Annulla" o "↶ Annulla";
+  - Storico: riepilogo "Come ti viene di solito" per stile (scarto medio dal pronto, voto medio), "pronta dalle … (+N min)" in ogni card, chip del voto a 44px, un solo `h1`.
+- **P3:**
+  - "Termina senza infornare" chiede un secondo tocco;
+  - la pill dell'header dice "Infornata";
+  - niente 🔒 sulla COTTURA;
+  - le etichette della timeline sono su due righe volute (nome / TA).
+
+**Verifica:** typecheck e test verdi; percorso completo nel browser senza errori; rilevatore su dashboard, Storico e index.html: 20 → 17 segnalazioni, le stesse 2 non solo informative volute.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

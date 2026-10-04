@@ -131,7 +131,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   const canTransition = (phase.tappable || overdue) && !!onTransition;
   // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
   // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
-  const isLocked = !canTransition && !done && (isCompleted || isCurrent);
+  const isLocked = !canTransition && !done && !phase.isBake && (isCompleted || isCurrent);
 
   const reduced = useReducedMotion();
   const markerRef = useRef<HTMLDivElement>(null);
@@ -154,7 +154,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   };
   // Il verde è riservato a "pronto": le fasi fatte sono in terra d'ombra.
   const pipStyle: React.CSSProperties = isCurrent
-    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}40` }
+    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}40`, ['--pip-ring' as any]: `${dotColor}40` }
     : isCompleted
       ? { ...pipBase, background: 'var(--pm4-umber)' }
       : overdue
@@ -190,7 +190,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
       }}
     >
       {/* Lucchetto sulle fasi consolidate (affordance visiva prima del tap) */}
-      {isLocked && isCompleted && (
+      {isLocked && isCompleted && !phase.isBake && (
         <div aria-hidden="true" style={{
           position: 'absolute', top: 18, right: 4, fontSize: 11,
         }}>🔒</div>
@@ -222,7 +222,9 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
         fontSize: 11, textAlign: 'center', letterSpacing: '0.04em', textTransform: 'uppercase',
         lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 60,
       }}>
-        {canonicalDisplayLabel(phase)}
+        {/* nome e ambiente su due righe volute: "· TA" non va più a capo da solo */}
+        {phase.label}
+        {phase.env && <><br /><span style={{ color: 'var(--pm4-umber)' }}>{phase.env}</span></>}
       </div>
 
       <div style={{
@@ -299,16 +301,10 @@ export function FermentationTimeline({
   for (const sg of [...tlNow].filter(x => x && x.status !== 'completed').sort((a, b) => a.startElapsedH - b.startElapsedH)) {
     if (!plannedStart.has(sg.phaseType)) plannedStart.set(sg.phaseType, startedAtMs + sg.startElapsedH * 3_600_000);
   }
-  const planBakeMs = phases.find(p => p.isBake)?.startMs ?? null;
-  const fmtShort = (ms: number) => new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const displayFor = (p: CanonicalPhase): number => {
     if (p.isBake) return bakedAtMs ?? bakeForecastMs ?? p.startMs;
     if (p.state !== 'past' && plannedStart.has(p.transitionTo)) return plannedStart.get(p.transitionTo)!;
     return p.startMs;
-  };
-  const bakeSub = (p: CanonicalPhase): string | undefined => {
-    if (!p.isBake || bakedAtMs != null || bakeForecastMs == null || planBakeMs == null) return undefined;
-    return Math.abs(bakeForecastMs - planBakeMs) > 30 * 60_000 ? `piano ${fmtShort(planBakeMs)}` : undefined;
   };
 
   // Una sola fase corrente a schermo: la prima (la stessa del chip nell'header).
@@ -349,7 +345,6 @@ export function FermentationTimeline({
               onLockedTap={showLocked}
               displayMs={displayFor(phase)}
               done={baked}
-              subline={bakeSub(phase)}
             />
           ))}
         </div>

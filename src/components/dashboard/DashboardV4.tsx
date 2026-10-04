@@ -145,7 +145,7 @@ function ChannelLabel({ idx, name, tick, right, help }: {
   );
 }
 
-const HELP_STATO = "Due orologi: la lievitazione (gas prodotto dal lievito) e la maturazione (enzimi che lavorano la farina) corrono a velocità diverse. Il semaforo segue la maturazione. L'orario viene da lì; il piano delle fasi è solo la somma delle durate impostate: se diverge, fidati del panetto.";
+const HELP_STATO = "Due orologi: la lievitazione (gas prodotto dal lievito) e la maturazione (enzimi che lavorano la farina) corrono a velocità diverse. Il semaforo segue la maturazione. L'orario viene da lì; il piano delle fasi è solo la somma delle durate impostate: se diverge, guarda il panetto: volume quasi raddoppiato, bolle fini in superficie, e un dito infarinato lascia un'impronta che risale piano.";
 const HELP_GLUTINE = 'Col tempo la W cala perché gli enzimi tagliano il glutine. Al 100% di usura la pasta non regge più la stesura.';
 const HELP_TEMPERATURA = "Il cuore dell'impasto insegue lentamente la temperatura dell'ambiente: il contenitore fa da isolante.";
 
@@ -416,6 +416,20 @@ export function DashboardV4() {
     return { effectiveTimeline: tl, effectiveSession: { ...session, thermalTimeline: tl } };
   }, [session, oopConfirmed]);
 
+  // Focus dopo le azioni che smontano il pulsante premuto (Fatto ora, Ho infornato,
+  // Annulla): lo si porta sul comando o sul titolo che lo sostituisce, mai sul body.
+  const focusNext     = useRef<'undoPhase' | 'baked' | 'bakeBtn' | null>(null);
+  const undoPhaseRef  = useRef<HTMLButtonElement>(null);
+  const bakedTitleRef = useRef<HTMLDivElement>(null);
+  const bakeBtnRef    = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const target = focusNext.current;
+    if (!target) return;
+    const el = target === 'undoPhase' ? undoPhaseRef.current
+      : target === 'baked' ? bakedTitleRef.current : bakeBtnRef.current;
+    if (el) { el.focus(); focusNext.current = null; }
+  });
+
   // "Pronta dalle": registrato una volta, al primo PRONTO (racconto finale).
   // Hook prima dell'early return; isReady arriva dal render tramite ref.
   const isReadyRef = useRef(false);
@@ -536,7 +550,7 @@ export function DashboardV4() {
     ? windowStr
     : usePlan
       ? `in frigo · secondo il piano · tra ${fmtDuration(readyInH)}`
-      : `tra ${fmtDuration(readyInH)}${planDelta ? ` · ${planDelta} delle fasi` : holdUntil ? ` · regge fino a ~${fmtClock(holdUntil, nowDate)}` : ''}`;
+      : `tra ${fmtDuration(readyInH)}${holdUntil ? ` · regge fino a ~${fmtClock(holdUntil, nowDate)}` : ''}`;
   // Header e blocco centrale leggono lo stesso orario.
   const bakeForecast = isReady ? 'ORA' : `~${etaParts.time}`;
   const matFootnote = `maturazione ${enzymaticMatPct.toFixed(1)}% → target ${threshold}%`;
@@ -605,15 +619,18 @@ export function DashboardV4() {
     } catch { return null; }
   };
   // In frigo vale il piano; fuori, la previsione non dipende dal piano delle fasi.
+  // Cosa cambia per l'impasto, non per il "piano": in frigo l'orario segue le fasi,
+  // a temperatura ambiente lo decide la maturazione e non si sposta.
   const previewText = (pv: NonNullable<ReturnType<typeof previewFor>>) => pv.isCold
-    ? `Cottura prevista ${fmtClock(pv.bakeAfter, nowDate)} (in frigo vale il piano)`
-    : `La previsione resta ${isReady ? 'ORA' : `~${fmtClock(readyAt, nowDate)}`} · il piano delle fasi va alle ${fmtClock(pv.bakeAfter, nowDate)}`;
+    ? `In frigo: cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}`
+    : `L'orario di cottura non cambia: ${isReady ? 'si può infornare ora' : `~${fmtClock(readyAt, nowDate)}`}`;
   const preview    = previewFor(pendingPhase?.phaseType ?? null);
   const duePreview = showDue ? previewFor(dueSeg!.phaseType) : null;
   const applyPhase = (phaseType: string, label: string, atElapsedH?: number) => {
     const snap = snapshotPhase();
     setPhase(phaseType, { enforceForward: true, atElapsedH });
     if (snap) {
+      focusNext.current = 'undoPhase';
       setUndo({ snap, label });
       if (undoTimer.current) clearTimeout(undoTimer.current);
       undoTimer.current = setTimeout(() => setUndo(null), 10_000);
@@ -621,6 +638,7 @@ export function DashboardV4() {
   };
   const confirmPhase = () => {
     if (!pendingPhase) return;
+    phaseOpener.current = null;   // il focus va su "Annulla", non sul marker
     applyPhase(pendingPhase.phaseType, pendingPhase.label);
     setPendingPhase(null);
   };
@@ -646,6 +664,7 @@ export function DashboardV4() {
     dispatch({ type: 'SESSION_UPDATE', patch: {
       bakedAt: at, predictedBakeAt: planBake, bakedMaturationPct: enzymaticMatPct,
     } as Partial<Session> });
+    focusNext.current = 'baked';
     setBakeUndoOpen(true);
     if (bakeUndoTimer.current) clearTimeout(bakeUndoTimer.current);
     bakeUndoTimer.current = setTimeout(() => setBakeUndoOpen(false), 10_000);
@@ -659,12 +678,36 @@ export function DashboardV4() {
     setBakeUndoOpen(false);
     if (bakeUndoTimer.current) clearTimeout(bakeUndoTimer.current);
     cancelNotification(NOTIF_ID.outcome);
+    focusNext.current = 'bakeBtn';
   };
   // SESSION_END salva nello Storico (la persistenza legge la sessione col bakedAt già dentro).
   const finishBaked = () => {
     dispatch({ type: 'SESSION_END' });
     dispatch({ type: 'NAV', view: 'history' });
   };
+
+  // Cambio fase richiesto dalla timeline: conferma esplicita, subito sotto la
+  // timeline toccata (non sopra, dove spingerebbe il marker sotto il footer).
+  const confirmPanel = pendingPhase ? (
+          <div className="pm4-panel" role="group" aria-labelledby="pm-phase-confirm-title"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setPendingPhase(null); } }}
+            style={{ padding: '13px 14px 14px', borderColor: 'rgba(255,140,50,0.45)' }}>
+            <div id="pm-phase-confirm-title" ref={confirmTitleRef} tabIndex={-1}
+              style={{ color: 'var(--pm4-flour)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 6, outline: 'none' }}>
+              Passi a {pendingPhase.label} ora?
+            </div>
+            {preview && (
+              <div style={{ color: 'var(--pm4-tan)', fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5, marginBottom: 12 }}>
+                {preview.cutH > 0.05 && <>{preview.curLabel} accorciata di {fmtDuration(preview.cutH)}<br /></>}
+                {previewText(preview)}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => setPendingPhase(null)} className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>Annulla</button>
+              <button onClick={confirmPhase} className="pm-btn-primary" style={BTN_PRIMARY}>Conferma</button>
+            </div>
+          </div>
+  ) : null;
 
   return (
     <div className="pm4-root" style={{ minHeight: '100dvh', maxWidth: 430, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
@@ -678,12 +721,12 @@ export function DashboardV4() {
         currentPhase={phase}
         alertLevel={alertRes.level}
         alertMessage={alertRes.message}
-        currentPhaseLabel={canonicalCurrent ? canonicalDisplayLabel(canonicalCurrent) : undefined}
-        currentPhaseCold={canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
+        currentPhaseLabel={bakedAt ? 'Infornata' : canonicalCurrent ? canonicalDisplayLabel(canonicalCurrent) : undefined}
+        currentPhaseCold={bakedAt ? false : canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
         coldBakeWarning={coldBakeMsg}
         onAdjust={() => dispatch({ type: 'NAV', view: 'rotta' })}
         bakeForecast={bakedAt ? fmtClock(bakedAt) : bakeForecast}
-        planDelta={bakedAt ? null : planDelta}
+        planDelta={null}
       />
 
       {/* annuncio per screen reader dei cambi di stato che contano */}
@@ -745,7 +788,7 @@ export function DashboardV4() {
           <>
             <div className="pm4-panel" style={{ padding: '13px 14px 15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 11 }}>
-                <span style={{ color: 'var(--pm4-tan)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Infornata alle</span>
+                <div ref={bakedTitleRef} tabIndex={-1} style={{ color: 'var(--pm4-tan)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', outline: 'none' }}>Infornata alle<span className="sr-only"> {fmtClock(bakedAt, nowDate)}</span></div>
                 <span style={{
                   color: 'var(--pm4-flour)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
                   border: '1px solid var(--pm4-line-strong)', borderRadius: 5, padding: '3px 8px', fontFamily: 'var(--font-mono)',
@@ -773,6 +816,15 @@ export function DashboardV4() {
             <SemaforoCard label={isReady ? 'Inforna' : 'Inforni alle'} value={etaValue} valueSuffix={etaSuffix}
               big={dashMode === 'monitor'} sub={etaSub}
               help={dashMode === 'monitor' ? HELP_STATO : undefined}
+              note={planDelta && (
+                // Lo scarto dal piano vive solo qui, con l'azione per rimediare.
+                <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'rotta' })}
+                  className="pm4-btn pm4-btn-ghost"
+                  style={{ ...BTN_GHOST, flex: 'none', width: '100%', minHeight: 44, padding: '10px 12px', fontSize: 12, fontWeight: 400, textAlign: 'left', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span>{planDelta} delle fasi</span>
+                  <span style={{ color: 'var(--pm4-ember-lo)', fontWeight: 700, whiteSpace: 'nowrap' }}>Aggiusta rotta →</span>
+                </button>
+              )}
               state={matState} color={SEMAFORO_COLORS[matState]} progress={enzymaticMatPct / threshold * 100}
               footnote={matFootnote} />
             <SecondaryRowCard><SecondaryRow pH={pH} leaveningPct={leaveningPct} W={W_current} /></SecondaryRowCard>
@@ -829,28 +881,6 @@ export function DashboardV4() {
           ))}
         </div>
 
-        {/* Cambio fase richiesto dalla timeline: conferma esplicita */}
-        {pendingPhase && (
-          <div className="pm4-panel" role="group" aria-labelledby="pm-phase-confirm-title"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setPendingPhase(null); } }}
-            style={{ padding: '13px 14px 14px', borderColor: 'rgba(255,140,50,0.45)' }}>
-            <div id="pm-phase-confirm-title" ref={confirmTitleRef} tabIndex={-1}
-              style={{ color: 'var(--pm4-flour)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 6, outline: 'none' }}>
-              Passi a {pendingPhase.label} ora?
-            </div>
-            {preview && (
-              <div style={{ color: 'var(--pm4-tan)', fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5, marginBottom: 12 }}>
-                {preview.cutH > 0.05 && <>{preview.curLabel} accorciata di {fmtDuration(preview.cutH)}<br /></>}
-                {previewText(preview)}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={() => setPendingPhase(null)} className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>Annulla</button>
-              <button onClick={confirmPhase} className="pm-btn-primary" style={BTN_PRIMARY}>Conferma</button>
-            </div>
-          </div>
-        )}
-
         {dashMode === 'monitor' ? (
           /* Monitor: solo la timeline — no charts, no telemetria */
           <DarkCard style={{ padding: '13px 12px 8px' }}>
@@ -858,7 +888,9 @@ export function DashboardV4() {
               onPhaseTransition={requestPhase} dueTransition={dueSeg?.phaseType ?? null}
               bakeForecastMs={isReady && session.readyAt ? new Date(session.readyAt).getTime() : readyAt.getTime()} bakedAtMs={bakedAt ? bakedAt.getTime() : null} />
           </DarkCard>
-        ) : (
+        ) : null}
+        {dashMode === 'monitor' && confirmPanel}
+        {dashMode === 'monitor' ? null : (
           <>
             {/* ── ZONA 2 — STRUTTURA ── */}
             <DarkCard>
@@ -958,11 +990,14 @@ export function DashboardV4() {
               <GompertzChartV4
                 key={`chart-${session.id}-${effectiveTimeline.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}-${oopConfirmed ? 'tc' : 'ta'}`}
                 session={effectiveSession} ts={ts} horizonH={horizonH}
+                bakeForecastH={((bakedAt ?? readyAt).getTime() - startedAt.getTime()) / 3_600_000}
               />
               <FermentationTimeline session={effectiveSession} currentSemaforoState={currentSemaforoState}
                 onPhaseTransition={requestPhase} dueTransition={dueSeg?.phaseType ?? null}
               bakeForecastMs={isReady && session.readyAt ? new Date(session.readyAt).getTime() : readyAt.getTime()} bakedAtMs={bakedAt ? bakedAt.getTime() : null} />
             </DarkCard>
+
+            {confirmPanel}
 
             {/* ── PROFILO IMPASTO (collassabile) ── */}
             <Collapsible title="PROFILO IMPASTO">
@@ -985,7 +1020,7 @@ export function DashboardV4() {
         {undo && (
           <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-tan)' }}>
             <span style={{ flex: 1 }}>Fase cambiata: {undo.label}</span>
-            <button onClick={undoPhase} className="pm4-btn pm4-btn-ghost" style={{ ...BTN_GHOST, flex: 'none', minHeight: 44, padding: '10px 14px', color: 'var(--pm4-ember-lo)' }}>
+            <button ref={undoPhaseRef} onClick={undoPhase} className="pm4-btn pm4-btn-ghost" style={{ ...BTN_GHOST, flex: 'none', minHeight: 44, padding: '10px 14px', color: 'var(--pm4-ember-lo)' }}>
               ↶ Annulla
             </button>
           </div>
@@ -1025,7 +1060,7 @@ export function DashboardV4() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {isReady && (
-              <button onClick={markBaked} className="pm-btn-primary" style={{ ...BTN_PRIMARY, minHeight: 52, fontSize: 15 }}>
+              <button ref={bakeBtnRef} onClick={markBaked} className="pm-btn-primary" style={{ ...BTN_PRIMARY, minHeight: 52, fontSize: 15 }}>
                 🍕 Ho infornato
               </button>
             )}

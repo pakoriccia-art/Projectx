@@ -288,7 +288,8 @@ function AppRouter() {
   return (
     <main className={state.view === 'dashboard' ? undefined : 'pm4-root'}
       style={state.view === 'dashboard' ? undefined : { minHeight: '100dvh' }}>
-      <h1 className="sr-only">{VIEW_TITLES[state.view] ?? VIEW_TITLES.home}</h1>
+      {/* Lo Storico ha già un h1 visibile: uno solo per pagina. */}
+      {state.view !== 'history' && <h1 className="sr-only">{VIEW_TITLES[state.view] ?? VIEW_TITLES.home}</h1>}
       <div className="pm4-stack">
         <ErrorBoundary>
           <Suspense fallback={<ViewLoader />}>{view}</Suspense>

@@ -81,7 +81,7 @@ export function SegMeter({ progress, color, segments = 10 }: {
 }
 
 export function SemaforoCard({
-  label, value, valueSuffix, big = false, help, state, color, progress, target, half = false, caption, sub, footnote,
+  label, value, valueSuffix, big = false, help, note, state, color, progress, target, half = false, caption, sub, footnote,
 }: {
   label: string; value: string; state: SemaforoState; color: string;
   /** Contesto piccolo accanto al valore (es. "domani"), così l'orario resta in testa. */
@@ -90,6 +90,8 @@ export function SemaforoCard({
   big?: boolean;
   /** Spiegazione breve dietro un "?" (progressive disclosure). */
   help?: string;
+  /** Riga d'azione sotto il valore (es. scarto dal piano con "Aggiusta rotta"). */
+  note?: React.ReactNode;
   progress: number; target?: number; half?: boolean;
   /** R6: nomina esplicitamente COSA misura il numero grande (varia per stile). */
   caption?: string;
@@ -155,6 +157,7 @@ export function SemaforoCard({
         </div>
       )}
 
+      {note && <div style={{ margin: '0 0 12px' }}>{note}</div>}
       <SegMeter progress={progress} color={color} />
 
       {footnote ? (
@@ -190,6 +193,8 @@ export function CollapseModal({
 }) {
   // Il primo comando (a fuoco all'apertura) è quello sensato, non il distruttivo.
   const ref = useDialogFocus<HTMLDivElement>();
+  // Terminare senza infornare chiude la sessione: chiede un secondo tocco.
+  const [confirmEnd, setConfirmEnd] = useState(false);
   return (
     <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby="pm-collapse-title" aria-describedby="pm-collapse-msg" style={{
       position: 'fixed', inset: 0, zIndex: 1000,
@@ -230,12 +235,12 @@ export function CollapseModal({
         }}>
           Continua a monitorare
         </button>
-        <button onClick={onEnd} className="pm4-btn pm4-btn-danger-quiet" style={{
+        <button onClick={confirmEnd ? onEnd : () => setConfirmEnd(true)} className="pm4-btn pm4-btn-danger-quiet" style={{
           background: 'none', border: '1px solid rgba(255,118,117,0.35)', color: 'var(--state-critical)',
           fontSize: 13, cursor: 'pointer', borderRadius: 9, minHeight: 44,
           padding: '10px 22px', fontFamily: 'var(--font-mono)',
         }}>
-          Termina senza infornare
+          {confirmEnd ? 'Sì, termina senza infornare' : 'Termina senza infornare'}
         </button>
       </div>
     </div>

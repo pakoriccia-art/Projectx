@@ -5,6 +5,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
+import { buildInitialTimeline } from '../../db/db';
 import {
   Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2, Metric,
   Badge, ExpandableReward, Advisory,
@@ -1666,10 +1667,23 @@ export function WizardView() {
       dispatch({ type: 'WIZARD_STEP', step: step + 1 });
     } else {
       try {
-        const session = buildSession(draft);
+        const built = buildSession(draft);
+        // La sessione in memoria nasce già con la sua timeline: altrimenti ogni
+        // cambio di fase la ricostruirebbe dall'orologio (stati per orario, durate
+        // di default) e l'annulla ripartirebbe da una timeline diversa da quella mostrata.
+        const session: Session = {
+          ...built,
+          thermalTimeline: built.thermalTimeline && built.thermalTimeline.length > 0
+            ? built.thermalTimeline
+            : buildInitialTimeline(built as any),
+        };
         dispatch({ type: 'SESSION_START', session });
-        // Persist session + initial ProcessLogEntry (KB §12.1) — fire-and-forget
-        startSession(session).catch(err => console.error('[startSession]', err));
+        // Persist session + initial ProcessLogEntry (KB §12.1). L'id arriva da Dexie:
+        // senza, i cambi di fase non verrebbero mai salvati e la chiusura creerebbe
+        // un secondo record nello Storico.
+        startSession(session)
+          .then(id => dispatch({ type: 'SESSION_UPDATE', patch: { id } }))
+          .catch(err => console.error('[startSession]', err));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setBuildError(msg);
