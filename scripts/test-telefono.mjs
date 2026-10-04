@@ -56,6 +56,15 @@ async function timelineTimes(page) {
   return { text: t, staglio: get('STAGLIO'), appretto: get('APPRETTO') };
 }
 
+/**
+ * La sessione del test: la più recente tra le "active" con fotografia del tick.
+ * Sul telefono possono esserci record "active" orfani di versioni precedenti
+ * (senza fotografia): non vanno confusi con quella in prova.
+ */
+const currentSession = rows => (rows ?? [])
+  .filter(s => s.status === 'active' && s.hasSnapshot)
+  .sort((a, b) => b.id - a.id)[0];
+
 async function readDb(page) {
   return page.evaluate(() => new Promise(res => {
     const r = indexedDB.open('PizzaMatrixDB');
@@ -135,7 +144,9 @@ await page.getByRole('button', { name: 'Conferma', exact: true }).click();
 await sleep(1500);
 
 const db1 = await readDb(page);
-const active1 = db1?.find(s => s.status === 'active');
+const orphans = (db1 ?? []).filter(s => s.status === 'active' && !s.hasSnapshot).length;
+if (orphans) console.log(`  · ${orphans} sessioni "active" orfane di versioni precedenti nel DB (ignorate)`);
+const active1 = currentSession(db1);
 check('Timeline salvata in IndexedDB', !!active1 && active1.timeline.includes('balled_room:current'),
   active1 ? active1.timeline.join(' → ') : 'nessuna sessione attiva nel DB');
 
@@ -149,7 +160,7 @@ const header = clean(await page.locator('header').first().innerText().catch(() =
 check('La sessione riprende sulla dashboard', /Trascorso/i.test(header), header.slice(0, 100));
 check('Fase corrente: STAGLIO', /STAGLIO/.test(header));
 const db2 = await readDb(page);
-const active2 = db2?.find(s => s.status === 'active');
+const active2 = currentSession(db2);
 check('Maturazione non azzerata', active2?.mat != null && matBefore != null && active2.mat >= matBefore,
   `prima ${matBefore?.toFixed(2)}%, dopo ${active2?.mat?.toFixed(2)}%`);
 
