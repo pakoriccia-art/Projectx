@@ -22,7 +22,7 @@ import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
-  computeFrictionRise,
+  computeFrictionRise, CONTAINER_THERMAL_PRESETS,
 } from '../../engine';
 import { scaleMuMaxByDose, doseFactorSaturated } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
@@ -127,7 +127,7 @@ const TH_H_AIR     = 8;      // W/(m²·K) — convezione naturale aria in ambie
  * Usa legge di Newton + τ sferica (thermalTimeConstantSphere del motore).
  * Ritorna 0 se tAmb ≤ 18°C (riscaldo impossibile) o fridgeTempC ≥ 18°C (già caldo).
  */
-function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number): number {
+function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number, tauMultiplier = 1.0): number {
   const T_SERVICE = 18;
   if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
   const h   = Math.max(0.01, hydrationPct / 100);
@@ -135,7 +135,8 @@ function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: nu
   const V   = panMassKg / TH_RHO_DOUGH;
   const r   = Math.cbrt((3 * V) / (4 * Math.PI));
   const A   = 4 * Math.PI * r * r;
-  const tau = (panMassKg * cp) / (TH_H_AIR * A);   // secondi
+  // τ con la resistenza del contenitore, come wizard e tick della dashboard
+  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;   // secondi
   const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
   if (ratio <= 0) return 0;
   return Math.max(0, (tau * Math.log(ratio)) / 3600);  // ore
@@ -155,6 +156,7 @@ function computeRampAdu(
   panMassKg: number, hydrationPct: number,
   fridgeTempC: number, tAmb: number, wH: number,
   Ea: number, agentType: string, kRef: number,
+  tauMultiplier = 1.0,
 ): number {
   if (wH <= 0 || kRef <= 1e-12) return 0;
   const h    = Math.max(0.01, hydrationPct / 100);
@@ -162,7 +164,7 @@ function computeRampAdu(
   const V    = panMassKg / TH_RHO_DOUGH;
   const r    = Math.cbrt((3 * V) / (4 * Math.PI));
   const A    = 4 * Math.PI * r * r;
-  const tau  = (panMassKg * cp) / (TH_H_AIR * A);   // τ [s]
+  const tau  = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;   // τ [s]
   const N    = 20;
   const dt_h = wH / N;
   const dt_s = dt_h * 3600;
@@ -1438,7 +1440,10 @@ export function FermentationPlannerView() {
 
   // Massa panetto — usata per riscaldo e integrazione ramp tc_appreto
   const panMassKg = (totalFlourG * (1 + hydration / 100 + salt / 100)) / 1000 / Math.max(1, numPanetti);
-  const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb);
+  // Stesso contenitore che il wizard userà di default (cassetta chiusa): il riscaldo
+  // del piano coincide con quello che la dashboard simulerà.
+  const plannerTauMult = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)['closed_box']?.tauMultiplier ?? 1.0;
+  const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb, plannerTauMult);
 
   // ADU accumulato durante lo stemperamento (integrazione Riemann N=20)
   // Sottratto da aduNeeded prima di risolvere il split TA/TC per tc_appreto,
@@ -1446,7 +1451,7 @@ export function FermentationPlannerView() {
   const rampAduPlanner = (() => {
     if (warmupHPlanner <= 0) return 0;
     const kRef = (kEffective as Function)(25, aParams.Ea, agentType) as number;
-    return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef);
+    return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef, plannerTauMult);
   })();
 
   // W effettivo passato al solver — usa blend se attivo, altrimenti slider singolo

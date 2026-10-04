@@ -299,7 +299,7 @@ Scelte dell'utente: soglia della sessione, "pronto = infornabile", nessun modale
 
 **Verifica:** typecheck e test verdi, con nuovi test di schema, soglia, `canBakeNow` e timeline normalizzata. Nel browser le tre modalità del planner arrivano fino a "Ho infornato", senza errori in console. Rilevatore su `src/components/tools`: 87 → 71 segnalazioni, tutte solo informative (in prevalenza dimensioni del testo fuori dalla scala tipografica).
 
-**Aperto (motore/planner):** nella modalità Orario il riscaldo del planner (2h 22m) non considera il contenitore. La dashboard, che lo considera, porta il pronto alcune ore dopo il piano e avvisa "inforni a ~12°".
+**Riscaldo allineato (su richiesta dell'utente):** nella modalità Orario il riscaldo del planner ora considera il contenitore, come il wizard e la dashboard (cassetta chiusa di default). Il motore non è stato toccato. Verificato: niente più "inforni a ~12°" all'avvio; PRONTO alle 21:06 con il piano alle 21:00, prima era all'01:07.
 
 ## Verifica
 - `tsc --noEmit`: nessun errore.
