@@ -149,6 +149,7 @@ export interface Session {
   outcomeRating?: 'excellent' | 'good' | 'ok' | 'poor';
   // "Ho infornato": ora reale, cottura pianificata, maturazione raggiunta.
   bakedAt?: Date;
+  readyAt?: Date;                      // primo istante in cui il semaforo è andato a PRONTO
   predictedBakeAt?: Date;
   bakedMaturationPct?: number;
 

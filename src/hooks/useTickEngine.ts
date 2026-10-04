@@ -323,7 +323,7 @@ export function useTickEngine() {
    * Fisica: senza auto-switch tAmbient, kRatio rimane a 0.711 invece di 0.006
    * → ADU in TC sbaglia di ~12% nelle prime 4h (per closed_box).
    */
-  const setPhase = useCallback((p: string, opts?: { enforceForward?: boolean }) => {
+  const setPhase = useCallback((p: string, opts?: { enforceForward?: boolean; atElapsedH?: number }) => {
     const session = sessionRef.current;
     if (!session) return;
 
@@ -343,9 +343,15 @@ export function useTickEngine() {
 
     const isCold = p === 'bulk_fridge' || p === 'balled_fridge';
     const ambientTempC = isCold ? (session.fridgeTempC ?? 4) : (session.tLaboratorio ?? 22);
-    const nowElapsedH  = session.startedAt
+    const realNowH     = session.startedAt
       ? (Date.now() - new Date(session.startedAt).getTime()) / 3600000
       : 0;
+    // "Fatto alle …": registra la transizione all'orario reale, mai nel futuro.
+    // La dashboard lo offre solo senza cambio di ambiente (TA → TA), così quanto
+    // già integrato dal tick resta valido.
+    const nowElapsedH  = opts?.atElapsedH != null
+      ? Math.min(realNowH, Math.max(0, opts.atElapsedH))
+      : realNowH;
 
     // Aggiorna ThermalTimeline (chiudi current, apri nuovo, ripianta planned)
     const existingTimeline = session.thermalTimeline ?? buildInitialTimeline(session);

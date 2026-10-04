@@ -183,6 +183,18 @@ Andamento sulla dashboard: 19 → 26 → 25. Le correzioni del passaggio 6 tengo
 - **P2:** Storico ancora Classic (cestino senza conferma, voto non modificabile); `role=status` con pulsanti dentro; banda dello staglio non annunciata.
 - **Detector:** 24 segnalazioni. Il verdetto "glow solo negli stati critici" è stato corretto: alcuni glow cromatici restano anche negli stati normali.
 
+## Passaggio 8: correzioni P0 e P1 della terza critique
+
+Scelte dell'utente: un solo orario (la previsione) con il piano come scarto, finale che racconta la sessione, perimetro P0 + P1. Motore non toccato.
+
+- **P0, un solo orario.** Header, blocco centrale e COTTURA nella timeline mostrano la previsione. Il piano delle fasi compare solo come scarto in parole sopra i 30 minuti ("~3h prima del piano"). Il "?" spiega la differenza. Le anteprime di banda e conferma dicono "la previsione resta ~00:46 · il piano delle fasi va alle 04:19"; in frigo resta "vale il piano".
+- **P1, finale.** Nuovo campo `readyAt`, registrato al primo PRONTO. Dopo "Ho infornato" il blocco centrale diventa "Infornata alle 00:57 · pronta dalle 00:40 · +17 min", con badge INFORNATA. Lo screen reader annuncia "Infornata registrata" e la timeline risulta tutta fatta. Lo Storico mostra "infornata · pronta dalle".
+- **P1, timeline.** Le fasi mostrano l'inizio reale del loro segmento (APPRETTO 23:57 come la banda). "In ritardo" scatta solo dopo 5 minuti. Dopo l'infornata la COTTURA mostra l'orario reale.
+- **P1, orario reale.** "Fatto alle 19:57" registra la fase all'orario previsto quando l'ambiente non cambia (TA → TA). Verso o dal frigo si registra adesso, e la banda lo dice.
+- **P1, modale di collasso.** Ordine dei pulsanti: "🍕 Inforna adesso" (a fuoco all'apertura), "Continua a monitorare", "Termina senza infornare".
+
+**Verifica:** typecheck e test verdi, con nuovi test per lo scarto e per la transizione all'orario reale. Percorso completo nel browser, senza errori in console. Rilevatore sulla dashboard: 24 → 21 segnalazioni, le stesse 2 non solo informative.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

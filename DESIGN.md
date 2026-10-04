@@ -243,8 +243,9 @@ Tattili, pieni e robusti, sempre alti almeno 44px.
 ### Signature: Semaforo
 Il cuore di BANCO, e la risposta a "quando inforno?".
 - Etichetta "PRONTO PER INFORNARE" e un `StateBadge` con l'etichetta lunga dello stato.
-- Il readout è un **orario**, non una percentuale: "~21:10" (il giorno, se non è oggi, è un suffisso piccolo: "domani"), oppure "ORA" quando è pronto. L'etichetta dice "Inforni alle" / "Inforna", mai "pronto" prima del tempo. Sotto, nel colore di stato, il tempo rimanente e la tenuta ("tra 4h 55m · regge fino a ~03:10") o la finestra ("ancora ~2h prima della sbollatura"). L'header mostra lo stesso orario, con il piano corrente della timeline come riferimento piccolo.
-- Quando l'orario di una fase pianificata arriva, sopra il blocco centrale compare una banda brace ("È ora dello staglio · Tra 15 min / Fatto ora") e parte una notifica locale programmata in anticipo. La fase in ritardo resta toccabile nella timeline.
+- Il readout è un **orario**, non una percentuale: "~21:10" (il giorno, se non è oggi, è un suffisso piccolo: "domani"), oppure "ORA" quando è pronto. L'etichetta dice "Inforni alle" / "Inforna", mai "pronto" prima del tempo. Sotto, nel colore di stato, il tempo rimanente e la tenuta ("tra 4h 55m · regge fino a ~03:10") o la finestra ("ancora ~2h prima della sbollatura"). Header, blocco centrale e COTTURA nella timeline mostrano **un solo orario**, la previsione. Il piano delle fasi (somma delle durate) compare solo come scarto in parole, sopra i 30 minuti: "~3h prima del piano". In frigo vale il piano.
+- Quando l'orario di una fase pianificata arriva, sopra il blocco centrale compare una banda brace ("È ora dello staglio · Tra 15 min / Fatto ora") e parte una notifica locale programmata in anticipo. La fase in ritardo resta toccabile nella timeline. "In ritardo" dopo 5 minuti. Se l'ambiente non cambia si può registrare all'orario previsto ("Fatto alle 19:30").
+- Dopo "Ho infornato" il blocco centrale racconta la sessione: "Infornata alle 00:57 · pronta dalle 00:40 · +17 min", badge INFORNATA in farina, timeline tutta fatta. Il voto si dà dopo, dallo Storico.
 - Il meter a 10 LED mostra l'avanzamento verso la soglia. Si riempie in sequenza: 250ms di attesa, poi 45ms per segmento. Una nota in terra d'ombra riporta "maturazione X% → target Y%".
 - Chiude la griglia di celle secondarie: lievitazione, pH, W.
 

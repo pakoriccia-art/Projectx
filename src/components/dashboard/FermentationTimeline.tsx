@@ -103,8 +103,14 @@ function formatCountdown(h: number): string {
 }
 
 // v2.4.20: marker derivato da una fase CANONICA (single source of truth).
-function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdue, onTransition, onLockedTap }: {
+function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdue, onTransition, onLockedTap, displayMs, done, subline }: {
   phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
+  /** Orario mostrato: il segmento pianificato reale (o la previsione per la cottura). */
+  displayMs: number;
+  /** Fase conclusa per un evento registrato (es. COTTURA dopo "Ho infornato"). */
+  done?: boolean;
+  /** Riga piccola sotto l'orario (es. "piano 03:50"). */
+  subline?: string;
   /** Una sola fase è "corrente" a schermo (la prima), anche se più fasi canoniche condividono il segmento. */
   isCurrent: boolean;
   /** Fase pianificata il cui orario è arrivato: resta toccabile e lo dice. */
@@ -112,8 +118,10 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   onTransition?: (phaseType: string, label: string) => void;
   onLockedTap?: () => void;
 }) {
-  const isCompleted  = phase.state === 'past';
-  const hoursFromNow = (phase.startMs - nowMs) / 3_600_000;
+  const isCompleted  = phase.state === 'past' || !!done;
+  const hoursFromNow = (displayMs - nowMs) / 3_600_000;
+  // "in ritardo" solo dopo 5 minuti: prima è semplicemente "ora".
+  const lateMin      = (nowMs - displayMs) / 60_000;
 
   const dotColor = SEMAFORO_COLORS[currentSemaforoState];
 
@@ -123,7 +131,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   const canTransition = (phase.tappable || overdue) && !!onTransition;
   // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
   // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
-  const isLocked = !canTransition && (isCompleted || isCurrent);
+  const isLocked = !canTransition && !done && (isCompleted || isCurrent);
 
   const reduced = useReducedMotion();
   const markerRef = useRef<HTMLDivElement>(null);
@@ -201,7 +209,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
           padding: '1px 5px', color: overdue ? 'var(--pm4-ember)' : 'var(--pm4-ember-lo)', fontSize: 11, letterSpacing: '0.02em',
           marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontWeight: overdue ? 700 : 400,
         }}>
-          {overdue ? 'in ritardo' : `tra ${formatCountdown(hoursFromNow)}`}
+          {overdue ? (lateMin >= 5 ? 'in ritardo' : 'ora') : `tra ${formatCountdown(hoursFromNow)}`}
         </div>
       ) : (
         <div style={{ height: 19 }} />
@@ -221,19 +229,28 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
         color: isCompleted ? 'var(--pm4-umber)' : 'var(--pm4-tan)',
         fontSize: 11, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
-        {formatAbsoluteTime(new Date(phase.startMs))}
+        {formatAbsoluteTime(new Date(displayMs))}
       </div>
+      {subline && (
+        <div style={{ color: 'var(--pm4-umber)', fontSize: 11, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+          {subline}
+        </div>
+      )}
     </div>
   );
 }
 
 export function FermentationTimeline({
-  session, currentSemaforoState, onPhaseTransition, dueTransition,
+  session, currentSemaforoState, onPhaseTransition, dueTransition, bakeForecastMs, bakedAtMs,
 }: {
   session: Session; currentSemaforoState: SemaforoState;
   onPhaseTransition?: (phaseType: string, label: string) => void;
   /** phaseType del prossimo segmento pianificato già arrivato all'orario (se c'è). */
   dueTransition?: string | null;
+  /** Orario di cottura previsto (stesso del blocco centrale): la COTTURA mostra questo. */
+  bakeForecastMs?: number | null;
+  /** Infornata registrata: COTTURA fatta, con l'orario reale. */
+  bakedAtMs?: number | null;
 }) {
   // now è locale — non causa re-render del parent ogni secondo
   const [now, setNow] = useState(() => new Date());
@@ -273,8 +290,31 @@ export function FermentationTimeline({
 
   if (phases.length === 0) return null;
 
+  // Orari reali dei segmenti pianificati: dopo uno staglio registrato la timeline
+  // ripianifica, e la strip deve mostrare gli stessi orari della banda.
+  const tlNow = (session.thermalTimeline && session.thermalTimeline.length > 0)
+    ? session.thermalTimeline : buildInitialTimeline(session as any);
+  // Inizio reale del segmento in cui si entra (pianificato o già in corso).
+  const plannedStart = new Map<string, number>();
+  for (const sg of [...tlNow].filter(x => x && x.status !== 'completed').sort((a, b) => a.startElapsedH - b.startElapsedH)) {
+    if (!plannedStart.has(sg.phaseType)) plannedStart.set(sg.phaseType, startedAtMs + sg.startElapsedH * 3_600_000);
+  }
+  const planBakeMs = phases.find(p => p.isBake)?.startMs ?? null;
+  const fmtShort = (ms: number) => new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const displayFor = (p: CanonicalPhase): number => {
+    if (p.isBake) return bakedAtMs ?? bakeForecastMs ?? p.startMs;
+    if (p.state !== 'past' && plannedStart.has(p.transitionTo)) return plannedStart.get(p.transitionTo)!;
+    return p.startMs;
+  };
+  const bakeSub = (p: CanonicalPhase): string | undefined => {
+    if (!p.isBake || bakedAtMs != null || bakeForecastMs == null || planBakeMs == null) return undefined;
+    return Math.abs(bakeForecastMs - planBakeMs) > 30 * 60_000 ? `piano ${fmtShort(planBakeMs)}` : undefined;
+  };
+
   // Una sola fase corrente a schermo: la prima (la stessa del chip nell'header).
-  const currentKey = phases.find(p => p.state === 'current')?.key;
+  // Dopo l'infornata non c'è più una fase corrente: tutto è fatto.
+  const baked = bakedAtMs != null;
+  const currentKey = baked ? undefined : phases.find(p => p.state === 'current')?.key;
   // La fase in ritardo è quella che porta al segmento pianificato già scaduto.
   const overdueKey = dueTransition
     ? phases.find(p => p.key !== currentKey && !p.isBake && p.state !== 'past' && p.transitionTo === dueTransition)?.key
@@ -283,7 +323,7 @@ export function FermentationTimeline({
   // Avanzamento reale lungo la strip: tempo trascorso sull'arco inizio → cottura.
   const firstMs = phases[0].startMs;
   const lastMs  = phases[phases.length - 1].startMs;
-  const progressPct = lastMs > firstMs
+  const progressPct = baked ? 100 : lastMs > firstMs
     ? Math.max(0, Math.min(100, ((nowMs - firstMs) / (lastMs - firstMs)) * 100))
     : 0;
 
@@ -307,6 +347,9 @@ export function FermentationTimeline({
               overdue={phase.key === overdueKey}
               onTransition={onPhaseTransition}
               onLockedTap={showLocked}
+              displayMs={displayFor(phase)}
+              done={baked}
+              subline={bakeSub(phase)}
             />
           ))}
         </div>

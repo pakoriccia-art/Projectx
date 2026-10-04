@@ -180,10 +180,14 @@ export function SemaforoCard({
 // ─── Modal collasso strutturale (non dismissibile) ────────────────────────────
 
 export function CollapseModal({
-  message, onEnd, onContinue,
+  message, onBake, onEnd, onContinue,
 }: {
-  message: string; onEnd: () => void; onContinue: () => void;
+  message: string;
+  /** "Inforna adesso": registra l'infornata (stesso flusso di "Ho infornato"). */
+  onBake: () => void;
+  onEnd: () => void; onContinue: () => void;
 }) {
+  // Il primo comando (a fuoco all'apertura) è quello sensato, non il distruttivo.
   const ref = useDialogFocus<HTMLDivElement>();
   return (
     <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby="pm-collapse-title" aria-describedby="pm-collapse-msg" style={{
@@ -210,24 +214,29 @@ export function CollapseModal({
       <div id="pm-collapse-msg" style={{ color: 'var(--pm4-tan)', fontSize: 13, textAlign: 'center', lineHeight: 1.6, maxWidth: 320 }}>
         {message}
       </div>
-      <div style={{ color: 'var(--pm4-umber)', fontSize: 11, textAlign: 'center' }}>
-        Sessione ancora attiva — puoi registrare l'esito
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 320, marginTop: 8 }}>
+        <button onClick={onBake} className="pm-btn-primary" style={{
+          background: 'var(--accent-brand)', color: 'var(--bg-primary)', border: 'none',
+          borderRadius: 9, padding: '14px 20px', minHeight: 52, fontSize: 15, fontWeight: 700,
+          cursor: 'pointer', fontFamily: 'var(--font-mono)',
+        }}>
+          🍕 Inforna adesso
+        </button>
+        <button onClick={onContinue} className="pm4-btn pm4-btn-ghost" style={{
+          background: 'none', border: '1px solid var(--pm4-line-strong)', color: 'var(--pm4-tan)',
+          fontSize: 13, cursor: 'pointer', borderRadius: 9, minHeight: 44,
+          padding: '10px 22px', fontFamily: 'var(--font-mono)',
+        }}>
+          Continua a monitorare
+        </button>
+        <button onClick={onEnd} className="pm4-btn pm4-btn-danger-quiet" style={{
+          background: 'none', border: '1px solid rgba(255,118,117,0.35)', color: 'var(--state-critical)',
+          fontSize: 13, cursor: 'pointer', borderRadius: 9, minHeight: 44,
+          padding: '10px 22px', fontFamily: 'var(--font-mono)',
+        }}>
+          Termina senza infornare
+        </button>
       </div>
-      <button onClick={onEnd} className="pm4-btn pm4-btn-warm" style={{
-        background: 'linear-gradient(180deg, #e0463f, #b3231d)', color: '#fff', border: 'none',
-        borderRadius: 9, padding: '14px 32px', fontSize: 14, fontWeight: 700,
-        cursor: 'pointer', marginTop: 8, fontFamily: 'var(--font-mono)',
-        boxShadow: '0 8px 22px -8px rgba(214,48,49,0.7)',
-      }}>
-        Termina · salva nello Storico
-      </button>
-      <button onClick={onContinue} className="pm4-btn pm4-btn-ghost" style={{
-        background: 'none', border: '1px solid var(--pm4-line-strong)', color: 'var(--pm4-tan)',
-        fontSize: 13, cursor: 'pointer', borderRadius: 9, minHeight: 44,
-        padding: '10px 22px', fontFamily: 'var(--font-mono)',
-      }}>
-        Continua a monitorare
-      </button>
     </div>
   );
 }

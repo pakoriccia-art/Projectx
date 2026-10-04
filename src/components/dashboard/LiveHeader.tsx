@@ -29,6 +29,8 @@ interface LiveHeaderProps {
    * altrimenti l'orario. Il piano resta come riferimento secondario.
    */
   bakeForecast?: string;
+  /** Scarto dal piano delle fasi, già in parole ("~3h prima del piano"); assente sotto i 30 min. */
+  planDelta?:    string | null;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -60,7 +62,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, bakeForecast,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, bakeForecast, planDelta,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -70,11 +72,10 @@ export function LiveHeader({
 
   const elapsedH   = Math.max(0, (now.getTime() - startedAt.getTime()) / 3_600_000);
   const timeStr    = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  // Un solo orario di cottura: la previsione del blocco centrale. Il piano è il
-  // riferimento piccolo accanto, senza "superato" (non è un errore, è il piano).
+  // Un solo orario di cottura: la previsione del blocco centrale. Il piano delle
+  // fasi compare solo come scarto, quando conta (> 30 min).
   const planClock  = targetBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const bakeMain   = bakeForecast ?? planClock;
-  const showPlan   = bakeForecast != null && bakeForecast.replace('~', '') !== planClock;
   const banner     = BANNER_STYLE[alertLevel];
   // v2.4.20: env dalla fase canonica se fornita, altrimenti dal phaseType.
   const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
@@ -108,7 +109,7 @@ export function LiveHeader({
           <div style={K}>Cottura</div>
           <div style={{ ...V, color: 'var(--pm4-flour)' }}>
             {bakeMain}
-            {showPlan && <span style={{ color: 'var(--pm4-umber)', fontWeight: 400, fontSize: 11 }}> · piano {planClock}</span>}
+            {planDelta && <span style={{ color: 'var(--pm4-umber)', fontWeight: 400, fontSize: 11 }}> · {planDelta}</span>}
           </div>
         </div>
         <span style={{

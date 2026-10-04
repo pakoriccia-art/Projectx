@@ -31,3 +31,35 @@ describe('phaseDue', () => {
     expect(phaseActionText(ta[2], ta)).toBe("Fine riposo: parte l'appretto");
   });
 });
+
+import { planDeltaText } from '../lib/phaseDue';
+import { vi } from 'vitest';
+
+describe('planDeltaText', () => {
+  const H = 3_600_000;
+  it('tace sotto i 30 minuti', () => {
+    expect(planDeltaText(0, 20 * 60_000)).toBeNull();
+    expect(planDeltaText(30 * 60_000, 0)).toBeNull();
+  });
+  it('dice prima/dopo il piano', () => {
+    expect(planDeltaText(0, 3 * H)).toBe('~3h prima del piano');
+    expect(planDeltaText(45 * 60_000, 0)).toBe('~45 min dopo il piano');
+    expect(planDeltaText(0, 1.5 * H)).toBe('~1h 30m prima del piano');
+  });
+});
+
+describe('Fatto alle …: transizione registrata a un orario passato', () => {
+  it('chiude il segmento corrente all’orario indicato e ci apre la fase', async () => {
+    // il setup globale mocka db.ts (Dexie): qui serve la funzione pura reale
+    const { applyPhaseTransition } = await vi.importActual<typeof import('../db/db')>('../db/db');
+    const tl = [
+      { id: 'a', phaseType: 'bulk_room', startElapsedH: 0, endElapsedH: 8, ambientTempC: 22, status: 'current' },
+      { id: 'b', phaseType: 'balled_room', startElapsedH: 8, endElapsedH: 8.5, ambientTempC: 22, status: 'planned' },
+      { id: 'c', phaseType: 'proofing', startElapsedH: 8.5, endElapsedH: 12.5, ambientTempC: 22, status: 'planned' },
+    ] as any;
+    const next = applyPhaseTransition(tl, 'balled_room', 22, 8);
+    expect(next[0]).toMatchObject({ phaseType: 'bulk_room', status: 'completed', endElapsedH: 8 });
+    expect(next[1]).toMatchObject({ phaseType: 'balled_room', status: 'current', startElapsedH: 8, endElapsedH: 8.5 });
+    expect(next[2]).toMatchObject({ phaseType: 'proofing', status: 'planned', startElapsedH: 8.5 });
+  });
+});

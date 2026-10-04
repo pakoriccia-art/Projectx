@@ -42,7 +42,7 @@ function SessionCard({
   deleting: boolean;
 }) {
   const baked = session.bakedAt ? new Date(session.bakedAt) : null;
-  const predicted = session.predictedBakeAt ? new Date(session.predictedBakeAt) : null;
+  const readySince = session.readyAt ? new Date(session.readyAt) : null;
   const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const start = session.startedAt instanceof Date
     ? session.startedAt : new Date(session.startedAt ?? Date.now());
@@ -106,7 +106,7 @@ function SessionCard({
         {start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
         {durationH != null && ` · ${durationH.toFixed(1)}h`}
         {baked && ` · infornata ${hhmm(baked)}`}
-        {baked && predicted && ` (piano ${hhmm(predicted)})`}
+        {baked && readySince && ` · pronta dalle ${hhmm(readySince)}`}
       </div>
 
       {/* Voto a posteriori: si dà dopo l'assaggio, non all'infornata */}
