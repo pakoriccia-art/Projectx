@@ -34,13 +34,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const clean = s => s.replace(/\s+/g, ' ').trim();
 const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
-async function openApp(device) {
-  await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
-  const webview = await device.webView({ pkg: PKG }, { timeout: 30_000 });
-  const page = await webview.page();
-  await page.waitForLoadState('domcontentloaded');
-  await sleep(2500);
-  return page;
+let device;
+
+/**
+ * Avvia l'app e aggancia la sua WebView. Dopo un force-stop la WebView nuova ha
+ * un altro pid: si cerca per 60 s e, se Playwright non la vede, ci si ricollega
+ * al telefono (la connessione nuova rilegge l'elenco delle WebView).
+ */
+async function openApp() {
+  const out = String(await device.shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${PKG}/.MainActivity`).catch(e => e));
+  if (/Error|Exception/i.test(out)) await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
+  const deadline = Date.now() + 60_000;
+  let reconnected = false;
+  while (Date.now() < deadline) {
+    const wv = device.webViews().find(w => w.pkg() === PKG);
+    if (wv) {
+      const page = await wv.page();
+      await page.waitForLoadState('domcontentloaded');
+      await sleep(2500);
+      return page;
+    }
+    if (!reconnected && Date.now() > deadline - 40_000) {
+      reconnected = true;
+      await device.close().catch(() => {});
+      [device] = await android.devices();
+    }
+    await sleep(1000);
+  }
+  throw new Error('WebView di PizzaMatrix non trovata dopo 60 s (l\'app è partita?)');
 }
 
 async function shot(page, device, name) {
@@ -52,7 +73,8 @@ async function shot(page, device, name) {
 async function timelineTimes(page) {
   const panel = page.locator('.pm4-stack').last().locator('.pm4-panel').filter({ hasText: 'COTTURA' }).last();
   const t = clean(await panel.innerText());
-  const get = label => (t.match(new RegExp(`${label}\\s+(?:TA|TC)?\\s*(\\d{2}:\\d{2})`)) || [])[1] ?? null;
+  // l'orario può avere il giorno davanti ("lun 01:25") quando non è oggi
+  const get = label => (t.match(new RegExp(`${label}\\s+(?:TA|TC)?\\s*(?:[a-zà]{2,4}\\.?\\s+)?(\\d{2}:\\d{2})`)) || [])[1] ?? null;
   return { text: t, staglio: get('STAGLIO'), appretto: get('APPRETTO') };
 }
 
@@ -105,11 +127,11 @@ async function runWizard(page) {
   await sleep(2000);
 }
 
-const [device] = await android.devices();
+[device] = await android.devices();
 if (!device) { console.error('Nessun telefono trovato da adb.'); process.exit(2); }
 console.log(`Telefono: ${device.model()} (${device.serial()})`);
 
-let page = await openApp(device);
+let page = await openApp();
 const inDashboard = await page.locator('header').filter({ hasText: /Trascorso/i }).count();
 if (inDashboard) {
   console.error('C\'è già una sessione in corso sul telefono. Terminala dall\'app (Termina) e rilancia il test.');
@@ -136,7 +158,8 @@ console.log('\n2 · Annulla');
 await page.getByRole('button', { name: /↶ Annulla/ }).click();
 await sleep(1000);
 const undone = await timelineTimes(page);
-check('Annulla ripristina la timeline', undone.staglio === before.staglio && undone.appretto === before.appretto,
+check('Annulla ripristina la timeline', !!before.staglio && !!before.appretto
+  && undone.staglio === before.staglio && undone.appretto === before.appretto,
   `prima ${before.staglio}/${before.appretto}, dopo annulla ${undone.staglio}/${undone.appretto}`);
 check('STAGLIO di nuovo toccabile', await page.locator('[aria-label*="passa a STAGLIO"]').count() > 0);
 await page.locator('[aria-label*="passa a STAGLIO"]').first().click();
@@ -154,7 +177,7 @@ console.log(`\n3 · App chiusa per ${WAIT_S}s e riaperta`);
 const matBefore = active1?.mat ?? null;
 await device.shell(`am force-stop ${PKG}`);
 await sleep(WAIT_S * 1000);
-page = await openApp(device);
+page = await openApp();
 await shot(page, device, '03-dopo-riapertura');
 const header = clean(await page.locator('header').first().innerText().catch(() => ''));
 check('La sessione riprende sulla dashboard', /Trascorso/i.test(header), header.slice(0, 100));
@@ -177,7 +200,7 @@ if (!KEEP) {
   const db3 = await readDb(page);
   check('Nessuna sessione attiva nel DB dopo Termina', !(db3 ?? []).some(s => s.status === 'active' && s.hasSnapshot));
   await device.shell(`am force-stop ${PKG}`);
-  page = await openApp(device);
+  page = await openApp();
   const hdr = await page.locator('header').filter({ hasText: /Trascorso/i }).count();
   check('Riaprendo l\'app la sessione chiusa non riappare', hdr === 0);
 }
