@@ -61,7 +61,8 @@ export async function persistSession(
   const record: Session = {
     ...session,
     status: 'completed',
-    endedAt: new Date(),
+    // La sessione finisce quando si inforna; il riepilogo può restare aperto dopo.
+    endedAt: session.bakedAt ? new Date(session.bakedAt) : new Date(),
     peakMaturation: ts?.maturationPct ?? session.peakMaturation,
     finalAdu:       ts?.cumulativeAdu ?? session.finalAdu,
     alertsCount,
@@ -81,4 +82,9 @@ export async function deleteSession(id: number): Promise<void> {
   await db.sessions.delete(id);
   await db.process_log.where('sessionId').equals(id).delete();
   await db.alerts.where('sessionId').equals(id).delete();
+}
+
+/** Esito dato a posteriori, dallo Storico o dal promemoria. */
+export async function rateSession(id: number, outcomeRating: NonNullable<Session['outcomeRating']>): Promise<void> {
+  await db.sessions.update(id, { outcomeRating });
 }

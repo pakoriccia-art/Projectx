@@ -1,11 +1,38 @@
 /**
  * PizzaMatrix — useCapacitorNotifications
- * Notifiche locali Capacitor per sweet spot e W critico.
+ * Notifiche locali Capacitor: pronto per infornare, W critica e — programmata in
+ * anticipo, così arriva anche a telefono bloccato — la prossima fase pianificata.
  * Su web: richiesta permessi no-op, schedule ignorato silenziosamente.
  */
 import { useEffect, useRef } from 'react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useApp } from '../context/AppContext';
+import { getStyleProfile } from '../engine';
+import { buildEffectiveTimeline } from '../engine/outOfProtocol';
+import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
+
+export const NOTIF_ID = {
+  ready:   100,
+  wCrit:   101,
+  phase:   110,
+  snooze:  111,
+  outcome: 120,
+} as const;
+
+/** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
+export function scheduleAt(id: number, title: string, body: string, at: Date) {
+  LocalNotifications.cancel({ notifications: [{ id }] })
+    .catch(() => {})
+    .finally(() => {
+      LocalNotifications.schedule({
+        notifications: [{ id, title, body, schedule: { at, allowWhileIdle: true } }],
+      }).catch(() => {});
+    });
+}
+
+export function cancelNotification(id: number) {
+  LocalNotifications.cancel({ notifications: [{ id }] }).catch(() => {});
+}
 
 interface SentState {
   peak: boolean;
@@ -21,6 +48,21 @@ export function useCapacitorNotifications() {
   useEffect(() => {
     LocalNotifications.requestPermissions().catch(() => {/* no-op su web */});
   }, []);
+
+  // Prossima fase pianificata: notifica all'orario previsto, riprogrammata
+  // a ogni cambio di timeline; cancellata a fine sessione.
+  const session = state.activeSession;
+  useEffect(() => {
+    if (!session?.startedAt) { cancelNotification(NOTIF_ID.phase); return; }
+    if (session.bakedAt) { cancelNotification(NOTIF_ID.phase); return; }
+    const tl  = buildEffectiveTimeline(session, !!session.outOfProtocolPhaseConfirmed);
+    const seg = nextPlannedSegment(tl);
+    const startedMs = new Date(session.startedAt).getTime();
+    const at = seg ? new Date(startedMs + seg.startElapsedH * 3_600_000) : null;
+    if (!seg || !at || at.getTime() <= Date.now()) { cancelNotification(NOTIF_ID.phase); return; }
+    scheduleAt(NOTIF_ID.phase, `🍕 ${phaseActionText(seg, tl)}`, 'Quando lo fai, registralo in PizzaMatrix: la previsione resta giusta.', at);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.thermalTimeline, session?.outOfProtocolPhaseConfirmed, session?.bakedAt]);
 
   // Controlla triggers ad ogni tick
   useEffect(() => {
@@ -40,15 +82,17 @@ export function useCapacitorNotifications() {
     const matPct  = ts.maturationPct;
     const W0      = session.effectiveW_initial ?? 280;
     const wDecay  = W0 > 0 ? ((W0 - ts.W_current) / W0) * 100 : 0;
+    // Stessa soglia del semaforo in dashboard (profilo di stile).
+    const threshold = getStyleProfile(session.style)?.alertThreshold ?? session.alertThreshold ?? 85;
 
-    // Sweet spot
-    if (!sentRef.current.peak && matPct >= (session.alertThreshold ?? 85)) {
+    // Pronto per infornare
+    if (!sentRef.current.peak && !session.bakedAt && matPct >= threshold) {
       sentRef.current.peak = true;
       LocalNotifications.schedule({
         notifications: [{
-          id: 100,
-          title: '🍕 Sweet Spot raggiunto!',
-          body: `Maturazione ${matPct.toFixed(0)}% — zona ottimale. Pronti per la cottura!`,
+          id: NOTIF_ID.ready,
+          title: '🍕 Pronto per infornare',
+          body: `Maturazione ${matPct.toFixed(0)}%: puoi infornare.`,
           schedule: { at: new Date(Date.now() + 500) },
         }],
       }).catch(() => {});
@@ -59,9 +103,9 @@ export function useCapacitorNotifications() {
       sentRef.current.crit = true;
       LocalNotifications.schedule({
         notifications: [{
-          id: 101,
-          title: '⚠️ Struttura W critica',
-          body: `Decadimento W: ${wDecay.toFixed(1)}% — cuoci subito!`,
+          id: NOTIF_ID.wCrit,
+          title: '⚠️ Glutine allo stremo',
+          body: `La W è calata del ${wDecay.toFixed(0)}%: inforna appena puoi.`,
           schedule: { at: new Date(Date.now() + 500) },
         }],
       }).catch(() => {});

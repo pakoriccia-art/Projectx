@@ -103,36 +103,39 @@ function formatCountdown(h: number): string {
 }
 
 // v2.4.20: marker derivato da una fase CANONICA (single source of truth).
-function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
+function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdue, onTransition, onLockedTap }: {
   phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
+  /** Una sola fase è "corrente" a schermo (la prima), anche se più fasi canoniche condividono il segmento. */
+  isCurrent: boolean;
+  /** Fase pianificata il cui orario è arrivato: resta toccabile e lo dice. */
+  overdue: boolean;
   onTransition?: (phaseType: string, label: string) => void;
+  onLockedTap?: () => void;
 }) {
-  const isCurrent    = phase.state === 'current';
   const isCompleted  = phase.state === 'past';
   const hoursFromNow = (phase.startMs - nowMs) / 3_600_000;
 
-  const dotColor = isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : 'var(--pm4-green)';
+  const dotColor = SEMAFORO_COLORS[currentSemaforoState];
 
-  const showBadge = phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4;
-  // Bug #94 / v2.4.20: la tappabilità è decisa a monte (state==='future' && start>now+5min).
-  const canTransition = phase.tappable && !!onTransition;
+  const showBadge = overdue || (phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4);
+  // Bug #94 / v2.4.20: la tappabilità a monte vale per le fasi oltre now+5min; in più
+  // la fase in ritardo resta toccabile, altrimenti lo staglio mancato non si registra più.
+  const canTransition = (phase.tappable || overdue) && !!onTransition;
   // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
   // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
   const isLocked = !canTransition && (isCompleted || isCurrent);
 
   const reduced = useReducedMotion();
   const markerRef = useRef<HTMLDivElement>(null);
-  const [coachmark, setCoachmark] = useState(false);
   const [flash, setFlash] = useState(false);
 
-  // WP-5(A): tap su fase bloccata → shake/flash + haptics + coachmark, NESSUN dispatch.
+  // WP-5(A): tap su fase bloccata → shake/flash + haptics + messaggio, NESSUN dispatch.
   // La guardia di transizione resta intatta: questo ramo non chiama mai onTransition.
   const handleLockedTap = () => {
     if (reduced) { setFlash(true); setTimeout(() => setFlash(false), 220); }
     else         { shakeElement(markerRef.current); }
     haptics('Light');
-    setCoachmark(true);
-    setTimeout(() => setCoachmark(false), 2600);
+    onLockedTap?.();
   };
 
   const pipBase: React.CSSProperties = {
@@ -141,11 +144,14 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
     borderRadius: phase.isBake ? 2 : '50%',
     transform: phase.isBake ? 'rotate(45deg)' : 'none',
   };
+  // Il verde è riservato a "pronto": le fasi fatte sono in terra d'ombra.
   const pipStyle: React.CSSProperties = isCurrent
     ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
     : isCompleted
-      ? { ...pipBase, background: 'var(--pm4-green)', opacity: 0.7 }
-      : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
+      ? { ...pipBase, background: 'var(--pm4-umber)' }
+      : overdue
+        ? { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-ember)' }
+        : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
 
   // Il tap su una fase futura NON cambia fase: chiede conferma al parent
   // (un tap accidentale con le mani infarinate non deve bruciare ore di puntata).
@@ -163,69 +169,57 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
       role={canTransition || isLocked ? 'button' : undefined}
       aria-label={isLocked
         ? `${canonicalDisplayLabel(phase)} — fase bloccata, il tempo va solo avanti`
-        : canTransition ? `Passa a ${canonicalDisplayLabel(phase)} ora (chiede conferma)` : undefined}
+        : canTransition
+          ? `${overdue ? 'In ritardo: ' : ''}passa a ${canonicalDisplayLabel(phase)} ora (chiede conferma)`
+          : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
         alignItems: 'center', gap: 5, minWidth: 56,
         cursor: canTransition ? 'pointer' : (isLocked ? 'not-allowed' : 'default'),
-        opacity: isCompleted ? 0.6 : 1,
         borderRadius: 8,
         outline: flash ? '1px solid var(--pm4-ember-lo)' : 'none',
         transition: 'outline 0.1s',
       }}
     >
-      {/* WP-5(A): coachmark transitorio sul tap di una fase bloccata */}
-      {coachmark && (
-        <div role="status" style={{
-          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginBottom: 6, zIndex: 5, width: 150,
-          background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)',
-          borderRadius: 6, padding: '6px 8px', fontSize: 10, lineHeight: 1.35,
-          color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', textAlign: 'center',
-          boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
-        }}>
-          🔒 Le fasi passate sono bloccate: il tempo va solo avanti.
-        </div>
-      )}
       {/* Lucchetto sulle fasi consolidate (affordance visiva prima del tap) */}
       {isLocked && isCompleted && (
         <div aria-hidden="true" style={{
-          position: 'absolute', top: 16, right: 6, fontSize: 10, opacity: 0.7,
+          position: 'absolute', top: 18, right: 4, fontSize: 11,
         }}>🔒</div>
       )}
-      {/* Affordance tap (teal) sui marker tappabili */}
+      {/* Affordance tap (brace) sui marker toccabili */}
       {canTransition && (
-        <div style={{
-          position: 'absolute', top: 16, right: 6,
-          width: 6, height: 6, borderRadius: '50%',
-          background: 'var(--pm4-green)',
+        <div aria-hidden="true" style={{
+          position: 'absolute', top: 18, right: 6,
+          width: 7, height: 7, borderRadius: '50%',
+          background: 'var(--pm4-ember)',
         }} />
       )}
       {showBadge ? (
         <div style={{
-          background: 'rgba(255,209,102,0.12)', border: '1px solid rgba(255,209,102,0.4)', borderRadius: 5,
-          padding: '1px 5px', color: 'var(--pm4-ember-lo)', fontSize: 10, letterSpacing: '0.04em',
-          marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)',
+          background: 'rgba(255,140,50,0.12)', border: '1px solid rgba(255,140,50,0.45)', borderRadius: 5,
+          padding: '1px 5px', color: overdue ? 'var(--pm4-ember)' : 'var(--pm4-ember-lo)', fontSize: 11, letterSpacing: '0.02em',
+          marginBottom: 2, whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontWeight: overdue ? 700 : 400,
         }}>
-          tra {formatCountdown(hoursFromNow)}
+          {overdue ? 'in ritardo' : `tra ${formatCountdown(hoursFromNow)}`}
         </div>
       ) : (
-        <div style={{ height: 18 }} />
+        <div style={{ height: 19 }} />
       )}
 
       <div className={isCurrent ? 'pm4-pip-cur' : (canTransition ? 'pm4-pip-tap' : undefined)} style={pipStyle} />
 
       <div style={{
-        color: isCurrent ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)',
-        fontSize: 10, textAlign: 'center', letterSpacing: '0.06em', textTransform: 'uppercase',
-        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 52,
+        color: isCurrent ? 'var(--pm4-ember-lo)' : overdue ? 'var(--pm4-ember)' : 'var(--pm4-tan)',
+        fontSize: 11, textAlign: 'center', letterSpacing: '0.04em', textTransform: 'uppercase',
+        lineHeight: 1.25, fontFamily: 'var(--font-mono)', maxWidth: 60,
       }}>
         {canonicalDisplayLabel(phase)}
       </div>
 
       <div style={{
-        color: isCompleted ? 'var(--pm4-faint)' : 'var(--pm4-umber)',
-        fontSize: 10, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
+        color: isCompleted ? 'var(--pm4-umber)' : 'var(--pm4-tan)',
+        fontSize: 11, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
         {formatAbsoluteTime(new Date(phase.startMs))}
       </div>
@@ -234,10 +228,12 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
 }
 
 export function FermentationTimeline({
-  session, currentSemaforoState, onPhaseTransition,
+  session, currentSemaforoState, onPhaseTransition, dueTransition,
 }: {
   session: Session; currentSemaforoState: SemaforoState;
   onPhaseTransition?: (phaseType: string, label: string) => void;
+  /** phaseType del prossimo segmento pianificato già arrivato all'orario (se c'è). */
+  dueTransition?: string | null;
 }) {
   // now è locale — non causa re-render del parent ogni secondo
   const [now, setNow] = useState(() => new Date());
@@ -245,6 +241,16 @@ export function FermentationTimeline({
     const id = setInterval(() => setNow(new Date()), 10_000);
     return () => clearInterval(id);
   }, []);
+  // Messaggio sul tap di una fase bloccata: sotto la strip, così lo scroll
+  // orizzontale non lo taglia.
+  const [lockedMsg, setLockedMsg] = useState(false);
+  const lockedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (lockedTimer.current) clearTimeout(lockedTimer.current); }, []);
+  const showLocked = () => {
+    setLockedMsg(true);
+    if (lockedTimer.current) clearTimeout(lockedTimer.current);
+    lockedTimer.current = setTimeout(() => setLockedMsg(false), 2600);
+  };
 
   const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
   const nowMs       = now.getTime();
@@ -267,6 +273,13 @@ export function FermentationTimeline({
 
   if (phases.length === 0) return null;
 
+  // Una sola fase corrente a schermo: la prima (la stessa del chip nell'header).
+  const currentKey = phases.find(p => p.state === 'current')?.key;
+  // La fase in ritardo è quella che porta al segmento pianificato già scaduto.
+  const overdueKey = dueTransition
+    ? phases.find(p => p.key !== currentKey && !p.isBake && p.state !== 'past' && p.transitionTo === dueTransition)?.key
+    : undefined;
+
   // Avanzamento reale lungo la strip: tempo trascorso sull'arco inizio → cottura.
   const firstMs = phases[0].startMs;
   const lastMs  = phases[phases.length - 1].startMs;
@@ -281,8 +294,8 @@ export function FermentationTimeline({
   return (
     <div style={{ position: 'relative' }}>
       <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
-        <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
-          background: `linear-gradient(90deg, var(--pm4-green) 0%, var(--pm4-green) ${progressPct}%, var(--pm4-line-strong) ${progressPct}%, var(--pm4-line-strong) 100%)` }} />
+        <div style={{ position: 'absolute', top: 42, left: 24, right: 24, height: 2, borderRadius: 2,
+          background: `linear-gradient(90deg, var(--pm4-tan) 0%, var(--pm4-tan) ${progressPct}%, var(--pm4-line-strong) ${progressPct}%, var(--pm4-line-strong) 100%)` }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
           {phases.map((phase) => (
             <CanonicalMarker
@@ -290,7 +303,10 @@ export function FermentationTimeline({
               phase={phase}
               nowMs={nowMs}
               currentSemaforoState={currentSemaforoState}
+              isCurrent={phase.key === currentKey}
+              overdue={phase.key === overdueKey}
               onTransition={onPhaseTransition}
+              onLockedTap={showLocked}
             />
           ))}
         </div>
@@ -301,6 +317,12 @@ export function FermentationTimeline({
           background: 'linear-gradient(90deg, transparent, var(--pm4-panel-lo))',
         }} />
       )}
+      <div role="status" style={{
+        minHeight: lockedMsg ? undefined : 0, color: 'var(--pm4-tan)', fontSize: 12,
+        fontFamily: 'var(--font-mono)', textAlign: 'center', padding: lockedMsg ? '2px 0 6px' : 0,
+      }}>
+        {lockedMsg ? '🔒 Le fasi già iniziate sono bloccate: il tempo va solo avanti.' : ''}
+      </div>
     </div>
   );
 }

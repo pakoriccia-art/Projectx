@@ -13,7 +13,7 @@ const COLLAPSE_FRACTION = 0.82;
 // Palette stati allineata alla skin "Banco" (calda, coerente coi token app)
 const DOT_COLORS = {
   TOO_EARLY: '#9a8a64',
-  OK:        '#3ddc97',
+  OK:        '#e8d5b0',
   WARNING:   '#ffd166',
   CRITICAL:  '#ff7675',
 } as const;
@@ -134,8 +134,8 @@ export function MiniHillCurve({
       <title>{`Decadimento W: ${Math.round(W0)} → ${currentW} (t/t_crit ${Math.round(tRatio * 100)}%)`}</title>
       <defs>
         <linearGradient id={`pm4w-${uid}`} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#3ddc97" />
-          <stop offset="0.62" stopColor="#9be8c0" />
+          <stop offset="0" stopColor="#e8d5b0" />
+          <stop offset="0.62" stopColor="#e8d5b0" />
           <stop offset="0.80" stopColor="#ffd166" />
           <stop offset="1" stopColor="#ff7675" />
         </linearGradient>
@@ -166,7 +166,7 @@ export function MiniHillCurve({
       {/* Riempimento area + curva con bagliore (gradiente verde→brace→rosso) */}
       {areaD && <path d={areaD} fill={`url(#pm4a-${uid})`} />}
       {greenPts.length > 1 && (
-        <polyline points={greenPts.join(' ')} fill="none" stroke="#3ddc97" strokeWidth={2.2}
+        <polyline points={greenPts.join(' ')} fill="none" stroke="#e8d5b0" strokeWidth={2.2}
           strokeLinecap="round" filter={`url(#pm4g-${uid})`} />
       )}
       {redPts.length > 1 && (

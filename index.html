@@ -354,15 +354,15 @@
 
       /* etichetta-canale incisa */
       .pm4-chan { display:flex; align-items:center; gap:9px; margin-bottom:11px; }
-      .pm4-chan-idx  { font-size:10px; color:var(--pm4-ember); font-weight:700; letter-spacing:.1em; font-family:var(--font-mono); }
-      .pm4-chan-name { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--pm4-tan); white-space:nowrap; font-family:var(--font-mono); }
+      .pm4-chan-idx  { font-size:11px; color:var(--pm4-ember); font-weight:700; letter-spacing:.1em; font-family:var(--font-mono); }
+      .pm4-chan-name { font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--pm4-tan); white-space:nowrap; font-family:var(--font-mono); }
       .pm4-chan-rule { flex:1; height:1px; transform-origin:left;
         background:linear-gradient(90deg, var(--pm4-line-strong), transparent);
         animation:pm4-draw .55s cubic-bezier(.4,0,.2,1) both .15s; }
-      .pm4-chan-tick { font-size:10px; color:var(--pm4-umber); letter-spacing:.08em; white-space:nowrap; font-family:var(--font-mono); }
+      .pm4-chan-tick { font-size:11px; color:var(--pm4-umber); letter-spacing:.08em; white-space:nowrap; font-family:var(--font-mono); }
 
       /* meter a segmenti */
-      .pm4-seg { display:flex; gap:3px; height:10px; }
+      .pm4-seg { display:flex; gap:3px; height:14px; }
       .pm4-seg i { flex:1; border-radius:2px; background:rgba(255,255,255,0.05); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.4); }
       .pm4-seg i.on { animation:pm4-segfill .45s cubic-bezier(.4,0,.2,1) both; }
 
@@ -370,7 +370,7 @@
       .pm4-cells { display:grid; grid-template-columns:repeat(var(--n,4),1fr); }
       .pm4-cell { padding:2px 8px; text-align:center; position:relative; }
       .pm4-cell + .pm4-cell::before { content:""; position:absolute; left:0; top:5px; bottom:5px; width:1px; background:var(--pm4-line); }
-      .pm4-cell-k { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--pm4-umber); font-family:var(--font-mono); }
+      .pm4-cell-k { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--pm4-umber); font-family:var(--font-mono); }
       .pm4-cell-v { font-size:17px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:3px; font-family:var(--font-mono); line-height:1; }
       .pm4-cell-v small { font-size:.6em; color:var(--pm4-umber); font-weight:700; }
 
@@ -380,7 +380,7 @@
       .pm4-glow-crit  { animation:pm4-crit 2.2s ease-in-out infinite; }
 
       .pm4-live { width:6px; height:6px; border-radius:50%; display:inline-block;
-        background:var(--pm4-green); box-shadow:0 0 8px var(--pm4-green); animation:pm4-beat 1.8s ease-in-out infinite; }
+        background:var(--pm4-ember); box-shadow:0 0 8px var(--pm4-ember-glow); animation:pm4-beat 1.8s ease-in-out infinite; }
       .pm4-pip-cur { animation:pm4-pip 1.8s ease-in-out infinite; }
       .pm4-halo { animation:pm4-beat 2.2s ease-in-out infinite; }
 

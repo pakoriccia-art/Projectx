@@ -147,6 +147,10 @@ export interface Session {
   userNotes?: string;
   alertsCount?: number;
   outcomeRating?: 'excellent' | 'good' | 'ok' | 'poor';
+  // "Ho infornato": ora reale, cottura pianificata, maturazione raggiunta.
+  bakedAt?: Date;
+  predictedBakeAt?: Date;
+  bakedMaturationPct?: number;
 
   // Cache ultima entry process_log (per dashboard senza query)
   latestProcessEntry?: ProcessLogEntry;

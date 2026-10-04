@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-04T10:27:53.251Z",
+  "generatedAt": "2026-10-04T11:09:55.436Z",
   "title": "Design System: PizzaMatrix",
   "extensions": {
     "colorMeta": {
@@ -447,7 +447,7 @@
       "Don't creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro.",
       "Don't usare barre laterali colorate (border-left > 1px) su card, avvisi o pannelli. Lo stato si esprime con un bordo pieno tinto.",
       "Don't lasciare un bottone disabilitato senza spiegare cosa manca.",
-      "Don't scendere sotto 10px con il testo, nemmeno nelle etichette.",
+      "Don't scendere sotto 11px con il testo, nemmeno nelle etichette.",
       "Don't mostrare ore decimali (\"12.5h\"): usa orari assoluti (\"22:34\") e durate leggibili (\"tra 4h 55m\").",
       "Don't scrivere avvisi che contraddicono il comportamento (es. \"i dati non saranno salvati\" quando vengono salvati)."
     ]

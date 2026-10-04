@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, S } from '../ui';
-import { loadSessionHistory, deleteSession } from '../../services/sessionService';
+import { loadSessionHistory, deleteSession, rateSession } from '../../services/sessionService';
 import type { Session } from '../../db/db';
 
 const AGENT_SHORT: Record<string, string> = {
@@ -23,15 +23,27 @@ const STYLE_EMOJI: Record<string, string> = {
   nystyle:       '🗽',
 };
 
+const OUTCOMES: Array<{ value: NonNullable<Session['outcomeRating']>; label: string }> = [
+  { value: 'excellent', label: 'Ottima' },
+  { value: 'good',      label: 'Buona' },
+  { value: 'ok',        label: 'Ok' },
+  { value: 'poor',      label: 'Da rivedere' },
+];
+
 function SessionCard({
   session,
   onDelete,
+  onRate,
   deleting,
 }: {
   session: Session;
   onDelete: (id: number) => void;
+  onRate: (id: number, rating: NonNullable<Session['outcomeRating']>) => void;
   deleting: boolean;
 }) {
+  const baked = session.bakedAt ? new Date(session.bakedAt) : null;
+  const predicted = session.predictedBakeAt ? new Date(session.predictedBakeAt) : null;
+  const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const start = session.startedAt instanceof Date
     ? session.startedAt : new Date(session.startedAt ?? Date.now());
   const end = session.endedAt instanceof Date
@@ -67,7 +79,7 @@ function SessionCard({
           {session.outcomeRating && (
             <span style={{
               marginLeft: 6, fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
-              color: session.outcomeRating === 'poor' ? 'var(--pm4-ember-lo)' : 'var(--pm4-green)',
+              color: session.outcomeRating === 'poor' ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)',
               border: '1px solid var(--pm4-line-strong)', padding: '2px 6px', borderRadius: 4,
             }}>
               🍕 {OUTCOME_LABEL[session.outcomeRating]}
@@ -93,7 +105,31 @@ function SessionCard({
         {' · '}
         {start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
         {durationH != null && ` · ${durationH.toFixed(1)}h`}
+        {baked && ` · infornata ${hhmm(baked)}`}
+        {baked && predicted && ` (piano ${hhmm(predicted)})`}
       </div>
+
+      {/* Voto a posteriori: si dà dopo l'assaggio, non all'infornata */}
+      {!session.outcomeRating && session.status === 'completed' && session.id != null && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--pm4-flour)', fontWeight: 700 }}>
+            Com'è venuta?
+          </div>
+          <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+            {OUTCOMES.map(o => (
+              <button key={o.value} onClick={() => onRate(session.id!, o.value)}
+                className="pm4-btn pm4-btn-ghost"
+                style={{
+                  minHeight: 44, padding: '10px 4px', borderRadius: 9, cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
+                  border: '1px solid var(--pm4-line-strong)', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
+                }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Metrics grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
@@ -165,6 +201,11 @@ export function HistoryView() {
       .finally(() => setLoading(false));
   }, []);
 
+  const handleRate = async (id: number, rating: NonNullable<Session['outcomeRating']>) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, outcomeRating: rating } : s));
+    try { await rateSession(id, rating); } catch { /* resta in memoria per questa vista */ }
+  };
+
   const handleDelete = async (id: number) => {
     setDeletingId(id);
     try {
@@ -228,6 +269,7 @@ export function HistoryView() {
           key={s.id}
           session={s}
           onDelete={handleDelete}
+          onRate={handleRate}
           deleting={deletingId === s.id}
         />
       ))}

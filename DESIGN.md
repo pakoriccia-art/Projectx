@@ -28,6 +28,12 @@ typography:
     fontFamily: "Fraunces, serif"
     fontSize: "1.4rem"
     fontWeight: 700
+  readout-hero:
+    fontFamily: "JetBrains Mono, monospace"
+    fontSize: "60px"
+    fontWeight: 800
+    lineHeight: 0.9
+    fontFeature: "tnum"
   readout:
     fontFamily: "JetBrains Mono, monospace"
     fontSize: "35px"
@@ -40,7 +46,7 @@ typography:
     fontWeight: 700
   label:
     fontFamily: "JetBrains Mono, monospace"
-    fontSize: "10px"
+    fontSize: "11px"
     fontWeight: 700
     letterSpacing: "0.2em"
 rounded:
@@ -164,9 +170,9 @@ Notte di forno: neutri bruno-carbone e farina, accesi da pochi colori di stato s
 ### Hierarchy
 - **Display** (900, 2.6rem, -0.03em): solo il wordmark "PizzaMatrix" in Home.
 - **Headline** (700–900, 1.4rem): titoli di passo nel Wizard (`StepHeader`) e brand nel `LiveHeader`.
-- **Readout** (800, 35px, line-height 0.82, cifre tabulari): il valore protagonista del semaforo. Scende a 25px nella variante a metà larghezza e a 17px nelle celle secondarie.
+- **Readout** (800, 35px, line-height 0.82, cifre tabulari): il valore protagonista del semaforo. In Monitor sale a 60px (readout-hero) perché va letto a un metro; scende a 25px nella variante a metà larghezza e a 17px nelle celle secondarie.
 - **Body** (400–700, 0.9rem): bottoni, testo dei form, contenuto.
-- **Label** (700, 10–11px, tracking 0.12–0.2em, maiuscolo): nomi dei canali e chiavi delle celle a 10px; etichette di form a 11px in Crusca.
+- **Label** (700, 11px, tracking 0.12–0.2em, maiuscolo): nomi dei canali, chiavi delle celle, etichette di form.
 
 ### Named Rules
 **The Tabular Truth Rule.** Ogni valore che cambia nel tempo usa `font-variant-numeric: tabular-nums`, così le cifre non ballano mentre il motore avanza.
@@ -231,13 +237,14 @@ Tattili, pieni e robusti, sempre alti almeno 44px.
 
 ### Navigation
 - Non c'è una tab bar: le viste cambiano tramite lo stato dell'app.
-- **Monitor / Analisi:** toggle segmentato, etichette maiuscole da 10px tracciate a 0.14em. L'attivo ha un fondo caldo trasparente e `aria-pressed`.
+- **Monitor / Analisi:** toggle segmentato sotto il blocco centrale (la risposta viene prima dei comandi), etichette maiuscole da 11px tracciate a 0.14em. L'attivo ha il fondo del pannello alto e `aria-pressed`.
 - **StepHeader:** progress a 8 segmenti alti 4px, brace quando il passo è completato.
 
 ### Signature: Semaforo
 Il cuore di BANCO, e la risposta a "quando inforno?".
 - Etichetta "PRONTO PER INFORNARE" e un `StateBadge` con l'etichetta lunga dello stato.
-- Il readout a 35px è un **orario**, non una percentuale: "~21:10", oppure "ORA" quando è pronto. Sotto, nel colore di stato, il tempo rimanente ("tra 4h 55m · target 22:52") o la finestra ("ancora ~2h prima della sbollatura").
+- Il readout è un **orario**, non una percentuale: "~21:10" (il giorno, se non è oggi, è un suffisso piccolo: "domani"), oppure "ORA" quando è pronto. L'etichetta dice "Inforni alle" / "Inforna", mai "pronto" prima del tempo. Sotto, nel colore di stato, il tempo rimanente e la tenuta ("tra 4h 55m · regge fino a ~03:10") o la finestra ("ancora ~2h prima della sbollatura"). L'header mostra lo stesso orario, con il piano corrente della timeline come riferimento piccolo.
+- Quando l'orario di una fase pianificata arriva, sopra il blocco centrale compare una banda brace ("È ora dello staglio · Tra 15 min / Fatto ora") e parte una notifica locale programmata in anticipo. La fase in ritardo resta toccabile nella timeline.
 - Il meter a 10 LED mostra l'avanzamento verso la soglia. Si riempie in sequenza: 250ms di attesa, poi 45ms per segmento. Una nota in terra d'ombra riporta "maturazione X% → target Y%".
 - Chiude la griglia di celle secondarie: lievitazione, pH, W.
 
@@ -251,7 +258,7 @@ Il cuore di BANCO, e la risposta a "quando inforno?".
 
 ATTENZIONE (giallo), CRITICO e COLLASSO (rossi) restano riservati ai problemi strutturali della W.
 
-**The Ready Is Green Rule.** Il verde pieno compare solo quando si può infornare. Lo stesso colore non indica mai "in corso".
+**The Ready Is Green Rule.** Il verde pieno compare solo quando si può infornare. Lo stesso colore non indica mai "in corso". Nemmeno le fasi fatte della timeline, la linea di avanzamento, il pallino "live" o i valori secondari: quelli sono in farina, terra d'ombra o brace.
 
 ### Signature: Timeline delle fasi
 Marker per fase, con orari assoluti e avanzamento reale sulla linea verde. Toccare una fase futura **chiede conferma**: un pannello mostra quanto si accorcia la fase corrente e la nuova ora di cottura. Dopo la conferma, un "↶ Annulla" resta disponibile per 10 secondi. Le fasi passate sono bloccate.
@@ -288,6 +295,6 @@ Ci sono anche linee di riferimento per "ora", per il target di cottura e per le 
 - **Don't** creare un tema chiaro senza una decisione esplicita. Oggi il sistema è solo scuro.
 - **Don't** usare barre laterali colorate (border-left > 1px) su card, avvisi o pannelli. Lo stato si esprime con un bordo pieno tinto.
 - **Don't** lasciare un bottone disabilitato senza spiegare cosa manca.
-- **Don't** scendere sotto 10px con il testo, nemmeno nelle etichette.
+- **Don't** scendere sotto 11px con il testo, nemmeno nelle etichette.
 - **Don't** mostrare ore decimali ("12.5h"): usa orari assoluti ("22:34") e durate leggibili ("tra 4h 55m").
 - **Don't** scrivere avvisi che contraddicono il comportamento (es. "i dati non saranno salvati" quando vengono salvati).

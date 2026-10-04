@@ -9,7 +9,7 @@ import type { AlertLevel } from '../../engine';
 
 interface LiveHeaderProps {
   style:          string;
-  totalFlourGrams: number;
+  totalFlourGrams?: number;
   startedAt:      Date;
   targetBakeAt:   Date;
   currentPhase:   string;
@@ -24,8 +24,11 @@ interface LiveHeaderProps {
   coldBakeWarning?:   string;
   /** Azione suggerita sui ribbon strutturali (→ Aggiusta Rotta). */
   onAdjust?:          () => void;
-  /** Testo del ribbon di maturazione (quasi pronto / pronto) composto dalla dashboard con l'ETA. */
-  maturationMessage?: string;
+  /**
+   * Cottura PREVISTA (stessa sorgente del blocco centrale): 'ORA' a pronto,
+   * altrimenti l'orario. Il piano resta come riferimento secondario.
+   */
+  bakeForecast?: string;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -39,12 +42,12 @@ const PHASE_LABELS: Record<string, string> = {
 
 const COLD_PHASES = new Set(['bulk_fridge', 'balled_fridge']);
 
+// Solo gli allarmi strutturali hanno un ribbon: quasi pronto / pronto li dice già
+// il blocco centrale, ripeterli qui era rumore.
 const BANNER_STYLE: Record<string, { from: string; border: string; color: string; icon: string; action?: boolean }> = {
   STRUCTURAL_COLLAPSED: { from: 'rgba(214,48,49,0.18)',  border: 'rgba(214,48,49,0.5)',   color: 'var(--state-critical)', icon: '⛔' },
   STRUCTURAL_CRITICAL:  { from: 'rgba(255,118,117,0.16)', border: 'rgba(255,118,117,0.45)', color: 'var(--state-critical)', icon: '⚠', action: true },
   STRUCTURAL_WARNING:   { from: 'rgba(255,209,102,0.14)', border: 'rgba(255,209,102,0.4)',  color: 'var(--accent-warning)', icon: '⚠', action: true },
-  APPROACHING:          { from: 'rgba(255,140,50,0.14)',  border: 'rgba(255,140,50,0.4)',   color: 'var(--pm4-ember)',     icon: '◆' },
-  SWEET_SPOT:           { from: 'rgba(61,220,151,0.14)',  border: 'rgba(61,220,151,0.4)',   color: 'var(--pm4-green)',     icon: '◆' },
 };
 
 const HEADER_S: React.CSSProperties = {
@@ -56,8 +59,8 @@ const HEADER_S: React.CSSProperties = {
 };
 
 export function LiveHeader({
-  style, totalFlourGrams, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, maturationMessage,
+  style, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, bakeForecast,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -66,21 +69,18 @@ export function LiveHeader({
   }, []);
 
   const elapsedH   = Math.max(0, (now.getTime() - startedAt.getTime()) / 3_600_000);
-  const remainingH = Math.max(0, (targetBakeAt.getTime() - now.getTime()) / 3_600_000);
   const timeStr    = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  // Orario assoluto della cottura pianificata (giorno se non è oggi): niente ore decimali.
-  const bakeClock  = targetBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const bakeDay    = targetBakeAt.toDateString() === now.toDateString()
-    ? '' : `${targetBakeAt.toLocaleDateString('it-IT', { weekday: 'short' })} `;
-  // L'header riporta il TARGET pianificato; se è passato lo dice, senza ordinare di
-  // infornare (quando infornare lo dice il semaforo, dal modello).
-  const remainStr  = remainingH > 0.05 ? `${bakeDay}${bakeClock}` : `${bakeClock} · superato`;
+  // Un solo orario di cottura: la previsione del blocco centrale. Il piano è il
+  // riferimento piccolo accanto, senza "superato" (non è un errore, è il piano).
+  const planClock  = targetBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const bakeMain   = bakeForecast ?? planClock;
+  const showPlan   = bakeForecast != null && bakeForecast.replace('~', '') !== planClock;
   const banner     = BANNER_STYLE[alertLevel];
   // v2.4.20: env dalla fase canonica se fornita, altrimenti dal phaseType.
   const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
   const phaseLabel = currentPhaseLabel ?? PHASE_LABELS[currentPhase] ?? currentPhase;
 
-  const K: React.CSSProperties = { fontSize: 10, letterSpacing: '0.16em', color: 'var(--pm4-umber)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' };
+  const K: React.CSSProperties = { fontSize: 11, letterSpacing: '0.14em', color: 'var(--pm4-umber)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' };
   const V: React.CSSProperties = { fontSize: 13, fontWeight: 700, color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 };
 
   return (
@@ -91,7 +91,7 @@ export function LiveHeader({
           Pizza<span style={{ color: 'var(--pm4-ember)' }}>Matrix</span>
           <span style={{ color: 'var(--pm4-ember)' }}>.</span>
         </span>
-        <span style={{ ...K, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ ...K, color: 'var(--pm4-tan)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="pm4-live" /> live · {timeStr}
         </span>
       </div>
@@ -103,11 +103,16 @@ export function LiveHeader({
           {(style || '—').charAt(0).toUpperCase() + (style || '').slice(1)}
         </span>
         <span style={{ width: 1, height: 22, background: 'var(--pm4-line-strong)' }} />
-        <div><div style={K}>Farina</div><div style={V}>{totalFlourGrams}<span style={{ color: 'var(--pm4-ember)' }}>g</span></div></div>
         <div><div style={K}>Trascorso</div><div style={V}>{Math.floor(elapsedH)}h {String(Math.floor((elapsedH % 1) * 60)).padStart(2, '0')}m</div></div>
-        <div><div style={K}>Cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
+        <div>
+          <div style={K}>Cottura</div>
+          <div style={{ ...V, color: 'var(--pm4-flour)' }}>
+            {bakeMain}
+            {showPlan && <span style={{ color: 'var(--pm4-umber)', fontWeight: 400, fontSize: 11 }}> · piano {planClock}</span>}
+          </div>
+        </div>
         <span style={{
-          marginLeft: 'auto', flexShrink: 0, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+          marginLeft: 'auto', flexShrink: 0, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap',
           fontFamily: 'var(--font-mono)',
           color: isCold ? 'var(--state-cold)' : 'var(--pm4-ember-lo)',
           border: `1px solid ${isCold ? 'rgba(116,185,255,0.35)' : 'rgba(255,209,102,0.3)'}`,
@@ -128,11 +133,11 @@ export function LiveHeader({
           fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
         }}>
           <span aria-hidden="true">{banner.icon}</span>
-          <span style={{ flex: 1 }}>{maturationMessage ?? alertMessage}</span>
+          <span style={{ flex: 1 }}>{alertMessage}</span>
           {banner.action && onAdjust && (
             <button type="button" onClick={onAdjust} style={{
               background: 'none', border: `1px solid ${banner.border}`, borderRadius: 6, color: banner.color,
-              fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, padding: '6px 9px', minHeight: 36,
+              fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, padding: '6px 10px', minHeight: 44,
               cursor: 'pointer', whiteSpace: 'nowrap',
             }}>
               Aggiusta rotta →

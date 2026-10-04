@@ -151,6 +151,26 @@ L'utente ha scelto: parole chiare più un "?" con la spiegazione; spiegazioni ap
 - P2: verde usato anche per stati non pronti; chiusura della sessione senza riepilogo.
 - P3: a11y dei modali, testo a 10px, contrasto della timeline a PRONTO.
 
+## Passaggio 6: correzioni della seconda critique (P0–P3)
+
+Scelte dell'utente: banda + notifica per le fasi, header sulla previsione, voto dopo l'assaggio, tutto da P0 a P3. Motore non toccato.
+
+- **P0, fasi pianificate.** Quando arriva l'orario di una fase, sopra il blocco centrale compare "È ora dello staglio · Tra 15 min / Fatto ora", con l'anteprima della nuova cottura e l'annulla di 10s. La notifica locale è programmata in anticipo all'orario della fase, così arriva anche a telefono bloccato; "Tra 15 min" ne programma un'altra. Nella timeline la fase in ritardo resta toccabile ("in ritardo", brace). Logica in `src/lib/phaseDue.ts`, con test.
+- **P1-a, leggibilità.**
+  - Etichetta "Inforni alle" / "Inforna".
+  - Orario a 60px in Monitor, con il giorno come suffisso ("domani").
+  - Toggle Monitor/Analisi spostato sotto la risposta; "?" dentro il pannello.
+  - LED a 14px, testo minimo 11px.
+- **P1-b, un solo orario.** Header e blocco centrale mostrano la stessa previsione. Il "piano" è la cottura corrente della timeline, senza più "superato". Una sola fase corrente nella strip. I ribbon di quasi pronto / pronto sono rimossi perché ripetevano il blocco centrale.
+- **P2-a, verde solo per "pronto".** Celle secondarie, fasi fatte, linea di avanzamento, pallino "live", curva del glutine e stato W ok passano a farina, terra d'ombra o brace.
+- **P2-b, finale.** "Ho infornato" registra ora reale, piano e maturazione, e mostra un riepilogo con annulla. Il voto si dà dopo l'assaggio: promemoria a +30 min e chip nello Storico. La tenuta ("regge fino a ~HH:MM") è visibile già prima del pronto. "Aggiusta rotta" resta disponibile anche a PRONTO.
+- **P3, accessibilità.**
+  - Modali con `role="dialog"`/`alertdialog`, `aria-modal`, focus intrappolato e restituito.
+  - "Continua a monitorare" e "Resta a temperatura ambiente" a 44px.
+  - Il codice "ta_only" sostituito da parole; messaggio della fase bloccata non più tagliato.
+
+**Verifica:** typecheck e test verdi (incluso il nuovo `phaseDue.test.ts`). Percorso completo nel browser con orologio simulato, senza errori in console: banda, rinvio, "Fatto ora", PRONTO, infornata, annulla, Storico, voto. Rilevatore sulla dashboard: 30 → 24 segnalazioni, le stesse 2 non advisory intenzionali.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
