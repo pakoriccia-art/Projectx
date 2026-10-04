@@ -77,6 +77,12 @@ export interface PrefermentStage {
   moves?: Array<{ at: Date; place: 'fresco' | 'stanza' | 'frigo'; tempC: number }>;
   /** Dosi del prefermento confermate come impastate ("Fatto"). */
   mixedAck?: boolean;
+  /** Un elemento per prefermento da preparare (orari scaglionati, orologi separati). */
+  items?: Array<{
+    id: string; type: string; startAt: Date; mixedAt?: Date;
+    plannedH: number; plannedTempC: number;
+    moves?: Array<{ at: Date; place: 'fresco' | 'stanza' | 'frigo'; tempC: number }>;
+  }>;
 }
 
 // ─── Thermal Timeline ─────────────────────────────────────────────────────────

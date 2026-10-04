@@ -363,6 +363,16 @@ Critique (dual-agent): 25/40, 0 P0, 4 P1 — ricetta incoerente avviabile (acqua
 
 Risolti: ricetta impossibile, fase persa con un impasto attivo, dosi nella fase, conferma anticipata, autolisi, orari planner/fase. Restano 3 P1: due prefermenti seguiti con il nome e le soglie di quello sbagliato, ritardo che non scala col rischio, doppio clic su "Sostituisci" che crea due fasi. P2: due calcoli diversi dell'acqua finale, fasi salvate dalla build precedente, correzione dell'idratazione fuori range di stile, gerarchia dei pulsanti all'inizio, focus perso dopo le conferme. Detector: 0 sul nuovo componente (ma non vede i font numerici), 5 advisory sul codice nuovo del wizard.
 
+## Passaggio 21: P1 e P2 della seconda critique del prefermento
+
+- Due prefermenti seguiti davvero: un orologio per ciascuno; il più lungo parte subito, gli altri all'ora che li fa finire insieme ("Poi: il poolish alle 23:25", promemoria). L'impasto finale riceve ore e temperatura equivalente di ognuno.
+- Ritardo per livelli: PRONTA → OLTRE (soglia 125%/115%) → molto oltre (150%) con conferma prima di impastare; banner e riga in dashboard "⚠ Biga oltre da X h".
+- Frigo in anticipo: dall'85% "Se non impasti entro le HH:MM, mettila in frigo: regge fino alle HH:MM (+X h)"; notifica un'ora prima; quando è oltre "Mettila in frigo (rallenta)" è l'azione principale.
+- Doppio tocco su "Sostituisci" senza doppioni; domanda con il giorno e "Tieni quella in corso".
+- Fasi delle build precedenti convertite all'avvio (maturazione e temperatura equivalente corrette).
+- Un solo calcolo dell'acqua finale (nella fase in corso, con il prefermento dov'è); correzione della ricetta entro il range dello stile ("Riduci il poolish al 55%").
+- "Fatto ✓" principale all'inizio; con un impasto in corso "È pronta" non c'è e si va all'impasto; focus sulle conferme e ritorno al pulsante.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

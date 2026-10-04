@@ -11,7 +11,7 @@ import { getStyleProfile } from '../engine';
 import { buildEffectiveTimeline } from '../engine/outOfProtocol';
 import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../lib/bakeReadiness';
-import { isPreparable, lateThresholdPct, overSign, prefIsFeminine, prefProgress, prefWithArticle } from '../lib/preferment';
+import { currentSpot, fridgeGain, normalizeStage, overSign, prefIsFeminine, prefWithArticle, stageStatus } from '../lib/preferment';
 
 export const NOTIF_ID = {
   ready:   100,
@@ -21,6 +21,8 @@ export const NOTIF_ID = {
   outcome: 120,
   preferment: 130,
   prefermentLate: 131,
+  prefermentNext: 132,
+  prefermentFridge: 133,
 } as const;
 
 /** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
@@ -53,26 +55,39 @@ export function useCapacitorNotifications() {
     LocalNotifications.requestPermissions().catch(() => {/* no-op su web */});
   }, []);
 
-  // Prefermento in maturazione: avviso all'ora prevista e, se resta lì, un
-  // secondo avviso quando diventa troppo maturo. Anche ad app chiusa.
+  // Prefermenti in maturazione, anche ad app chiusa:
+  //  130 pronto · 131 oltre la soglia · 132 ora di impastare il secondo · 133 frigo in anticipo.
   const stage = state.prefermentStage;
   useEffect(() => {
-    if (!stage) { cancelNotification(NOTIF_ID.preferment); cancelNotification(NOTIF_ID.prefermentLate); return; }
-    const prefs = ((stage.draft as { prefermenti?: Array<{ type: string }> }).prefermenti ?? []).filter(isPreparable);
-    const type = prefs[0]?.type ?? 'biga';
+    const ids = [NOTIF_ID.preferment, NOTIF_ID.prefermentLate, NOTIF_ID.prefermentNext, NOTIF_ID.prefermentFridge];
+    if (!stage) { ids.forEach(cancelNotification); return; }
+    const st = normalizeStage(stage);
+    const items = st.items ?? [];
+    const main = items[0];
+    const type = main?.type ?? 'biga';
     const Name = prefWithArticle(type).replace(/^./, c => c.toUpperCase());
     const fem = prefIsFeminine(type);
-    const at = new Date(stage.readyAt);
-    if (at.getTime() > Date.now()) {
-      scheduleAt(NOTIF_ID.preferment, `🥣 ${Name} dovrebbe essere ${fem ? 'pronta' : 'pronto'}`,
-        "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", at);
-    } else cancelNotification(NOTIF_ID.preferment);
-    const lateAt = new Date(prefProgress(stage, Date.now(), lateThresholdPct(type)).etaMs);
-    if (lateAt.getTime() > Date.now()) {
-      scheduleAt(NOTIF_ID.prefermentLate, `⚠️ ${Name} sta andando oltre`,
-        `${overSign(type)}. Impasta appena puoi.`, lateAt);
-    } else cancelNotification(NOTIF_ID.prefermentLate);
-  }, [stage?.id, stage?.readyAt, stage?.moves?.length]);
+    const now = Date.now();
+    const at = (id: number, title: string, body: string, when: number | null | undefined) => {
+      if (when != null && when > now) scheduleAt(id, title, body, new Date(when)); else cancelNotification(id);
+    };
+    const status = stageStatus(st, now);
+    at(NOTIF_ID.preferment, `🥣 ${Name} dovrebbe essere ${fem ? 'pronta' : 'pronto'}`,
+      "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", status.readyAt);
+    at(NOTIF_ID.prefermentLate, `⚠️ ${Name} potrebbe essere oltre`,
+      `${overSign(type).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${fem ? 'ila' : 'ilo'} in frigo.`, status.lateAt);
+    const next = items.slice(1).find(it => !it.mixedAt);
+    at(NOTIF_ID.prefermentNext, `🥣 Ora impasta ${prefWithArticle(next?.type ?? 'poolish')}`,
+      `Così è pronto insieme a ${prefWithArticle(type)}. Le dosi sono in PizzaMatrix.`, next ? new Date(next.startAt).getTime() : null);
+    // Frigo in anticipo: un'ora prima del pronto, se non è già in frigo.
+    const hintAt = status.readyAt - 3_600_000;
+    if (main?.mixedAt && currentSpot(main, 'fresco').place !== 'frigo' && hintAt > now) {
+      const g = fridgeGain(main, hintAt, (stage.draft as { fridgeTempC?: number }).fridgeTempC ?? 4);
+      const hm = (ms: number) => new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      at(NOTIF_ID.prefermentFridge, `🥣 ${Name} tra un'ora è ${fem ? 'pronta' : 'pronto'}`,
+        `Se non impasti entro le ${hm(g.lateAtStay)}, mett${fem ? 'ila' : 'ilo'} in frigo: regge fino alle ${hm(g.lateAtFridge)}.`, hintAt);
+    } else cancelNotification(NOTIF_ID.prefermentFridge);
+  }, [stage?.id, stage?.readyAt, stage?.items]);
 
   // Prossima fase pianificata: notifica all'orario previsto, riprogrammata
   // a ogni cambio di timeline; cancellata a fine sessione.

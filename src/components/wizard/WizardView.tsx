@@ -40,7 +40,7 @@ import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPref
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
   prefName, prefWithArticle, prefIsFeminine, splitRecipe, prefTempAtMix, fmtGrams, type PrefPlace,
-  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT,
+  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems,
 } from '../../lib/preferment';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import {
@@ -1027,7 +1027,7 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             {!simple && totalPrefFrac > 0 && (
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
-                color: totalPrefFrac >= 80 ? 'var(--state-critical)' : 'var(--text-muted)',
+                color: totalPrefFrac > 100 - MIN_FINAL_FLOUR_PCT ? 'var(--state-critical)' : 'var(--text-muted)',
               }}>
                 {totalPrefFrac}% su farina totale
               </span>
@@ -1051,10 +1051,10 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             </Btn>
           )}
 
-          {totalPrefFrac >= 80 && (
+          {totalPrefFrac > 100 - MIN_FINAL_FLOUR_PCT && (
             <Card style={{ padding: '8px 12px', background: 'rgba(255,118,117,0.1)', border: '1px solid rgba(255,118,117,0.3)' }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--state-critical)' }}>
-                ⚠ {totalPrefFrac}% farina in prefermento — lascia almeno 20% per il rinfresco
+                ⚠ {totalPrefFrac}% farina in prefermento — lascia almeno il {MIN_FINAL_FLOUR_PCT}% per l'impasto finale
               </span>
             </Card>
           )}
@@ -1672,7 +1672,20 @@ function RecipeCard({ draft, update, recipe }: {
   const [undo, setUndo] = useState<{ prev: Partial<WizardDraft>; text: string } | null>(null);
   const fix = (() => {
     if (!problem) return null;
-    if (problem.kind === 'water' && problem.fixValue <= 90) {
+    // L'idratazione proposta deve stare nel range dello stile; altrimenti si riduce il prefermento.
+    const hydMax = hydrationRangeForStyle(draft.style, draft.mainFlourGroup?.effectiveW).max;
+    if (problem.kind === 'water' && problem.fixValue > hydMax && problem.fixFraction) {
+      const ff = problem.fixFraction;
+      const p = prefs.find(x => x.id === ff.id)!;
+      return {
+        label: `Riduci ${prefWithArticle(p.type)} al ${ff.value}%`,
+        apply: () => {
+          setUndo({ prev: { prefermenti: prefs }, text: `${prefName(p.type).replace(/^./, c => c.toUpperCase())} ridott${prefIsFeminine(p.type) ? 'a' : 'o'} dal ${p.flourFraction}% al ${ff.value}%.` });
+          update({ prefermenti: prefs.map(x => (x.id === ff.id ? { ...x, flourFraction: ff.value } : x)) });
+        },
+      };
+    }
+    if (problem.kind === 'water' && problem.fixValue <= hydMax) {
       return {
         label: `Porta l'idratazione al ${problem.fixValue}%`,
         apply: () => {
@@ -1968,8 +1981,19 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         </div>
       </Card>
 
-      {/* ── 💧 Acqua di impastamento (DDT automatico) ── */}
-      {(() => {
+      {/* ── 💧 Acqua di impastamento (DDT automatico) ──
+          Con un prefermento da preparare l'acqua dell'impasto finale dipende da
+          dove sarà il prefermento: la calcola la fase in corso, un solo calcolo. */}
+      {startsWithPreferment(draft) ? (
+        <Card>
+          <div style={{ marginBottom: 6, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+            💧 Acqua · impasto finale
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+            La temperatura dell'acqua per l'impasto finale te la calcolo quando {prefWithArticle((draft.prefermenti ?? []).find(isPreparable)!.type)} è {prefIsFeminine((draft.prefermenti ?? []).find(isPreparable)!.type) ? 'pronta' : 'pronto'}: dipende da dove sarà.
+          </div>
+        </Card>
+      ) : (() => {
         const waterG    = Math.round(recipe.final.waterG);
         const tPrefAvg  = prefTempAtMix(draft.prefermenti, flour);
         const ddtDef    = DDT_BY_STYLE[draft.style ?? 'napoletana'] ?? 24;
@@ -1987,7 +2011,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         return (
           <Card>
             <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
-              {startsWithPreferment(draft) ? "💧 Acqua · impasto finale" : '💧 Acqua di impastamento'}
+              💧 Acqua di impastamento
             </div>
             <WaterTempResultCard
               result={wResult}
@@ -2044,7 +2068,11 @@ export function WizardView() {
   const [starting, setStarting] = useState(false);
 
   /** Salva la preparazione e solo dopo la mostra: l'id c'è sempre (annulla sicuro). */
+  const startingRef = useRef(false);
   const startStage = async () => {
+    // Un secondo tocco durante il salvataggio non crea una seconda preparazione.
+    if (startingRef.current) return;
+    startingRef.current = true;
     setStarting(true);
     try {
       const old = state.prefermentStage;
@@ -2056,9 +2084,11 @@ export function WizardView() {
       const prep = (draft.prefermenti ?? []).filter(isPreparable);
       const durH = stageDurationH(draft.prefermenti);
       const main = prep.find(p => p.durationH === durH) ?? prep[0];
+      // Il più lungo parte subito, gli altri più tardi: pronti tutti insieme.
+      const items = buildStageItems(draft.prefermenti, startedAt);
       const stage = {
         startedAt, readyAt: new Date(startedAt.getTime() + durH * 3_600_000),
-        plannedH: durH, plannedTempC: main?.tempC ?? 16,
+        plannedH: durH, plannedTempC: main?.tempC ?? 16, items,
         draft: draft as Record<string, unknown>,
       };
       const id = await savePrefermentStage(stage);
@@ -2069,6 +2099,7 @@ export function WizardView() {
       console.error('[savePrefermentStage]', err);
       setBuildError('Non riesco a salvare la preparazione. Riprova.');
     } finally {
+      startingRef.current = false;
       setStarting(false);
     }
   };
@@ -2190,15 +2221,17 @@ export function WizardView() {
           const t = cur?.type ?? 'biga';
           const at = new Date(state.prefermentStage.readyAt);
           const hm = at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          const when = at.toDateString() === new Date().toDateString() ? `alle ${hm}` : `${at.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
           return (
             <div role="group" aria-label="Preparazione già in corso" style={{
               display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
               border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-sm)',
               fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--pm4-flour)',
             }}>
-              <span>C'è già {prefWithArticle(t)} in corso ({prefIsFeminine(t) ? 'pronta' : 'pronto'} alle {hm}). {prefIsFeminine(t) ? 'La' : 'Lo'} sostituisco con la nuova preparazione?</span>
-              <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai a quella in corso</Btn>
-              <Btn variant="danger" onClick={() => void startStage()}>Sostituisci</Btn>
+              <span>C'è già {prefWithArticle(t)} in corso ({prefIsFeminine(t) ? 'pronta' : 'pronto'} {when}). {prefIsFeminine(t) ? 'La' : 'Lo'} sostituisco con la nuova preparazione?</span>
+              <Btn variant="secondary" onClick={() => setReplaceStage(null)}>{prefIsFeminine(t) ? 'Tieni quella' : 'Tieni quello'} in corso</Btn>
+              <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai a {prefIsFeminine(t) ? 'quella' : 'quello'} in corso</Btn>
+              <Btn variant="danger" disabled={starting} onClick={() => void startStage()}>Sostituisci</Btn>
             </div>
           );
         })()}

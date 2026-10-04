@@ -471,7 +471,7 @@ async function scenarioPrefermento() {
   check('Dopo la riapertura: impasto e biga entrambi presenti', /Trascorso/i.test(await headerText()) && await rowSel().count() > 0);
   await rowSel().first().click(); await sleep(1000);
   check('Dalla dashboard si apre la biga in corso', /La biga sta maturando/.test(clean(await page.locator('body').innerText())));
-  await page.getByRole('button', { name: /Impasto in corso/ }).click(); await sleep(1000);
+  await page.getByRole('button', { name: /← Impasto in corso/ }).click(); await sleep(1000);
   await endSession();
   await rowSel().first().click(); await sleep(1000);
 
@@ -505,6 +505,43 @@ async function scenarioPrefermento() {
   check('Poolish dal frigo: 4°C nella ricetta', pool?.tempC != null && pool.tempC <= 6, `poolish ${pool?.durationH} h a ${pool?.tempC}°C`);
   await shot(page, device, 'pref-05-poolish-dashboard');
   await endSession();
+
+  console.log('\nF5 · Biga e poolish insieme, e frigo in anticipo');
+  await wizardWithPref('Avanzato', async () => {
+    await page.getByRole('button', { name: /Aggiungi pre-fermento/ }).click(); await sleep(400);
+    await page.getByRole('radio', { name: /Tipo: Poolish/ }).nth(1).click(); await sleep(300);
+  });
+  const go = page.getByRole('button', { name: /Impasta la biga adesso/ });
+  check('Avanzato: si parte dalla biga (la più lunga)', await go.count() > 0);
+  if (!(await go.count())) return;
+  await go.click(); await sleep(2000);
+  const twoText = clean(await page.locator('body').innerText());
+  await shot(page, device, 'pref-06-due-prefermenti');
+  check('Il poolish ha il suo orario, più tardi', /Poi: il poolish alle/i.test(twoText), twoText.slice(0, 220));
+  // retrodata la biga di 14 h 30: maturazione ~90%, compare il suggerimento del frigo
+  await page.evaluate(() => new Promise(r => {
+    const q = indexedDB.open('PizzaMatrixDB');
+    q.onsuccess = () => {
+      const tx = q.result.transaction('sessions', 'readwrite'); const st = tx.objectStore('sessions'); const g = st.getAll();
+      g.onsuccess = () => {
+        for (const s of g.result) if (s.status === 'planning' && s.prefermentStage) {
+          const ps = s.prefermentStage, d = 14.5 * 3600e3;
+          ps.startedAt = new Date(ps.startedAt.getTime() - d); ps.readyAt = new Date(ps.readyAt.getTime() - d);
+          ps.mixedAck = true;
+          ps.items = ps.items.map(it => ({ ...it, startAt: new Date(it.startAt.getTime() - d), mixedAt: it.mixedAt ? new Date(it.mixedAt.getTime() - d) : undefined }));
+          st.put(s);
+        }
+      };
+      tx.oncomplete = () => r();
+    };
+  }));
+  await device.shell(`am force-stop ${PKG}`);
+  page = await openApp();
+  const hint = clean(await page.locator('body').innerText());
+  await shot(page, device, 'pref-07-frigo-in-anticipo');
+  check('Frigo suggerito prima che sia oltre', /mettila in frigo/i.test(hint) || /Mettila in frigo/.test(hint), hint.slice(0, 200));
+  await page.getByRole('button', { name: /^Annulla$/ }).click();
+  await page.getByRole('button', { name: /Sì, annulla/ }).click(); await sleep(1000);
 }
 
 if (SCENARIO === 'nuovo' || SCENARIO === 'tutti') await scenarioNuovo();

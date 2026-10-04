@@ -57,6 +57,7 @@ const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'Rot
 const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
 const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
 const PrefermentStageView = lazyView(() => import('./components/preferment/PrefermentStageView'), 'PrefermentStageView');
+import { stageBannerText, stageStatus } from './lib/preferment';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useSessionRestore }         from './hooks/useSessionRestore';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
@@ -125,7 +126,6 @@ function AppEffects() {
 function HomeView() {
   const { state, dispatch } = useApp();
   const stage = state.prefermentStage;
-  const stagePref = (stage?.draft as { prefermenti?: Array<{ type: string }> } | undefined)?.prefermenti?.find(p => p.type === 'biga' || p.type === 'poolish');
   return (
     <div style={{
       minHeight: '100dvh',
@@ -173,26 +173,26 @@ function HomeView() {
 
       {/* CTAs */}
       <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {stage && (
-          <button
-            onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}
-            aria-label={`${stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso: apri`}
-            className="pm-btn-secondary"
-            style={{
-              background: 'rgba(255,140,50,0.08)', color: 'var(--pm4-flour)',
-              border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-md)',
-              padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
-              fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
-            }}
-          >
-            🥣 {stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso · {stagePref?.type === 'poolish' ? 'pronto' : 'pronta'}{' '}
-            {(() => {
-              const d = new Date(stage.readyAt);
-              const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-              return d.toDateString() === new Date().toDateString() ? `alle ${t}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${t}`;
-            })()} →
-          </button>
-        )}
+        {stage && (() => {
+          const b = stageBannerText(stageStatus(stage));
+          return (
+            <button
+              onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}
+              aria-label={`${b.text.replace(/^\S+\s/, '')}: apri`}
+              className="pm-btn-secondary"
+              style={{
+                background: b.tone === 'late' ? 'rgba(255,118,117,0.10)' : 'rgba(255,140,50,0.08)',
+                color: b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-flour)',
+                border: `1px solid ${b.tone === 'late' ? 'var(--state-critical)' : 'var(--accent-brand)'}`,
+                borderRadius: 'var(--radius-md)',
+                padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
+                fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
+              }}
+            >
+              {b.text} →
+            </button>
+          );
+        })()}
         <button
           onClick={() => {
             dispatch({ type: 'WIZARD_RESET' });

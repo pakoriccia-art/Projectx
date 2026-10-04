@@ -10,7 +10,8 @@ import { useEffect, useRef } from 'react';
 import { useApp, type TickState } from '../context/AppContext';
 import { db, type Session } from '../db/db';
 import { classifyOrphans } from '../lib/orphans';
-import { deleteSession, findPrefermentStage } from '../services/sessionService';
+import { deleteSession, findPrefermentStage, updatePrefermentStage } from '../services/sessionService';
+import { normalizeStage } from '../lib/preferment';
 
 /**
  * Pulizia all'avvio dei record "active" orfani (doppioni del vecchio bug dell'id
@@ -48,8 +49,16 @@ export function useSessionRestore() {
         await cleanOrphanSessions(s?.id).catch(err => console.error('[cleanOrphanSessions]', err));
         // Il prefermento in maturazione si riprende sempre; si apre da solo
         // solo se non c'è un impasto in corso (altrimenti resta raggiungibile).
-        const stage = await findPrefermentStage().catch(() => null);
-        if (stage) dispatch({ type: 'PREF_STAGE_SET', stage });
+        const found = await findPrefermentStage().catch(() => null);
+        // Preparazioni salvate da build precedenti: si convertono e si risalvano.
+        const stage = found ? { ...normalizeStage(found), id: found.id } : null;
+        if (stage) {
+          dispatch({ type: 'PREF_STAGE_SET', stage });
+          if (!found!.items?.length || found!.plannedH == null) {
+            const { id, ...rest } = stage;
+            updatePrefermentStage(id, rest).catch(err => console.error('[updatePrefermentStage]', err));
+          }
+        }
         if (!s) {
           if (stage) dispatch({ type: 'NAV', view: 'preferment' });
           return;

@@ -7,7 +7,10 @@
  * usa solo fArrhenius del motore (chiamata, non modificata).
  */
 import type { PrefermentoComponent, PrefermentStage } from '../db/db';
-import { fArrhenius, computeWaterTempDDT, type KneadingMethod, type WaterTempResult } from '../engine';
+import {
+  fArrhenius, computeWaterTempDDT, computeEffectiveMixHydration, type KneadingMethod, type WaterTempResult,
+} from '../engine';
+import { ddtForStyle } from '../data/styleConstraints';
 
 export type PrefPlace = 'fresco' | 'stanza' | 'frigo';
 export type PrefTiming = 'now' | 'ready';
@@ -181,6 +184,8 @@ export interface RecipeProblem {
   message: string;
   /** Correzione proposta: idratazione minima o quota massima del prefermento più grande. */
   fixValue: number;
+  /** Acqua: quota massima del prefermento più acquoso che rientra nell'idratazione attuale. */
+  fixFraction?: { id: string; value: number };
 }
 
 /** Una ricetta che non si può impastare: null se va bene. */
@@ -203,12 +208,26 @@ export function recipeProblem(d: {
     saltPct: d.salt ?? 2, agentDosePct: 0, prefermenti: prefs,
   });
   if (split.minHydrationPct != null) {
+    // In alternativa all'idratazione: ridurre il prefermento che porta più acqua.
+    const hyd = d.hydration ?? 65;
+    const wettest = prefs.reduce((a, b) => ((b.flourFraction ?? 0) * (b.hydration ?? 0) > (a.flourFraction ?? 0) * (a.hydration ?? 0) ? b : a));
+    const otherWaterPct = prefs.filter(p => p.id !== wettest.id)
+      .reduce((acc, p) => acc + (p.flourFraction ?? 0) * (p.hydration ?? 0) / 100, 0);
+    const maxFrac = Math.floor((hyd - otherWaterPct) * 100 / Math.max(1, wettest.hydration ?? 100));
     return {
       kind: 'water', fixValue: split.minHydrationPct,
+      fixFraction: maxFrac >= 5 ? { id: wettest.id, value: maxFrac } : undefined,
       message: `L'acqua dei prefermenti supera quella della ricetta: l'idratazione deve essere almeno ${split.minHydrationPct}%.`,
     };
   }
   return null;
+}
+
+/** Durata prevista: plannedH, o per le fasi salvate prima readyAt − startedAt. */
+export function plannedHOf(stage: { startedAt: Date | string; plannedH?: number; readyAt?: Date | string }): number {
+  if (stage.plannedH != null) return Math.max(0.25, stage.plannedH);
+  const h = stage.readyAt ? (new Date(stage.readyAt).getTime() - new Date(stage.startedAt).getTime()) / 3_600_000 : NaN;
+  return Math.max(0.25, Number.isFinite(h) ? h : 12);
 }
 
 /**
@@ -223,9 +242,7 @@ export function prefProgress(
   atPct = 100,
 ): { pct: number; etaMs: number } {
   const start = new Date(stage.startedAt).getTime();
-  // Preparazioni salvate prima di plannedH: la durata è readyAt − startedAt.
-  const fallbackH = stage.readyAt ? (new Date(stage.readyAt).getTime() - start) / 3_600_000 : 12;
-  const plannedH = Math.max(0.25, stage.plannedH ?? (Number.isFinite(fallbackH) ? fallbackH : 12));
+  const plannedH = plannedHOf(stage);
   const target = (fArrhenius as (t: number) => number)(stage.plannedTempC ?? 16) * plannedH;
   const moves = [...(stage.moves ?? [])]
     .map(m => ({ at: new Date(m.at).getTime(), tempC: m.tempC }))
@@ -276,7 +293,7 @@ export function equivalentTempC(stage: Pick<PrefermentStage, 'startedAt' | 'plan
   if (!(stage.moves ?? []).length) return base;
   const hours = Math.max(1e-6, (now - new Date(stage.startedAt).getTime()) / 3_600_000);
   const { pct } = prefProgress(stage, now);
-  const plannedH = Math.max(0.25, stage.plannedH ?? 12);
+  const plannedH = plannedHOf(stage);
   const f = fArrhenius as (t: number) => number;
   const goalRate = (pct / 100) * f(base) * plannedH / hours;   // fArrhenius medio
   let lo = 0, hi = 40;
@@ -305,9 +322,188 @@ export function waterAdvice(p: {
     });
   } catch { return null; }
   if (r.mode === 'liquid' && r.tWaterLiquid != null) return `acqua a ${Math.round(r.tWaterLiquid)}°C`;
+  if (r.mode === 'ice' && r.iceGrams != null && r.iceGrams < 1) {
+    return `acqua fredda a ${Math.round(r.tWaterEffective ?? r.tWaterCalc)}°C`;
+  }
   if (r.mode === 'ice' && r.iceGrams != null) {
     return `${fmtGrams(r.iceGrams)} di ghiaccio tritato + ${fmtGrams(r.liquidGrams ?? 0)} di acqua fredda`;
   }
   if (r.mode === 'unreachable') return 'acqua più fredda che puoi (con ghiaccio) e farina fredda';
   return null;
+}
+
+// ─── Fase in corso: un elemento per ogni prefermento da preparare ─────────────
+
+export type PrefMove = { at: Date; place: PrefPlace; tempC: number };
+
+export interface StageItem {
+  id: string;
+  type: string;
+  /** Quando va impastato: il principale subito, gli altri in modo da finire insieme. */
+  startAt: Date;
+  /** Quando è stato impastato davvero ("Fatto"); da qui parte il suo orologio. */
+  mixedAt?: Date;
+  plannedH: number;
+  plannedTempC: number;
+  moves?: PrefMove[];
+}
+
+/** Orologio di un elemento nel formato di prefProgress. */
+export function itemClock(it: StageItem) {
+  return { startedAt: it.mixedAt ?? it.startAt, plannedH: it.plannedH, plannedTempC: it.plannedTempC, moves: it.moves };
+}
+
+/**
+ * Elementi della fase: il prefermento più lungo parte subito ed è il principale,
+ * gli altri partono più tardi così da essere pronti insieme a lui.
+ */
+export function buildStageItems(prefermenti: PrefermentoComponent[] | undefined, startedAt: Date): StageItem[] {
+  const prep = (prefermenti ?? []).filter(isPreparable)
+    .sort((a, b) => (b.durationH ?? 12) - (a.durationH ?? 12));
+  if (!prep.length) return [];
+  const mainH = prep[0].durationH ?? 12;
+  return prep.map((p, i) => {
+    const h = p.durationH ?? 12;
+    const startAt = new Date(startedAt.getTime() + (mainH - h) * 3_600_000);
+    return { id: p.id, type: p.type, startAt, mixedAt: i === 0 ? startedAt : undefined, plannedH: h, plannedTempC: p.tempC ?? 16 };
+  });
+}
+
+/**
+ * Fasi salvate da build precedenti (senza plannedH o senza elementi): si
+ * ricostruiscono gli elementi come allora, tutti impastati all'avvio e con gli
+ * spostamenti della fase.
+ */
+export function normalizeStage<T extends PrefermentStage>(stage: T): T {
+  if (stage.items && stage.items.length && stage.plannedH != null) return stage;
+  const prefs = ((stage.draft as { prefermenti?: PrefermentoComponent[] }).prefermenti ?? []).filter(isPreparable)
+    .sort((a, b) => (b.durationH ?? 12) - (a.durationH ?? 12));
+  const start = new Date(stage.startedAt);
+  const mainH = plannedHOf(stage);
+  const mainT = stage.plannedTempC ?? prefs[0]?.tempC ?? 16;
+  const items: StageItem[] = stage.items && stage.items.length ? stage.items : prefs.map((p, i) => ({
+    id: p.id, type: p.type, startAt: start, mixedAt: start,
+    plannedH: i === 0 ? mainH : (p.durationH ?? 12),
+    plannedTempC: i === 0 ? mainT : (p.tempC ?? 16),
+    moves: stage.moves,
+  }));
+  return { ...stage, plannedH: mainH, plannedTempC: mainT, items };
+}
+
+/** Ora in cui tutti i prefermenti sono pronti. */
+export function stageReadyAt(items: StageItem[], now = Date.now()): number {
+  return Math.max(...items.map(it => prefProgress(itemClock(it), now, 100).etaMs));
+}
+
+/** Sopra questa maturazione (%) l'impasto chiede conferma: può venire acido e debole. */
+export const VERY_LATE_PCT = 150;
+
+export type LateLevel = 'growing' | 'ready' | 'late' | 'veryLate';
+
+export function lateLevel(type: string, pct: number): LateLevel {
+  if (pct >= VERY_LATE_PCT) return 'veryLate';
+  if (pct >= lateThresholdPct(type)) return 'late';
+  if (pct >= 100) return 'ready';
+  return 'growing';
+}
+
+/** Da questa maturazione (%) si suggerisce il frigo, se non ci è già. */
+export const FRIDGE_HINT_PCT = 85;
+
+/**
+ * Quanto regge restando dov'è e quanto in frigo da adesso: orario in cui si
+ * supera la soglia di ritardo nei due casi.
+ */
+export function fridgeGain(it: StageItem, now: number, fridgeTempC: number): { lateAtStay: number; lateAtFridge: number; gainH: number } {
+  const th = lateThresholdPct(it.type);
+  const lateAtStay = prefProgress(itemClock(it), now, th).etaMs;
+  const moved = { ...it, moves: [...(it.moves ?? []), { at: new Date(now), place: 'frigo' as const, tempC: fridgeTempC }] };
+  const lateAtFridge = prefProgress(itemClock(moved), now, th).etaMs;
+  return { lateAtStay, lateAtFridge, gainH: Math.max(0, (lateAtFridge - lateAtStay) / 3_600_000) };
+}
+
+/**
+ * Acqua per l'impasto finale, con gli stessi input della card del riepilogo:
+ * DDT dello stile, idratazione effettiva, massa, impastatrice, rubinetto.
+ */
+export function finalWaterAdvice(d: {
+  style?: string; tLaboratorio?: number; totalFlourGrams?: number; hydration?: number; salt?: number;
+  prefermenti?: PrefermentoComponent[]; kneadingMethod?: KneadingMethod; kneadDurationMin?: number; tapWaterC?: number;
+}, prefTempC: number | undefined): string | null {
+  const flour = d.totalFlourGrams ?? 1000, hyd = d.hydration ?? 65;
+  const split = splitRecipe({ totalFlourG: flour, hydrationPct: hyd, saltPct: d.salt ?? 2, agentDosePct: 0, prefermenti: d.prefermenti });
+  return waterAdvice({
+    ddtTarget: ddtForStyle(d.style), tempAmbient: d.tLaboratorio ?? 20, waterG: split.final.waterG,
+    massKg: flour * (1 + hyd / 100) / 1000,
+    hydrationPct: (computeEffectiveMixHydration as (s: unknown) => number)({ hydration: hyd, prefermenti: d.prefermenti ?? [] }),
+    kneadingMethod: d.kneadingMethod ?? 'spiral', kneadDurationMin: d.kneadDurationMin ?? 12,
+    tempPreferment: prefTempC, tapWaterC: d.tapWaterC,
+  });
+}
+
+/** Avanzamento di un elemento: fermo a 0 finché non è impastato. */
+export function itemProgress(it: StageItem, now = Date.now()): { pct: number; etaMs: number; started: boolean } {
+  if (!it.mixedAt) {
+    const from = Math.max(now, new Date(it.startAt).getTime());
+    return { pct: 0, etaMs: from + it.plannedH * 3_600_000, started: false };
+  }
+  return { ...prefProgress(itemClock(it), now, 100), started: true };
+}
+
+/** Quando un elemento impastato supera la soglia di ritardo (passato o futuro). */
+export function itemLateAt(it: StageItem, now = Date.now()): number | null {
+  return it.mixedAt ? prefProgress(itemClock(it), now, lateThresholdPct(it.type)).etaMs : null;
+}
+
+export interface StageStatus {
+  type: string;
+  level: LateLevel;
+  pct: number;
+  readyAt: number;
+  /** Primo istante in cui un prefermento impastato supera la soglia di ritardo. */
+  lateAt: number | null;
+}
+
+/** Stato sintetico della fase (principale + peggiore dei ritardi) per banner e notifiche. */
+export function stageStatus(stage: PrefermentStage, now = Date.now()): StageStatus {
+  const st = normalizeStage(stage);
+  const items = st.items ?? [];
+  if (!items.length) {
+    const p = prefProgress(st, now);
+    return { type: 'biga', level: lateLevel('biga', p.pct), pct: p.pct, readyAt: p.etaMs, lateAt: null };
+  }
+  const order: LateLevel[] = ['growing', 'ready', 'late', 'veryLate'];
+  let level: LateLevel = 'growing';
+  for (const it of items) {
+    const p = itemProgress(it, now);
+    const l = p.started ? lateLevel(it.type, p.pct) : 'growing';
+    if (order.indexOf(l) > order.indexOf(level)) level = l;
+  }
+  const main = itemProgress(items[0], now);
+  const lates = items.map(it => itemLateAt(it, now)).filter((x): x is number => x != null);
+  return {
+    type: items[0].type, level: order.indexOf(level) >= 2 ? level : (main.started ? lateLevel(items[0].type, main.pct) : 'growing'),
+    pct: main.pct, readyAt: stageReadyAt(items, now), lateAt: lates.length ? Math.min(...lates) : null,
+  };
+}
+
+/** "3 h 05" / "40 min" */
+export function fmtSpanH(ms: number): string {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  const h = Math.floor(min / 60), m = min % 60;
+  return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, '0')}`;
+}
+
+/** Testo breve per banner in home e riga in dashboard. */
+export function stageBannerText(s: StageStatus, now = Date.now()): { text: string; tone: 'normal' | 'ready' | 'late' } {
+  const Name = prefName(s.type).replace(/^./, c => c.toUpperCase());
+  const fem = prefIsFeminine(s.type);
+  if (s.level === 'late' || s.level === 'veryLate') {
+    return { text: `⚠ ${Name} oltre da ${fmtSpanH(now - (s.lateAt ?? s.readyAt))}`, tone: 'late' };
+  }
+  if (s.level === 'ready') return { text: `🥣 ${Name} ${fem ? 'pronta' : 'pronto'} · controlla i segni`, tone: 'ready' };
+  const d = new Date(s.readyAt);
+  const hm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const when = d.toDateString() === new Date(now).toDateString() ? `alle ${hm}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
+  return { text: `🥣 ${Name} in corso · ${fem ? 'pronta' : 'pronto'} ${when}`, tone: 'normal' };
 }

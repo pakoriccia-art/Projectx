@@ -162,3 +162,94 @@ describe('prefProgress oltre il 100%', () => {
     expect(r.etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
   });
 });
+
+import {
+  buildStageItems, normalizeStage, itemProgress, itemClock, fridgeGain, lateLevel, stageStatus,
+  stageBannerText, plannedHOf,
+} from '../lib/preferment';
+
+describe('fase con più prefermenti', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const prefs = [{ ...poolish, durationH: 12, tempC: 20 }, { ...biga, durationH: 16, tempC: 16 }];
+  it('il più lungo parte subito, gli altri in modo da finire insieme', () => {
+    const items = buildStageItems(prefs as any, t0);
+    expect(items[0].type).toBe('biga');
+    expect(items[0].mixedAt?.getTime()).toBe(t0.getTime());
+    expect(items[1].type).toBe('poolish');
+    expect(items[1].startAt.getTime()).toBe(t0.getTime() + 4 * 3_600_000);
+    expect(items[1].mixedAt).toBeUndefined();
+    // impastato all'orario previsto: pronti insieme
+    const mixed = { ...items[1], mixedAt: items[1].startAt };
+    const a = itemProgress(items[0], t0.getTime()).etaMs, b = itemProgress(mixed, t0.getTime() + 4 * 3_600_000).etaMs;
+    expect(Math.abs(a - b)).toBeLessThan(60_000);
+  });
+  it('non impastato: fermo a 0, pronto da quando partirà', () => {
+    const items = buildStageItems(prefs as any, t0);
+    const p = itemProgress(items[1], t0.getTime());
+    expect(p.started).toBe(false);
+    expect(p.pct).toBe(0);
+    expect(p.etaMs).toBe(t0.getTime() + 16 * 3_600_000);
+  });
+});
+
+describe('normalizeStage (fasi delle build precedenti)', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const old: any = {
+    startedAt: t0, readyAt: new Date(t0.getTime() + 16 * 3_600_000),
+    draft: { prefermenti: [{ ...biga, durationH: 16, tempC: 16 }] },
+    moves: [{ at: new Date(t0.getTime() + 8 * 3_600_000), place: 'frigo', tempC: 4 }],
+  };
+  it('ricostruisce plannedH e un elemento con gli spostamenti', () => {
+    const st = normalizeStage(old);
+    expect(st.plannedH).toBe(16);
+    expect(st.items).toHaveLength(1);
+    expect(st.items![0].moves).toHaveLength(1);
+  });
+  it('dopo uno spostamento la maturazione non si dimezza e la T equivalente è sensata', () => {
+    const st = normalizeStage(old);
+    const at = t0.getTime() + 8 * 3_600_000;
+    expect(itemProgress(st.items![0], at).pct).toBeCloseTo(50, 3);
+    const tEq = equivalentTempC(itemClock(st.items![0]), t0.getTime() + 12 * 3_600_000);
+    expect(tEq).toBeGreaterThan(4);
+    expect(tEq).toBeLessThan(16);
+  });
+  it('plannedHOf senza plannedH usa readyAt − startedAt', () => {
+    expect(plannedHOf({ startedAt: t0, readyAt: new Date(t0.getTime() + 10 * 3_600_000) })).toBe(10);
+  });
+});
+
+describe('ritardo e frigo', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const bi = { id: 'b', type: 'biga', startAt: t0, mixedAt: t0, plannedH: 16, plannedTempC: 16 };
+  it('livelli', () => {
+    expect(lateLevel('biga', 50)).toBe('growing');
+    expect(lateLevel('biga', 101)).toBe('ready');
+    expect(lateLevel('biga', 138)).toBe('late');
+    expect(lateLevel('poolish', 116)).toBe('late');
+    expect(lateLevel('biga', 250)).toBe('veryLate');
+  });
+  it('il frigo sposta più avanti la soglia di ritardo', () => {
+    const g = fridgeGain(bi, t0.getTime() + 14 * 3_600_000, 4);
+    expect(g.lateAtFridge).toBeGreaterThan(g.lateAtStay);
+    expect(g.gainH).toBeGreaterThan(1);
+  });
+  it('stato e testo del banner', () => {
+    const stage: any = { startedAt: t0, readyAt: new Date(t0.getTime() + 16 * 3_600_000), plannedH: 16, plannedTempC: 16, items: [bi], draft: {} };
+    const s = stageStatus(stage, t0.getTime() + 22 * 3_600_000);
+    expect(s.level).toBe('late');
+    expect(stageBannerText(s, t0.getTime() + 22 * 3_600_000).text).toMatch(/Biga oltre da/);
+    expect(stageBannerText(stageStatus(stage, t0.getTime() + 3_600_000), t0.getTime() + 3_600_000).text).toMatch(/Biga in corso/);
+  });
+});
+
+describe('recipeProblem: alternativa al rialzo dell\'idratazione', () => {
+  it('propone la quota massima del prefermento più acquoso', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 60, prefermenti: [{ ...poolish, flourFraction: 70 }] })!;
+    expect(pb.kind).toBe('water');
+    expect(pb.fixFraction).toEqual({ id: 'p', value: 60 });
+  });
+  it('acqua: niente "0 g di ghiaccio"', () => {
+    const w = waterAdvice({ ddtTarget: 24, tempAmbient: 22, waterG: 240, massKg: 0.74, hydrationPct: 48, kneadDurationMin: 3, tapWaterC: 3 });
+    expect(w ?? '').not.toMatch(/^0 g/);
+  });
+});
