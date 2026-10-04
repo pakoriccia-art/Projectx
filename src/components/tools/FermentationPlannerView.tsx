@@ -693,7 +693,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
                 <div key={i} style={{
                   padding: '6px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.75rem',
                   background: isLast ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.05)',
-                  border: isLast ? '1px dashed rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.1)',
+                  border: isLast ? '1px dashed var(--pm4-line-strong)' : '1px solid var(--pm4-line-strong)',
                   color: isLast ? 'var(--text-muted)' : 'var(--text-secondary)',
                   opacity: isLast ? 0.75 : 1,
                 }}>
@@ -1664,7 +1664,7 @@ export function FermentationPlannerView() {
                 width: '100%',
                 background: 'var(--bg-elevated)',
                 color: selectedFlourId ? 'var(--text-primary)' : 'var(--text-muted)',
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: '1px solid var(--pm4-line-strong)',
                 borderRadius: 'var(--radius-sm)',
                 padding: '7px 10px',
                 minHeight: 44,
@@ -1733,7 +1733,7 @@ export function FermentationPlannerView() {
                       }}
                       style={{
                         width: '100%', background: 'var(--bg-elevated)', color: 'var(--text-primary)',
-                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
+                        border: '1px solid var(--pm4-line-strong)', borderRadius: 6,
                         padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 13,
                       }}
                     />
@@ -1749,7 +1749,7 @@ export function FermentationPlannerView() {
                       }}
                       style={{
                         width: '100%', background: 'var(--bg-elevated)', color: 'var(--text-primary)',
-                        border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
+                        border: '1px solid var(--pm4-line-strong)', borderRadius: 6,
                         padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 13,
                       }}
                     />
@@ -1856,11 +1856,11 @@ export function FermentationPlannerView() {
           <div style={{ ...S.label, marginBottom: 12 }}>Finestra di servizio</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
             <input type="date" value={serviceDate} onChange={e => setServiceDate(e.target.value)}
-              style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
                 borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
                 fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: '100%' }} />
             <input type="time" value={serviceTime} onChange={e => setServiceTime(e.target.value)}
-              style={{ background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
                 borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
                 fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: 95 }} />
           </div>
@@ -1990,7 +1990,7 @@ export function FermentationPlannerView() {
             value={targetDate}
             onChange={e => setTargetDate(e.target.value)}
             style={{
-              background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
               borderRadius: 'var(--radius-sm)', padding: '10px 12px',
               color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
               fontSize: '0.9rem', outline: 'none', width: '100%',
@@ -2001,7 +2001,7 @@ export function FermentationPlannerView() {
             value={targetTime}
             onChange={e => setTargetTime(e.target.value)}
             style={{
-              background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.1)',
+              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
               borderRadius: 'var(--radius-sm)', padding: '10px 12px',
               color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
               fontSize: '0.9rem', outline: 'none', width: 95,

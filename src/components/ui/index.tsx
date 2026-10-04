@@ -6,24 +6,26 @@ import { type InputHTMLAttributes, type ReactNode, useState, useEffect, useRef }
 
 const S = {
   // Card
+  // Card = pannello BANCO (gradiente e ombre fresate vivono in .pm4-panel);
+  // qui solo ciò che serve anche a chi usa S.card inline senza <Card>.
   card: {
-    background: 'var(--bg-surface)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px',
+    background: 'linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo))',
+    border: '1px solid var(--pm4-line)',
+    borderRadius: 12,
+    padding: '13px 14px 14px',
   } as React.CSSProperties,
   cardElevated: {
-    background: 'var(--bg-elevated)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 'var(--radius-lg)',
-    padding: '16px',
+    background: 'linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo))',
+    border: '1px solid var(--pm4-line-strong)',
+    borderRadius: 12,
+    padding: '13px 14px 14px',
   } as React.CSSProperties,
   // Typography — scala 11/12/15/18/22/32px (KB §1.4)
   label: {
-    fontSize: '0.75rem',          // 12px — era 0.72rem (11.5, fuori scala)
-    letterSpacing: '0.08em',
+    fontSize: '11px',             // registro canale BANCO; 1px sopra il canale dashboard: è un'etichetta di form
+    letterSpacing: '0.14em',
     textTransform: 'uppercase' as const,
-    color: 'var(--text-muted)',
+    color: 'var(--pm4-tan)',
     fontFamily: 'var(--font-mono)',
   } as React.CSSProperties,
   value: {
@@ -37,7 +39,7 @@ const S = {
   unit: {
     fontFamily: 'var(--font-mono)',
     fontSize: '0.75rem',          // 12px — era 0.8rem (12.8, fuori scala)
-    color: 'var(--text-secondary)',
+    color: 'var(--pm4-umber)',
     marginLeft: '4px',
   } as React.CSSProperties,
   btn: {
@@ -53,9 +55,9 @@ const S = {
     width: '100%',
   } as React.CSSProperties,
   btnSecondary: {
-    background: 'transparent',
-    color: 'var(--text-secondary)',
-    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'var(--pm4-tan)',
+    border: '1px solid var(--pm4-line-strong)',
     borderRadius: 'var(--radius-md)',
     padding: '12px 20px',
     fontFamily: 'var(--font-mono)',
@@ -64,8 +66,8 @@ const S = {
     width: '100%',
   } as React.CSSProperties,
   input: {
-    background: 'var(--bg-elevated)',
-    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'var(--pm4-panel-lo)',
+    border: '1px solid var(--pm4-line-strong)',
     borderRadius: 'var(--radius-sm)',
     padding: '12px 16px',         // era 11px 14px (entrambi fuori scala)
     color: 'var(--text-primary)',
@@ -79,7 +81,7 @@ const S = {
 // ─── Card ─────────────────────────────────────────────────────────────────────
 export function Card({ children, elevated, style }: { children: ReactNode; elevated?: boolean; style?: React.CSSProperties }) {
   return (
-    <div className="pm-card" style={{ ...(elevated ? S.cardElevated : S.card), ...style }}>
+    <div className="pm4-panel pm-card" style={{ ...(elevated ? S.cardElevated : S.card), ...style }}>
       {children}
     </div>
   );
@@ -224,9 +226,9 @@ export function SnapButtons<T extends string>({
             aria-label={`${label ? label + ': ' : ''}${opt.label}${opt.desc ? ' — ' + opt.desc : ''}`}
             className={`pm-snap-btn${value === opt.value ? ' pm-snap-active' : ''}`}
             style={{
-              background: value === opt.value ? 'var(--accent-brand)' : 'var(--bg-elevated)',
-              color: value === opt.value ? '#0a0806' : 'var(--text-secondary)',
-              border: value === opt.value ? 'none' : '1px solid rgba(255,255,255,0.1)',
+              background: value === opt.value ? 'var(--accent-brand)' : 'rgba(255,255,255,0.03)',
+              color: value === opt.value ? 'var(--bg-primary)' : 'var(--pm4-tan)',
+              border: value === opt.value ? '1px solid var(--accent-brand)' : '1px solid var(--pm4-line-strong)',
               borderRadius: 'var(--radius-md)',
               padding: '10px 14px',
               minHeight: 44,               // a11y: WCAG 2.5.5 target ≥44px (era ~32px)

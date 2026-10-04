@@ -176,7 +176,7 @@ function HomeView() {
           className="pm-btn-primary"
           style={{
             background: 'var(--accent-brand)',
-            color: '#0a0806',
+            color: 'var(--bg-primary)',
             border: 'none',
             borderRadius: 'var(--radius-md)',
             padding: '16px 20px',
@@ -195,9 +195,9 @@ function HomeView() {
           onClick={() => dispatch({ type: 'NAV', view: 'history' })}
           className="pm-btn-secondary"
           style={{
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.18)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--pm4-tan)',
+            border: '1px solid var(--pm4-line-strong)',
             borderRadius: 'var(--radius-md)',
             padding: '13px 20px',
             minHeight: 44,
@@ -214,9 +214,9 @@ function HomeView() {
           onClick={() => dispatch({ type: 'NAV', view: 'planner' })}
           className="pm-btn-secondary"
           style={{
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            border: '1px solid rgba(255,255,255,0.18)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--pm4-tan)',
+            border: '1px solid var(--pm4-line-strong)',
             borderRadius: 'var(--radius-md)',
             padding: '13px 20px',
             minHeight: 44,
@@ -286,11 +286,14 @@ function AppRouter() {
   // Prima l'albero di accessibilità era piatto: ogni nodo `generic`, nessun
   // punto di riferimento per navigare.
   return (
-    <main>
+    <main className={state.view === 'dashboard' ? undefined : 'pm4-root'}
+      style={state.view === 'dashboard' ? undefined : { minHeight: '100dvh' }}>
       <h1 className="sr-only">{VIEW_TITLES[state.view] ?? VIEW_TITLES.home}</h1>
-      <ErrorBoundary>
-        <Suspense fallback={<ViewLoader />}>{view}</Suspense>
-      </ErrorBoundary>
+      <div className="pm4-stack">
+        <ErrorBoundary>
+          <Suspense fallback={<ViewLoader />}>{view}</Suspense>
+        </ErrorBoundary>
+      </div>
     </main>
   );
 }

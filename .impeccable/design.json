@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-03T21:19:23.258Z",
+  "generatedAt": "2026-10-04T07:54:54.917Z",
   "title": "Design System: PizzaMatrix",
   "extensions": {
     "colorMeta": {
@@ -232,16 +232,16 @@
       "faint": {
         "role": "neutral",
         "displayName": "Cenere",
-        "canonical": "oklch(55.4% 0.06 84.6)",
+        "canonical": "oklch(59.5% 0.063 85.1)",
         "tonalRamp": [
-          "oklch(15% 0.036 84.6)",
-          "oklch(25% 0.036 84.6)",
-          "oklch(35% 0.06 84.6)",
-          "oklch(45% 0.06 84.6)",
-          "oklch(55% 0.06 84.6)",
-          "oklch(65% 0.06 84.6)",
-          "oklch(80% 0.06 84.6)",
-          "oklch(95% 0.036 84.6)"
+          "oklch(15% 0.038 85.1)",
+          "oklch(25% 0.038 85.1)",
+          "oklch(35% 0.063 85.1)",
+          "oklch(45% 0.063 85.1)",
+          "oklch(55% 0.063 85.1)",
+          "oklch(65% 0.063 85.1)",
+          "oklch(80% 0.063 85.1)",
+          "oklch(95% 0.038 85.1)"
         ]
       }
     },
@@ -433,6 +433,8 @@
     "dos": [
       "Do usare i token `var(--…)` di `index.html` invece degli hex scritti a mano. #0a0806 ripetuto 15 volte è debito.",
       "Do costruire le nuove schermate con il linguaggio BANCO: `.pm4-panel`, canali numerati, celle, LED.",
+      "Do usare i primitivi condivisi (`Card`, `Btn`, `SnapButtons`, `NumInput`) invece di ricopiarne gli stili inline: sono già BANCO.",
+      "Do usare `var(--pm4-line)` / `var(--pm4-line-strong)` per i bordi, mai il bianco trasparente.",
       "Do mantenere ogni target toccabile ad almeno 44px.",
       "Do usare cifre tabulari su ogni valore live.",
       "Do rispettare `prefers-reduced-motion`, sia in CSS sia con `useReducedMotion` in JS."

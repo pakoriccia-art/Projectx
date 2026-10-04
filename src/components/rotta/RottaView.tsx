@@ -132,7 +132,7 @@ function RottaContent() {
         <Card style={{ padding: '12px 16px', background: 'rgba(0,184,148,0.05)' }}>
           <div style={{ ...S.label, marginBottom: 10 }}>Effetto sul picco di maturazione</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)', paddingRight: 10 }}>
+            <div style={{ borderRight: '1px solid var(--pm4-line)', paddingRight: 10 }}>
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
                 T attuale — {(ts?.tempAmbient ?? localT).toFixed(1)}°C
               </div>
@@ -171,7 +171,7 @@ function RottaContent() {
             Number.isFinite(spotCurr.hoursUntilPeak) &&
             Number.isFinite(spotNew.hoursUntilPeak) && (
             <div style={{
-              marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)',
+              marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--pm4-line)',
               fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
               display: 'flex', justifyContent: 'space-between',
             }}>
@@ -318,7 +318,7 @@ function RottaContent() {
         </button>
         <button onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })} style={{
           background: 'transparent', color: 'var(--text-secondary)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: '1px solid var(--pm4-line-strong)',
           borderRadius: 'var(--radius-md)',
           padding: '13px 20px', fontFamily: 'var(--font-mono)',
           fontSize: '0.9rem', cursor: 'pointer',

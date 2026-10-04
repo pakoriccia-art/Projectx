@@ -484,7 +484,7 @@ function FlourSelector({ value, onSelect }: {
         width: '100%',
         background: 'var(--bg-elevated)',
         color: value ? 'var(--text-primary)' : 'var(--text-muted)',
-        border: '1px solid rgba(255,255,255,0.12)',
+        border: '1px solid var(--pm4-line-strong)',
         borderRadius: 'var(--radius-sm)',
         padding: '8px 12px',
         fontFamily: 'var(--font-mono)',
@@ -826,7 +826,7 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
       {/* ── Divisore ── */}
       {needsPref && (
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 4 }}>
+        <div style={{ borderTop: '1px solid var(--pm4-line)', paddingTop: 4 }}>
           <span style={{ ...S.label, color: 'var(--text-muted)' }}>
             Farine rinfresco — impasto finale ({Math.max(0, 100 - totalPrefFrac)}% farina)
           </span>
@@ -1177,7 +1177,7 @@ function Step6({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           <button key={key} onClick={() => update({ containerPreset: key as any })} style={{
             background: draft.containerPreset === key ? 'var(--accent-brand)' : 'var(--bg-elevated)',
             color: draft.containerPreset === key ? '#0a0806' : 'var(--text-secondary)',
-            border: draft.containerPreset === key ? 'none' : '1px solid rgba(255,255,255,0.1)',
+            border: draft.containerPreset === key ? 'none' : '1px solid var(--pm4-line-strong)',
             borderRadius: 'var(--radius-md)', padding: '12px 10px', cursor: 'pointer', textAlign: 'left',
           }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: draft.containerPreset === key ? 700 : 400 }}>

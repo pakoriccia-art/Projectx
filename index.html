@@ -124,8 +124,8 @@
       }
       .pm-btn-secondary:hover:not(:disabled) {
         background: rgba(255,255,255,0.07) !important;
-        border-color: rgba(255,255,255,0.2) !important;
-        color: var(--text-primary) !important;
+        border-color: var(--pm4-ember) !important;
+        color: var(--pm4-ember-lo) !important;
       }
       .pm-btn-secondary:active:not(:disabled) { transform: scale(0.98); }
       .pm-btn-danger {
@@ -141,8 +141,9 @@
       /* ── P1: SnapButton interactions ─────────────────────────────────────────── */
       .pm-snap-btn { transition: background 0.12s ease, transform 0.1s ease, box-shadow 0.1s ease; }
       .pm-snap-btn:not(.pm-snap-active):hover {
-        background: rgba(255,255,255,0.09) !important;
-        border-color: rgba(255,255,255,0.18) !important;
+        background: rgba(255,255,255,0.07) !important;
+        border-color: var(--pm4-line-strong) !important;
+        color: var(--text-primary) !important;
       }
       .pm-snap-btn:active { transform: scale(0.97); }
       .pm-snap-active { box-shadow: 0 2px 10px rgba(255,140,50,0.2); }
@@ -304,7 +305,7 @@
         --pm4-flour: #e8d5b0;
         --pm4-tan:   #a99a76;
         --pm4-umber: #9a855a;   /* a11y: 5.6:1 (era #6a5836, 2.9:1 — fail AA) */
-        --pm4-faint: #837049;   /* a11y: 4.2:1 (era #4a3c24, 1.9:1 — fail AA) */
+        --pm4-faint: #907c52;   /* a11y: 4.9:1 su bg, 4.5:1 su pannello (era #837049, 4.2:1) */
         --pm4-ember:    #ff8c32;
         --pm4-ember-lo: #ffd166;
         --pm4-ember-glow: rgba(255,140,50,0.5);

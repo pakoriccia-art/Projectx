@@ -17,7 +17,7 @@ colors:
   flour: "#e8d5b0"
   tan: "#a99a76"
   umber: "#9a855a"
-  faint: "#837049"
+  faint: "#907c52"
 typography:
   display:
     fontFamily: "Fraunces, serif"
@@ -110,7 +110,7 @@ components:
 
 PizzaMatrix è uno strumento di misura che vive nel buio caldo di un forno spento. Tutto riposa su bruni carbone e testi color farina, finché la brace non si accende: l'arancio segnala l'azione da compiere o lo stato ottimale, l'oro la maturazione che sale, il blu il freddo del frigo, il rosso il pericolo. La scienza (Gompertz, Arrhenius, decadimento della W) arriva calda e leggibile, non clinica.
 
-Il registro di riferimento è **BANCO**, la skin `pm4-*` del monitor live e del Forno. Ha pannelli con profondità "fresata", canali numerati incisi ("01 · MATURAZIONE"), LED a segmenti e valori monospazio grandi. La skin **Classic** (`Card`/`Btn`/`S` in `src/components/ui/index.tsx`, usata da Wizard, Planner, Rotta e Storico) è legacy e va fatta convergere verso BANCO. I componenti sono tattili e robusti: si usano con le mani infarinate, a distanza, durante sessioni di ore. La densità è alta ma ordinata: una colonna mobile, un valore protagonista per pannello.
+Il registro di riferimento è **BANCO**, la skin `pm4-*` del monitor live e del Forno. Ha pannelli con profondità "fresata", canali numerati incisi ("01 · MATURAZIONE"), LED a segmenti e valori monospazio grandi. I primitivi condivisi (`Card`, `Btn`, `S`, `SnapButtons`, `NumInput` in `src/components/ui/index.tsx`) rendono anch'essi BANCO, quindi Wizard, Planner, Rotta e Storico parlano la stessa lingua del monitor. Restano stili inline locali da riallineare nel tempo. I componenti sono tattili e robusti: si usano con le mani infarinate, a distanza, durante sessioni di ore. La densità è alta ma ordinata: una colonna mobile, un valore protagonista per pannello.
 
 **Key Characteristics:**
 - Solo tema scuro, a base bruno-carbone. Nessun grigio freddo e nessun bianco puro sulle superfici.
@@ -144,7 +144,7 @@ Notte di forno: neutri bruno-carbone e farina, accesi da pochi colori di stato s
 - **Farina** (#e8d5b0): testo primario e valori.
 - **Crusca** (#a99a76): nomi dei canali, testo secondario.
 - **Terra d'Ombra** (#9a855a): chiavi delle celle, didascalie (5.6:1).
-- **Cenere** (#837049): testo più tenue, solo per elementi non essenziali (4.2:1, sotto AA per il testo piccolo).
+- **Cenere** (#907c52): testo più tenue (4.9:1 sul fondo, 4.5:1 sul pannello).
 - **Linee**: `rgba(255,206,150,0.085)` per i bordi e `rgba(255,206,150,0.16)` per i bordi in evidenza. Sono bianco caldo, mai bianco puro.
 
 ### Named Rules
@@ -166,7 +166,7 @@ Notte di forno: neutri bruno-carbone e farina, accesi da pochi colori di stato s
 - **Headline** (700–900, 1.4rem): titoli di passo nel Wizard (`StepHeader`) e brand nel `LiveHeader`.
 - **Readout** (800, 35px, line-height 0.82, cifre tabulari): il valore protagonista del semaforo. Scende a 25px nella variante a metà larghezza e a 17px nelle celle secondarie.
 - **Body** (400–700, 0.9rem): bottoni, testo dei form, contenuto.
-- **Label** (700, 9–10px, tracking 0.12–0.2em, maiuscolo): nomi dei canali, chiavi delle celle, badge di stato.
+- **Label** (700, 10–11px, tracking 0.12–0.2em, maiuscolo): nomi dei canali e chiavi delle celle a 10px; etichette di form a 11px in Crusca.
 
 ### Named Rules
 **The Tabular Truth Rule.** Ogni valore che cambia nel tempo usa `font-variant-numeric: tabular-nums`, così le cifre non ballano mentre il motore avanza.
@@ -257,6 +257,8 @@ Ci sono anche linee di riferimento per "ora", per il target di cottura e per le 
 ### Do:
 - **Do** usare i token `var(--…)` di `index.html` invece degli hex scritti a mano. #0a0806 ripetuto 15 volte è debito.
 - **Do** costruire le nuove schermate con il linguaggio BANCO: `.pm4-panel`, canali numerati, celle, LED.
+- **Do** usare i primitivi condivisi (`Card`, `Btn`, `SnapButtons`, `NumInput`) invece di ricopiarne gli stili inline: sono già BANCO.
+- **Do** usare `var(--pm4-line)` / `var(--pm4-line-strong)` per i bordi, mai il bianco trasparente.
 - **Do** mantenere ogni target toccabile ad almeno 44px.
 - **Do** usare cifre tabulari su ogni valore live.
 - **Do** rispettare `prefers-reduced-motion`, sia in CSS sia con `useReducedMotion` in JS.

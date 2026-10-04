@@ -52,6 +52,21 @@ Da fare in un passaggio successivo:
 - **Colore "Cenere"** (#837049, 4.2:1): sotto AA per il testo piccolo. Va usato solo per elementi non essenziali, oppure va alzato.
 - **Versione incoerente:** README dice v2.4.25, UI e package dicono 2.4.0. È una decisione di prodotto ancora aperta.
 
+## Passaggio 2: convergenza Classic → BANCO
+
+Il passaggio è stato fatto alla fonte, nei primitivi condivisi di `src/components/ui/index.tsx`, così Wizard, Planner, Rotta e Storico cambiano pelle senza toccare layout né comportamento.
+
+- **`Card`** è un pannello BANCO: `.pm4-panel` con gradiente caldo, bordo `--pm4-line` e profondità fresata. Il reveal sfalsato resta.
+- **`S.label`** usa il registro dei canali: Crusca, 11px, tracking 0.14em.
+- **`S.unit`** è in Terra d'Ombra.
+- **`Btn` secondary** e **bottoni secondari della Home** sono ghost BANCO, con hover brace.
+- **`SnapButtons` inattivi** e **input** usano bordi caldi `--pm4-line-strong` al posto del bianco trasparente.
+- **Substrato BANCO** (brace e griglia incisa) su tutte le viste, tramite `<main className="pm4-root">`. La dashboard mantiene il suo.
+- **Bordi bianchi inline** nelle 4 viste sostituiti da `--pm4-line` e `--pm4-line-strong`.
+- **"Cenere"** alzato da #837049 (4.2:1) a #907c52: 4.9:1 sul fondo, 4.5:1 sul pannello.
+
+Punteggio stimato dopo il passaggio 2: **Theming 3→4**, **Integrità 3→4**. Totale **17/20**.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
