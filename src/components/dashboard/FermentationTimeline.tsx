@@ -154,7 +154,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   };
   // Il verde è riservato a "pronto": le fasi fatte sono in terra d'ombra.
   const pipStyle: React.CSSProperties = isCurrent
-    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
+    ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}40` }
     : isCompleted
       ? { ...pipBase, background: 'var(--pm4-umber)' }
       : overdue

@@ -65,6 +65,8 @@ export async function persistSession(
     endedAt: session.bakedAt ? new Date(session.bakedAt) : new Date(),
     peakMaturation: ts?.maturationPct ?? session.peakMaturation,
     finalAdu:       ts?.cumulativeAdu ?? session.finalAdu,
+    // W a fine sessione: senza, lo Storico mostrava sempre usura 0%.
+    effectiveW_current: ts?.W_current ?? session.effectiveW_current,
     alertsCount,
   };
   await db.sessions.put(record);

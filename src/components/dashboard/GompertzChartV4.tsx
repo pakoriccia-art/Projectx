@@ -506,22 +506,22 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={S.label}>Lievitazione · Maturazione</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
           {headerStr}
         </span>
       </div>
       <div style={{ display: 'flex', gap: 12, rowGap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--accent-brand)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent-brand)' }}>
           ╌╌ Lievitazione
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: '#e6c84a' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-ember-lo)' }}>
           —— Maturazione
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--state-cold)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--state-cold)' }}>
           ╌╌ T impasto
         </span>
         {elapsedH > 0 && (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
             · prima di «ora» il registrato, dopo la previsione
           </span>
         )}
@@ -535,16 +535,16 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
             domain={[0, maxH]}
             ticks={xTicks}
             tickFormatter={(v: number) => `${v}`}
-            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
-            label={{ value: 'h', position: 'insideBottomRight', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 11, fill: 'var(--pm4-tan)' }}
+            label={{ value: 'h trascorse', position: 'insideBottomRight', offset: -4, fill: 'var(--pm4-tan)', fontSize: 11 }}
           />
           <YAxis yAxisId="left"
-            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--text-muted)' }}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 11, fill: 'var(--pm4-tan)' }}
             domain={[0, 100]}
           />
           <YAxis yAxisId="right" orientation="right"
             domain={[0, 50]}
-            tick={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: 'var(--state-cold)' }}
+            tick={{ fontFamily: 'var(--font-mono)', fontSize: 11, fill: 'var(--state-cold)' }}
             tickFormatter={(v: number) => `${v}°`}
             width={32}
           />
@@ -561,7 +561,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           />
           {/* Linea "ora": separa il passato congelato dal futuro proiettato */}
           <ReferenceLine yAxisId="left" x={elapsedH} stroke="var(--accent-brand)" strokeDasharray="4 4"
-            label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 10, fontFamily: 'var(--font-mono)' }} />
+            label={{ value: 'ora', position: 'top', fill: 'var(--accent-brand)', fontSize: 11, fontFamily: 'var(--font-mono)' }} />
           {effectiveTargetBakeH != null && (
             <ReferenceLine yAxisId="left" x={effectiveTargetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
@@ -576,8 +576,8 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
           ))}
           <Line yAxisId="left" type="monotone" dataKey="pct" name="pct" stroke="var(--accent-brand)" strokeWidth={2}
             strokeDasharray="5 3" dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
-          <Line yAxisId="left" type="monotone" dataKey="matPct" name="matPct" stroke="#e6c84a" strokeWidth={2}
-            dot={false} activeDot={{ r: 4, fill: '#e6c84a' }} />
+          <Line yAxisId="left" type="monotone" dataKey="matPct" name="matPct" stroke="var(--pm4-ember-lo)" strokeWidth={2}
+            dot={false} activeDot={{ r: 4, fill: 'var(--pm4-ember-lo)' }} />
           <Line yAxisId="right" type="monotone" dataKey="tempC" name="tempC" stroke="var(--state-cold)" strokeWidth={1.5}
             strokeDasharray="4 2" dot={false} activeDot={{ r: 3, fill: 'var(--state-cold)' }} />
         </LineChart>

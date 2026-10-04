@@ -1,11 +1,12 @@
 /**
- * PizzaMatrix — HistoryView
+ * PizzaMatrix — HistoryView (skin "Banco")
  * Storico sessioni caricate da Dexie (IndexedDB).
- * Mostra: stile, data, durata, picco maturazione, W decay, agente.
+ * Ogni card racconta la sessione: inizio → infornata, pronta dalle, durata,
+ * maturazione e usura W. Voto dato (e cambiato) dopo l'assaggio.
+ * Eliminazione con conferma e annulla: il dato si cancella davvero solo dopo 10s.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Card, Metric, S } from '../ui';
 import { loadSessionHistory, deleteSession, rateSession } from '../../services/sessionService';
 import type { Session } from '../../db/db';
 
@@ -15,12 +16,9 @@ const AGENT_SHORT: Record<string, string> = {
   sourdough_wheat:    'LM',
 };
 
-const STYLE_EMOJI: Record<string, string> = {
-  napoletana:    '🔥',
-  contemporanea: '✨',
-  teglia:        '📐',
-  pala:          '🍕',
-  nystyle:       '🗽',
+const STYLE_LABELS: Record<string, string> = {
+  napoletana: 'Napoletana', contemporanea: 'Contemporanea',
+  teglia: 'Teglia', pala: 'Pala', nystyle: 'NY Style',
 };
 
 const OUTCOMES: Array<{ value: NonNullable<Session['outcomeRating']>; label: string }> = [
@@ -30,156 +28,6 @@ const OUTCOMES: Array<{ value: NonNullable<Session['outcomeRating']>; label: str
   { value: 'poor',      label: 'Da rivedere' },
 ];
 
-function SessionCard({
-  session,
-  onDelete,
-  onRate,
-  deleting,
-}: {
-  session: Session;
-  onDelete: (id: number) => void;
-  onRate: (id: number, rating: NonNullable<Session['outcomeRating']>) => void;
-  deleting: boolean;
-}) {
-  const baked = session.bakedAt ? new Date(session.bakedAt) : null;
-  const readySince = session.readyAt ? new Date(session.readyAt) : null;
-  const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const start = session.startedAt instanceof Date
-    ? session.startedAt : new Date(session.startedAt ?? Date.now());
-  const end = session.endedAt instanceof Date
-    ? session.endedAt : session.endedAt ? new Date(session.endedAt) : null;
-  const durationH = end ? (end.getTime() - start.getTime()) / 3_600_000 : null;
-
-  const W0   = session.effectiveW_initial ?? 280;
-  const Wf   = session.effectiveW_current ?? W0;
-  const wDecay = ((W0 - Wf) / W0) * 100;
-  const matPct = session.peakMaturation;
-
-  const emoji = STYLE_EMOJI[session.style] ?? '🍕';
-  const agent = AGENT_SHORT[session.agentType] ?? session.agentLabel;
-
-  return (
-    <Card style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <span style={{ fontSize: '1.1rem', marginRight: 6 }}>{emoji}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-            {session.style?.toUpperCase()}
-          </span>
-          <span style={{
-            marginLeft: 8,
-            fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
-            color: session.status === 'completed' ? 'var(--state-optimal-lo)' : 'var(--text-muted)',
-            background: 'rgba(255,255,255,0.06)',
-            padding: '2px 6px', borderRadius: 4,
-          }}>
-            {STATUS_LABEL[session.status] ?? session.status}
-          </span>
-          {session.outcomeRating && (
-            <span style={{
-              marginLeft: 6, fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
-              color: session.outcomeRating === 'poor' ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)',
-              border: '1px solid var(--pm4-line-strong)', padding: '2px 6px', borderRadius: 4,
-            }}>
-              🍕 {OUTCOME_LABEL[session.outcomeRating]}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => session.id != null && onDelete(session.id)}
-          disabled={deleting}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--text-muted)', fontSize: '1rem', opacity: deleting ? 0.3 : 1,
-            padding: '0 4px',
-          }}
-        >
-          🗑
-        </button>
-      </div>
-
-      {/* Date + duration */}
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-        {start.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })}
-        {' · '}
-        {start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
-        {durationH != null && ` · ${durationH.toFixed(1)}h`}
-        {baked && ` · infornata ${hhmm(baked)}`}
-        {baked && readySince && ` · pronta dalle ${hhmm(readySince)}`}
-      </div>
-
-      {/* Voto a posteriori: si dà dopo l'assaggio, non all'infornata */}
-      {!session.outcomeRating && session.status === 'completed' && session.id != null && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--pm4-flour)', fontWeight: 700 }}>
-            Com'è venuta?
-          </div>
-          <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
-            {OUTCOMES.map(o => (
-              <button key={o.value} onClick={() => onRate(session.id!, o.value)}
-                className="pm4-btn pm4-btn-ghost"
-                style={{
-                  minHeight: 44, padding: '10px 4px', borderRadius: 9, cursor: 'pointer',
-                  background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
-                  border: '1px solid var(--pm4-line-strong)', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
-                }}>
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Metrics grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-        <Metric
-          label="Picco mat."
-          value={matPct != null ? matPct.toFixed(0) : '—'}
-          unit={matPct != null ? '%' : undefined}
-          color={
-            matPct == null ? 'var(--text-muted)'
-            : matPct >= 85 ? 'var(--state-optimal-hi)'
-            : matPct >= 65 ? 'var(--state-optimal-lo)'
-            : 'var(--state-approaching)'
-          }
-        />
-        <Metric
-          label="W decay"
-          value={wDecay.toFixed(1)}
-          unit="%"
-          color={wDecay > 35 ? 'var(--state-critical)' : wDecay > 20 ? 'var(--accent-warning)' : 'var(--text-secondary)'}
-        />
-        <Metric
-          label="Farina"
-          value={session.totalFlourGrams.toString()}
-          unit="g"
-        />
-        <Metric
-          label="Agente"
-          value={agent}
-          color="var(--text-secondary)"
-        />
-      </div>
-
-      {/* Footer: hydration + salt + alerts */}
-      <div style={{
-        display: 'flex', gap: 8, flexWrap: 'wrap',
-        fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)',
-      }}>
-        <span>Idr {session.hydration}%</span>
-        <span>Sale {session.salt}%</span>
-        {session.alertsCount != null && session.alertsCount > 0 && (
-          <span style={{ color: 'var(--accent-warning)' }}>⚠ {session.alertsCount} alert</span>
-        )}
-        {session.userNotes && (
-          <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{session.userNotes}</span>
-        )}
-      </div>
-    </Card>
-  );
-}
-
 const OUTCOME_LABEL: Record<string, string> = {
   excellent: 'ottima', good: 'buona', ok: 'ok', poor: 'da rivedere',
 };
@@ -188,109 +36,280 @@ const STATUS_LABEL: Record<string, string> = {
   planning: 'pianificata', active: 'in corso', completed: 'completata', aborted: 'interrotta',
 };
 
+const MONO: React.CSSProperties = { fontFamily: 'var(--font-mono)' };
+
+const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+function fmtDuration(h: number): string {
+  const totalMin = Math.max(0, Math.round(h * 60));
+  return `${Math.floor(totalMin / 60)}h ${String(totalMin % 60).padStart(2, '0')}m`;
+}
+
+const BTN: React.CSSProperties = {
+  ...MONO, minHeight: 44, padding: '10px 12px', borderRadius: 9, cursor: 'pointer',
+  background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
+  border: '1px solid var(--pm4-line-strong)', fontSize: 12, fontWeight: 700,
+};
+
+function Cell({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="pm4-cell">
+      <div className="pm4-cell-k">{k}</div>
+      <div className="pm4-cell-v" style={{ color: 'var(--pm4-flour)' }}>{v}</div>
+    </div>
+  );
+}
+
+function SessionCard({
+  session, onDelete, onRate,
+}: {
+  session: Session;
+  onDelete: (s: Session) => void;
+  onRate: (id: number, rating: NonNullable<Session['outcomeRating']>) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editRating, setEditRating] = useState(false);
+
+  const start = session.startedAt instanceof Date
+    ? session.startedAt : new Date(session.startedAt ?? Date.now());
+  const end = session.endedAt instanceof Date
+    ? session.endedAt : session.endedAt ? new Date(session.endedAt) : null;
+  const baked = session.bakedAt ? new Date(session.bakedAt) : null;
+  const readySince = session.readyAt ? new Date(session.readyAt) : null;
+  const durationH = (baked ?? end) ? ((baked ?? end)!.getTime() - start.getTime()) / 3_600_000 : null;
+
+  const W0 = session.effectiveW_initial ?? null;
+  const Wf = session.effectiveW_current ?? null;
+  const wWear = W0 && Wf != null ? Math.max(0, ((W0 - Wf) / W0) * 100) : null;
+  const matPct = session.bakedMaturationPct ?? session.peakMaturation;
+  const agent = AGENT_SHORT[session.agentType] ?? session.agentLabel;
+  const styleName = STYLE_LABELS[session.style] ?? session.style ?? '—';
+  const dateStr = start.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+  const showRating = session.status === 'completed' && session.id != null && (!session.outcomeRating || editRating);
+
+  return (
+    <article className="pm4-panel" style={{ padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}
+      aria-label={`${styleName}, ${dateStr}`}>
+      {/* Titolo: stile · stato · esito · elimina */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--pm4-flour)' }}>
+          {styleName}
+        </h2>
+        <span style={{ ...MONO, fontSize: 11, color: 'var(--pm4-umber)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {STATUS_LABEL[session.status] ?? session.status}
+        </span>
+        {session.outcomeRating && !editRating && (
+          <button type="button" onClick={() => setEditRating(true)}
+            aria-label={`Esito: ${OUTCOME_LABEL[session.outcomeRating]}. Cambia voto`}
+            style={{ ...BTN, minHeight: 32, padding: '4px 9px', fontSize: 11, color: 'var(--pm4-flour)' }}>
+            🍕 {OUTCOME_LABEL[session.outcomeRating]} · cambia
+          </button>
+        )}
+        <button type="button" onClick={() => setConfirmDelete(true)}
+          aria-label={`Elimina la sessione ${styleName} del ${dateStr}`}
+          style={{ marginLeft: 'auto', width: 44, height: 44, margin: '-8px -10px -8px auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pm4-umber)', fontSize: 16 }}>
+          <span aria-hidden="true">🗑</span>
+        </button>
+      </div>
+
+      {confirmDelete && (
+        <div role="group" aria-label="Conferma eliminazione"
+          style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+          <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
+          <button type="button" onClick={() => setConfirmDelete(false)} style={{ ...BTN, flex: 1 }}>Annulla</button>
+          <button type="button" onClick={() => { setConfirmDelete(false); onDelete(session); }}
+            className="pm4-btn-danger-quiet"
+            style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
+            Elimina
+          </button>
+        </div>
+      )}
+
+      {/* Racconto: inizio → infornata · pronta dalle · durata */}
+      <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
+        {dateStr} · {hhmm(start)}
+        {baked && <> → infornata {hhmm(baked)}</>}
+        {baked && readySince && <> · pronta dalle {hhmm(readySince)}</>}
+        {durationH != null && <> · {fmtDuration(durationH)}</>}
+      </div>
+
+      <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <Cell k="Maturaz." v={matPct != null ? <>{matPct.toFixed(0)}<small>%</small></> : '—'} />
+        <Cell k="Usura W" v={wWear != null ? <>{wWear.toFixed(0)}<small>%</small></> : '—'} />
+        <Cell k="Farina" v={<>{session.totalFlourGrams}<small>g</small></>} />
+        <Cell k="Agente" v={agent} />
+      </div>
+
+      <div style={{ ...MONO, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--pm4-umber)' }}>
+        <span>Idratazione {session.hydration}%</span>
+        <span>Sale {session.salt}%</span>
+        {session.alertsCount != null && session.alertsCount > 0 && (
+          <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} avvisi</span>
+        )}
+        {session.userNotes && <span style={{ color: 'var(--pm4-tan)', fontStyle: 'italic' }}>{session.userNotes}</span>}
+      </div>
+
+      {/* Voto a posteriori: si dà dopo l'assaggio, e si può cambiare */}
+      {showRating && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', fontWeight: 700 }}>Com'è venuta?</div>
+          <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+            {OUTCOMES.map(o => (
+              <button key={o.value} type="button" aria-pressed={session.outcomeRating === o.value}
+                onClick={() => { onRate(session.id!, o.value); setEditRating(false); }}
+                className="pm4-btn pm4-btn-ghost"
+                style={{ ...BTN, padding: '10px 4px', color: session.outcomeRating === o.value ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function HistoryView() {
   const { dispatch } = useApp();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+  // Eliminazione differita: nascosta subito, cancellata davvero dopo 10s salvo annulla.
+  const [pendingDelete, setPendingDelete] = useState<Session | null>(null);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef  = useRef<Session | null>(null);
 
   useEffect(() => {
     loadSessionHistory(30)
       .then(setSessions)
-      .catch(() => setSessions([]))
+      .catch(() => { setSessions([]); setError('Non è stato possibile caricare lo Storico.'); })
       .finally(() => setLoading(false));
   }, []);
 
-  const handleRate = async (id: number, rating: NonNullable<Session['outcomeRating']>) => {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, outcomeRating: rating } : s));
-    try { await rateSession(id, rating); } catch { /* resta in memoria per questa vista */ }
+  const commitDelete = async (s: Session) => {
+    if (s.id == null) return;
+    try {
+      await deleteSession(s.id);
+    } catch {
+      setSessions(prev => prev.some(x => x.id === s.id) ? prev : [...prev, s].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setError('Non è stato possibile eliminare la sessione: riprova.');
+    }
   };
 
-  const handleDelete = async (id: number) => {
-    setDeletingId(id);
-    try {
-      await deleteSession(id);
-      setSessions(prev => prev.filter(s => s.id !== id));
-    } catch {
-      /* silenzioso */
-    } finally {
-      setDeletingId(null);
+  // Uscendo dalla vista con un'eliminazione in sospeso, la si completa.
+  useEffect(() => () => {
+    if (deleteTimer.current) clearTimeout(deleteTimer.current);
+    if (pendingRef.current) void commitDelete(pendingRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleDelete = (s: Session) => {
+    if (pendingRef.current) { void commitDelete(pendingRef.current); }
+    if (deleteTimer.current) clearTimeout(deleteTimer.current);
+    setError(null);
+    setSessions(prev => prev.filter(x => x.id !== s.id));
+    setPendingDelete(s);
+    pendingRef.current = s;
+    deleteTimer.current = setTimeout(() => {
+      pendingRef.current = null;
+      setPendingDelete(null);
+      void commitDelete(s);
+    }, 10_000);
+  };
+
+  const undoDelete = () => {
+    const s = pendingRef.current;
+    if (!s) return;
+    if (deleteTimer.current) clearTimeout(deleteTimer.current);
+    pendingRef.current = null;
+    setPendingDelete(null);
+    setSessions(prev => [...prev, s].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  };
+
+  const handleRate = async (id: number, rating: NonNullable<Session['outcomeRating']>) => {
+    const before = sessions.find(s => s.id === id)?.outcomeRating;
+    setError(null);
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, outcomeRating: rating } : s));
+    try { await rateSession(id, rating); }
+    catch {
+      setSessions(prev => prev.map(s => s.id === id ? { ...s, outcomeRating: before } : s));
+      setError('Non è stato possibile salvare il voto: riprova.');
     }
   };
 
   return (
     <div style={{
-      minHeight: '100dvh', padding: '24px var(--padding-h)',
-      display: 'flex', flexDirection: 'column', gap: 16,
+      minHeight: '100dvh', padding: '20px 16px', maxWidth: 430, margin: '0 auto',
+      display: 'flex', flexDirection: 'column', gap: 12,
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-        <button
-          onClick={() => dispatch({ type: 'NAV', view: 'home' })}
-          style={{ background: 'none', border: 'none', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer' }}
-        >
-          ←
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'home' })} aria-label="Torna alla home"
+          style={{ width: 44, height: 44, marginLeft: -12, background: 'none', border: 'none', color: 'var(--pm4-ember)', ...MONO, fontSize: 18, cursor: 'pointer' }}>
+          <span aria-hidden="true">←</span>
         </button>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-          Storico sessioni
-        </h2>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, color: 'var(--pm4-flour)', margin: 0 }}>
+          Storico
+        </h1>
         {!loading && (
-          <span style={{ ...S.label, marginLeft: 'auto' }}>
-            {sessions.length} sessioni
+          <span style={{ ...MONO, marginLeft: 'auto', fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--pm4-tan)' }}>
+            {sessions.length} {sessions.length === 1 ? 'sessione' : 'sessioni'}
           </span>
         )}
       </div>
 
-      {/* Loading */}
+      {error && (
+        <div role="alert" style={{ ...MONO, fontSize: 12, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)', borderRadius: 8, padding: '9px 12px' }}>
+          {error}
+        </div>
+      )}
+
       {loading && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+        <div role="status" style={{ ...MONO, textAlign: 'center', padding: '40px 0', color: 'var(--pm4-tan)', fontSize: 13 }}>
           Caricamento…
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && sessions.length === 0 && (
-        <div style={{
-          background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)',
-          padding: 32, textAlign: 'center',
-          color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem',
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: 12 }}>📋</div>
-          <div>Nessuna sessione completata ancora.</div>
-          <div style={{ marginTop: 8, fontSize: '0.72rem' }}>
-            Le sessioni terminate vengono salvate automaticamente su IndexedDB
-          </div>
+      {!loading && sessions.length === 0 && !pendingDelete && (
+        <div className="pm4-panel" style={{ ...MONO, padding: 28, textAlign: 'center', color: 'var(--pm4-tan)', fontSize: 13, lineHeight: 1.6 }}>
+          Nessuna sessione ancora.
+          <br /><span style={{ color: 'var(--pm4-umber)', fontSize: 12 }}>Le sessioni terminate compaiono qui, con l'ora d'infornata e il voto.</span>
         </div>
       )}
 
-      {/* Session cards */}
       {sessions.map(s => (
-        <SessionCard
-          key={s.id}
-          session={s}
-          onDelete={handleDelete}
-          onRate={handleRate}
-          deleting={deletingId === s.id}
-        />
+        <SessionCard key={s.id} session={s} onDelete={handleDelete} onRate={handleRate} />
       ))}
 
-      {/* CTA */}
       <button
+        type="button"
         onClick={() => {
           dispatch({ type: 'WIZARD_RESET' });
           dispatch({ type: 'NAV', view: 'wizard' });
         }}
+        className="pm-btn-primary"
         style={{
-          background: 'var(--accent-brand)', color: '#0a0806',
-          border: 'none', borderRadius: 'var(--radius-md)',
-          padding: '14px 20px', fontFamily: 'var(--font-mono)',
-          fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer',
+          background: 'var(--accent-brand)', color: 'var(--bg-primary)',
+          border: 'none', borderRadius: 10, minHeight: 48,
+          padding: '14px 20px', ...MONO, fontWeight: 700, fontSize: 14, cursor: 'pointer',
           marginTop: 8,
-          paddingBottom: 'max(14px, env(safe-area-inset-bottom))',
         }}
       >
         🍕 Nuovo impasto
       </button>
+
+      {/* Annulla eliminazione (10s) */}
+      {pendingDelete && (
+        <div role="status" style={{
+          position: 'sticky', bottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 10,
+          background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)', borderRadius: 10, padding: '6px 6px 6px 14px',
+          ...MONO, fontSize: 12, color: 'var(--pm4-tan)',
+        }}>
+          <span style={{ flex: 1 }}>Sessione eliminata</span>
+          <button type="button" onClick={undoDelete} style={{ ...BTN, color: 'var(--pm4-ember-lo)' }}>↶ Annulla</button>
+        </div>
+      )}
     </div>
   );
 }

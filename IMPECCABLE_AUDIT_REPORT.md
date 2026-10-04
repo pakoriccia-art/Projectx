@@ -195,6 +195,26 @@ Scelte dell'utente: un solo orario (la previsione) con il piano come scarto, fin
 
 **Verifica:** typecheck e test verdi, con nuovi test per lo scarto e per la transizione all'orario reale. Percorso completo nel browser, senza errori in console. Rilevatore sulla dashboard: 24 → 21 segnalazioni, le stesse 2 non solo informative.
 
+## Passaggio 9: correzioni P2 e P3 della terza critique
+
+- **Storico in stile BANCO.**
+  - Ogni card racconta la sessione: "04 ott · 11:56 → infornata 00:56 · pronta dalle 00:39 · 13h 00m". Le celle mostrano maturazione, usura W, farina e agente.
+  - L'usura W ora è vera: `persistSession` salva la W finale, prima mancante, per cui lo Storico mostrava sempre 0%.
+  - Il voto si può cambiare ("🍕 buona · cambia").
+  - Eliminazione con conferma in linea e "↶ Annulla" per 10 secondi; il database si cancella solo allo scadere.
+  - Gli errori di salvataggio sono mostrati (`role="alert"`) e il cambiamento viene annullato.
+  - "←" ha un'etichetta per lo screen reader e il titolo è un `h1`. Lo stato vuoto non cita più IndexedDB.
+- **Pannello "Conferma cambio fase".** È un gruppo etichettato, non più un dialog senza focus. All'apertura il focus va sul titolo, Esc annulla, alla chiusura il focus torna al marker.
+- **Bagliori.** Solo nel collasso. Via quelli sul valore del semaforo, su "Usura glutine", sulla fase corrente (ora un anello) e sul pallino "live".
+- **Colori e testo.** Profilo impasto in scala calda (farina / brace bassa / brace). Pulsante del modale fuori protocollo sui token. Grafico con i token, testo a 11px e asse "h trascorse". Didascalie a 11px.
+
+**Verifica:** typecheck e test verdi. Nel browser:
+- focus del pannello e uscita con Esc;
+- Storico: voto, cambio voto, elimina → annulla → elimina → la sessione resta eliminata dopo aver riaperto lo Storico;
+- nessun errore in console.
+
+Rilevatore su dashboard, Storico e index.html: 20 segnalazioni, le stesse 2 non solo informative volute.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

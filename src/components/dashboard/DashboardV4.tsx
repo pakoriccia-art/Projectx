@@ -246,6 +246,14 @@ export function DashboardV4() {
   const [snoozed, setSnoozed] = useState<Record<string, number>>({});
   // Cambio fase: richiesta da confermare + annulla temporaneo.
   const [pendingPhase, setPendingPhase] = useState<{ phaseType: string; label: string } | null>(null);
+  // Pannello di conferma in linea: il focus va sul titolo all'apertura e torna
+  // al marker che l'ha aperto alla chiusura.
+  const confirmTitleRef = useRef<HTMLDivElement>(null);
+  const phaseOpener     = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (pendingPhase) confirmTitleRef.current?.focus();
+    else if (phaseOpener.current) { phaseOpener.current.focus?.(); phaseOpener.current = null; }
+  }, [pendingPhase]);
   const [undo, setUndo] = useState<{ snap: PhaseSnapshot; label: string } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showTempEdit, setShowTempEdit] = useState(false);
@@ -571,7 +579,10 @@ export function DashboardV4() {
     && !FRIDGE_TYPES.has(dueSeg.phaseType) && !FRIDGE_TYPES.has(phase);
 
   // ── Cambio fase con conferma + annulla ──────────────────────────────────────
-  const requestPhase = (phaseType: string, label: string) => setPendingPhase({ phaseType, label });
+  const requestPhase = (phaseType: string, label: string) => {
+    phaseOpener.current = document.activeElement as HTMLElement | null;
+    setPendingPhase({ phaseType, label });
+  };
   const previewFor = (phaseType: string | null) => {
     if (!phaseType) return null;
     try {
@@ -820,9 +831,11 @@ export function DashboardV4() {
 
         {/* Cambio fase richiesto dalla timeline: conferma esplicita */}
         {pendingPhase && (
-          <div className="pm4-panel" role="dialog" aria-label="Conferma cambio fase"
+          <div className="pm4-panel" role="group" aria-labelledby="pm-phase-confirm-title"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setPendingPhase(null); } }}
             style={{ padding: '13px 14px 14px', borderColor: 'rgba(255,140,50,0.45)' }}>
-            <div style={{ color: 'var(--pm4-flour)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
+            <div id="pm-phase-confirm-title" ref={confirmTitleRef} tabIndex={-1}
+              style={{ color: 'var(--pm4-flour)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 6, outline: 'none' }}>
               Passi a {pendingPhase.label} ora?
             </div>
             {preview && (
@@ -861,7 +874,7 @@ export function DashboardV4() {
                 </div>
                 <div>
                   <div className="pm4-cell-k" style={{ textAlign: 'left' }}>Usura glutine</div>
-                  <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, textShadow: `0 0 14px ${SEMAFORO_COLORS[wState]}55` }}>
+                  <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3 }}>
                     {(liveRatio * 100).toFixed(0)}%
                   </div>
                 </div>

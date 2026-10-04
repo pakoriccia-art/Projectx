@@ -52,10 +52,9 @@ export function OutOfProtocolModal({
         che per la {styleLabel} non è la norma. Aggiungere una fase in frigo?
       </div>
       <button onClick={onConfirm} className="pm4-btn pm4-btn-warm" style={{
-        background: 'linear-gradient(180deg, var(--state-cold), #2b6fb0)', color: '#fff', border: 'none',
+        background: 'var(--state-cold)', color: 'var(--bg-primary)', border: 'none', minHeight: 48,
         borderRadius: 9, padding: '14px 32px', fontSize: 14, fontWeight: 700,
         cursor: 'pointer', marginTop: 8, fontFamily: 'var(--font-mono)',
-        boxShadow: '0 8px 22px -8px rgba(43,111,176,0.7)',
       }}>
         ❄ Aggiungi la fase in frigo
       </button>

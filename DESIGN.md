@@ -191,13 +191,13 @@ Il ritmo usa gap da 4, 8, 12 e 16px. Il padding orizzontale della pagina è 18px
 
 ## Elevation & Depth
 
-Il sistema non è piatto: è fresato. Il pannello BANCO sembra ricavato da un blocco scuro. Ha un gradiente verticale caldo, una linea di luce incisa sul bordo alto, un'ombra incisa sul bordo basso e una caduta morbida sotto il pannello. Gli stati si fanno luce con glow sul testo, non con ombre.
+Il sistema non è piatto: è fresato. Il pannello BANCO sembra ricavato da un blocco scuro. Ha un gradiente verticale caldo, una linea di luce incisa sul bordo alto, un'ombra incisa sul bordo basso e una caduta morbida sotto il pannello. Gli stati si distinguono per colore, non per bagliore: il glow è riservato al collasso strutturale.
 
 ### Shadow Vocabulary
 - **Pannello fresato** (`box-shadow: 0 1px 0 rgba(255,220,170,0.05) inset, 0 -1px 0 rgba(0,0,0,0.5) inset, 0 10px 26px -16px rgba(0,0,0,0.9)`): ogni `.pm4-panel`.
 - **Pannello critico** (`box-shadow: 0 1px 0 rgba(255,220,170,0.05) inset, 0 0 0 1px rgba(255,118,117,0.10), 0 12px 30px -14px rgba(214,48,49,0.4)`): `.pm4-crit`.
 - **Bagliore brace** (`box-shadow: 0 4px 18px rgba(255,140,50,0.28)`): hover del bottone primario.
-- **Glow di stato** (`text-shadow: 0 0 18px <colore-stato>5a`): valore del semaforo.
+- **Glow critico** (`text-shadow: 0 0 18px <colore-stato>5a`): solo il valore del semaforo in COLLASSO. La fase corrente della timeline ha un anello (`0 0 0 3px`), non un alone; il pallino "live" pulsa senza alone. La griglia incisa di fondo (`.pm4-root::before`) è voluta: è la carta millimetrata del banco.
 
 ### Named Rules
 **The Milled Panel Rule.** La profondità è incisa nel materiale (inset), non sollevata. Un pannello non fluttua: è scavato nel banco.

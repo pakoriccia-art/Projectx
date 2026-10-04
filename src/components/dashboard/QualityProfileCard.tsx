@@ -151,12 +151,12 @@ export function QualityProfileCard({ session, ts }: { session: any; ts: any }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {[
-          { label: 'Estensibilità',   now: nowIdx.ext,   bake: bakeIdx.ext,   color: 'var(--state-cold)' },
+          { label: 'Estensibilità',   now: nowIdx.ext,   bake: bakeIdx.ext,   color: 'var(--pm4-flour)' },
           { label: 'Aromi',           now: nowIdx.aroma, bake: bakeIdx.aroma, color: 'var(--pm4-ember-lo)'           },
-          { label: 'Scioglievolezza', now: nowIdx.sci,   bake: bakeIdx.sci,   color: 'var(--pm4-green)'              },
+          { label: 'Scioglievolezza', now: nowIdx.sci,   bake: bakeIdx.sci,   color: 'var(--pm4-ember)'              },
         ].map(({ label, now, bake, color }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--pm4-tan)' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-tan)' }}>
               {label}
             </span>
             <QualityOverlayDot now={now} bake={bake} color={color} label={label} />

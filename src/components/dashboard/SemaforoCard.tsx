@@ -133,7 +133,8 @@ export function SemaforoCard({
           style={{
             color, fontSize: half ? 25 : big ? 60 : 35, fontWeight: 800, fontFamily: 'var(--font-mono)',
             lineHeight: 0.9, letterSpacing: big ? '-0.03em' : '-0.01em', fontVariantNumeric: 'tabular-nums',
-            textShadow: `0 0 18px ${color}5a`,
+            // Bagliore solo nel collasso: negli altri stati il colore basta.
+            textShadow: isCollapsed ? `0 0 18px ${color}5a` : undefined,
           }}>
           {value}
         </span>
@@ -149,7 +150,7 @@ export function SemaforoCard({
         </div>
       )}
       {caption && (
-        <div style={{ color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
+        <div style={{ color: 'var(--pm4-umber)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
           {caption}
         </div>
       )}
