@@ -344,6 +344,12 @@ Verificato nel browser con record finti; lo script del telefono ora controlla ch
 
 **Aperto (motore):** nel Servizio il solver calcola il riscaldo senza il contenitore. Nella prova il PRONTO è arrivato ~2h dopo l'inizio del servizio, in parte per ritardi del test nel registrare l'uscita dal frigo. Va allineato nel solver (`engine/serviceWindowSolver.js`), che è fuori perimetro.
 
+## Passaggio 18: prefermento in pratica e prima critique del flusso (25/40)
+
+Biga e poolish con poche scelte (quota, da preparare/già pronta, luogo, durata), ricetta in grammi divisa in prefermento e impasto finale, fase "biga in corso" con conto alla rovescia, segni, notifica e ripresa; l'impasto parte con la durata reale. Telefono: 56/56.
+
+Critique (dual-agent): 25/40, 0 P0, 4 P1 — ricetta incoerente avviabile (acqua o farina dei prefermenti oltre il totale), fase in corso che convive male con altre sessioni o con una seconda fase, dosi della biga assenti nella fase in corso, conferma anticipata e ritardo non calibrati sul rischio. Detector: solo advisory (font fuori scala, in gran parte legacy). Snapshot in `.impeccable/critique/`.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
