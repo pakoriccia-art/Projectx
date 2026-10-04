@@ -249,6 +249,21 @@ Scelte dell'utente: scarto dal piano in un solo punto con un'azione, Storico com
 
 **Verifica:** typecheck e test verdi; percorso completo nel browser senza errori; rilevatore su dashboard, Storico e index.html: 20 → 17 segnalazioni, le stesse 2 non solo informative volute.
 
+## Passaggio 12: ripresa della sessione e test sul telefono
+
+- **Ripresa all'avvio (nuovo `useSessionRestore`).** Prima l'app non ricaricava mai la sessione attiva: se Android la chiudeva durante la lievitazione, la sessione spariva dalla dashboard. Ora:
+  - `useTickEngine` salva una fotografia dello stato del tick (`lastTickState`) ogni minuto, a ogni cambio di fase e quando l'app va in background;
+  - alla riapertura la sessione riparte, e il tempo trascorso viene recuperato a passi di 15 minuti (`src/lib/catchUp.ts`, con test). Le formule sono le stesse del motore, che non è stato toccato;
+  - lo stesso recupero vale tornando alla dashboard da Forno o da Aggiusta rotta (prima quelle ore si perdevano).
+- **Storico.** Nasconde i record ancora "active", compresi gli orfani lasciati dal bug dell'`id`.
+- **Debug della WebView.** In `capacitor.config.ts` resta abilitato solo nelle build di debug (default di Capacitor), così il test può collegarsi.
+- **`scripts/test-telefono.ps1` + `scripts/test-telefono.mjs`:**
+  - compila e installa l'app sul telefono in debug USB;
+  - verifica staglio (+30 min), annulla, salvataggio in IndexedDB, ripresa dopo chiusura forzata, Storico e non-ripresa dopo Termina;
+  - screenshot in `test-results/telefono`.
+
+**Verifica nel browser:** dopo una ricarica la sessione riprende; con 3h simulate ad app chiusa la maturazione passa da 4,5% a 20,6%; dopo Termina la sessione non risorge e nello Storico c'è un solo record.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

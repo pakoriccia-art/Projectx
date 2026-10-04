@@ -9,8 +9,8 @@ const config: CapacitorConfig = {
   // server: { url: 'http://192.168.x.x:5173', cleartext: true },
   android: {
     allowMixedContent: false,
-    // Permette WebView di usare IndexedDB (Dexie.js) senza limitazioni
-    webContentsDebuggingEnabled: false
+    // webContentsDebuggingEnabled non impostato: Capacitor lo abilita solo nelle
+    // build di debug (npx cap run), spento in release. Serve a scripts/test-telefono.
   },
   plugins: {
     LocalNotifications: {

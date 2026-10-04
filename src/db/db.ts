@@ -149,7 +149,10 @@ export interface Session {
   outcomeRating?: 'excellent' | 'good' | 'ok' | 'poor';
   // "Ho infornato": ora reale, cottura pianificata, maturazione raggiunta.
   bakedAt?: Date;
-  readyAt?: Date;                      // primo istante in cui il semaforo è andato a PRONTO
+  readyAt?: Date;
+  // Fotografia dello stato del tick (TickState), per riprendere la sessione dopo
+  // la chiusura dell'app. Non indicizzata: nessun bump dello schema.
+  lastTickState?: Record<string, unknown>;                      // primo istante in cui il semaforo è andato a PRONTO
   predictedBakeAt?: Date;
   bakedMaturationPct?: number;
 

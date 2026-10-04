@@ -235,7 +235,8 @@ export function HistoryView() {
 
   useEffect(() => {
     loadSessionHistory(30)
-      .then(setSessions)
+      // Le sessioni ancora "active" non sono storia (e i vecchi orfani non sono doppioni).
+      .then(list => setSessions(list.filter(s => s.status !== 'active')))
       .catch(() => { setSessions([]); setError('Non è stato possibile caricare lo Storico.'); })
       .finally(() => setLoading(false));
   }, []);

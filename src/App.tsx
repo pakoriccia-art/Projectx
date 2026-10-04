@@ -57,6 +57,7 @@ const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'Rot
 const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
 const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
+import { useSessionRestore }         from './hooks/useSessionRestore';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ class ErrorBoundary extends Component<
 
 // ─── Effetti globali (dentro AppProvider) ─────────────────────────────────────
 function AppEffects() {
+  useSessionRestore();
   useSessionPersistence();
   useCapacitorNotifications();
   return null;

@@ -12,6 +12,7 @@ import { useApp, type TickState } from '../context/AppContext';
 import { db, buildInitialTimeline, applyPhaseTransition, type Session } from '../db/db';
 import { logProcessEntry, PROCESS_LOG_INTERVAL_MIN } from '../services/processLog';
 import { ddtForStyle } from '../data/styleConstraints';
+import { catchUpTimes } from '../lib/catchUp';
 import {
   kEffective, gompertz, computeCurrentPH, computeLabAdu,
   computeTCrit, computeWHill, doughCoreTemp,
@@ -67,12 +68,35 @@ export function useTickEngine() {
   useEffect(() => { sessionRef.current = state.activeSession; }, [state.activeSession]);
   useEffect(() => { tsRef.current      = state.tickState;     }, [state.tickState]);
 
+  // ── Fotografia dello stato nella sessione (ripresa dopo chiusura dell'app) ──
+  // Android chiude spesso l'app durante 12–24h di lievitazione: senza questa
+  // fotografia ADU, maturazione e W ripartirebbero da zero alla riapertura.
+  const lastSnapRef = useRef<number>(0);
+  const saveSnapshot = useCallback((force = false) => {
+    const session = sessionRef.current;
+    const ts = tsRef.current;
+    if (!session?.id || !ts) return;
+    const now = Date.now();
+    if (!force && now - lastSnapRef.current < 60_000) return;
+    lastSnapRef.current = now;
+    db.sessions.update(session.id, { lastTickState: ts } as any).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') saveSnapshot(true); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, [saveSnapshot]);
+
   // ── Funzione tick stabile (dipende solo da dispatch, che non cambia mai) ────
-  const tick = useCallback(() => {
+  const tick = useCallback((nowOverride?: number) => {
     const session = sessionRef.current;
     if (!session) return;
 
-    const now         = Date.now();
+    const now         = nowOverride ?? Date.now();
     const prevTick    = lastTickRef.current;
     const realDeltaMs = now - prevTick;
     const deltaSec    = USE_SIM_TIME ? SIM_MINUTES_PER_TICK * 60 : realDeltaMs / 1000;
@@ -238,6 +262,10 @@ export function useTickEngine() {
       lastTickAt:       now,
     };
 
+    // Il ref avanza subito: più tick nello stesso ciclo (recupero) vedono lo stato nuovo.
+    tsRef.current = { ...(tsRef.current ?? {}), ...tickPatch } as TickState;
+    saveSnapshot();
+
     // Dispatch solo su variazione significativa — evita re-render inutili su mobile
     const prevTs = state.tickState as Record<string, unknown> | null | undefined;
     if (hasSignificantChange(prevTs, {
@@ -265,7 +293,7 @@ export function useTickEngine() {
         lastLogCumAduRef.current  = tickPatch.enzymaticAdu;
       }
     }
-  }, [dispatch]); // dispatch è stabile → tick non cambia mai → setInterval ok
+  }, [dispatch, saveSnapshot]); // entrambi stabili → tick non cambia mai → setInterval ok
 
   // ── Avvia / ferma il loop quando cambia la sessione ───────────────────────
   useEffect(() => {
@@ -274,12 +302,17 @@ export function useTickEngine() {
       intervalRef.current = null;
       return;
     }
-    lastTickRef.current = Date.now();
+    // Sessione ripresa (fotografia in tickState): si riparte dall'ultimo tick e si
+    // recupera il tempo a app chiusa a passi brevi; altrimenti si parte da adesso.
+    const resumedAt = state.tickState?.lastTickAt;
+    lastTickRef.current = resumedAt && resumedAt < Date.now() ? resumedAt : Date.now();
     // Reset tracker ProcessLog all'avvio/cambio sessione (v2.4.19)
     lastLogElapsedRef.current = state.tickState?.elapsedH ?? 0;
     lastLogCumAduRef.current  = state.tickState?.enzymaticAdu ?? 0;
+    for (const t of catchUpTimes(lastTickRef.current, Date.now())) tick(t);
     // Primo tick immediato per popolare tickState
     tick();
+    saveSnapshot(true);
     intervalRef.current = setInterval(tick, TICK_INTERVAL_MS);
     return () => {
       if (intervalRef.current) {
@@ -364,7 +397,9 @@ export function useTickEngine() {
     // Aggiorna ts.phase e ts.tempAmbient sempre: frigo→TA ripristina tLaboratorio,
     // TA→frigo imposta fridgeTempC (Newton cooling parte subito in TC).
     dispatch({ type: 'TICK', patch: { phase: p, tempAmbient: ambientTempC } as any });
-  }, [dispatch]);
+    tsRef.current = { ...(tsRef.current ?? {}), phase: p, tempAmbient: ambientTempC } as TickState;
+    saveSnapshot(true);
+  }, [dispatch, saveSnapshot]);
 
   /**
    * Fotografia dello stato di fase prima di una transizione: serve all'"Annulla"
@@ -389,7 +424,9 @@ export function useTickEngine() {
       db.sessions.update(session.id, { thermalTimeline: snap.thermalTimeline }).catch(console.error);
     }
     dispatch({ type: 'TICK', patch: { phase: snap.phase, tempAmbient: snap.tempAmbient } as any });
-  }, [dispatch]);
+    tsRef.current = { ...(tsRef.current ?? {}), phase: snap.phase, tempAmbient: snap.tempAmbient } as TickState;
+    saveSnapshot(true);
+  }, [dispatch, saveSnapshot]);
 
   return { setTempAmbient, setPhase, snapshotPhase, restorePhase };
 }
