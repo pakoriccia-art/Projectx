@@ -11,6 +11,7 @@ import { getStyleProfile } from '../engine';
 import { buildEffectiveTimeline } from '../engine/outOfProtocol';
 import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../lib/bakeReadiness';
+import { isPreparable, prefIsFeminine, prefWithArticle } from '../lib/preferment';
 
 export const NOTIF_ID = {
   ready:   100,
@@ -18,6 +19,7 @@ export const NOTIF_ID = {
   phase:   110,
   snooze:  111,
   outcome: 120,
+  preferment: 130,
 } as const;
 
 /** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
@@ -49,6 +51,20 @@ export function useCapacitorNotifications() {
   useEffect(() => {
     LocalNotifications.requestPermissions().catch(() => {/* no-op su web */});
   }, []);
+
+  // Prefermento in maturazione: avviso all'ora prevista, anche ad app chiusa.
+  const stage = state.prefermentStage;
+  useEffect(() => {
+    if (!stage) { cancelNotification(NOTIF_ID.preferment); return; }
+    const at = new Date(stage.readyAt);
+    if (at.getTime() <= Date.now()) return;
+    const prefs = ((stage.draft as { prefermenti?: Array<{ type: string }> }).prefermenti ?? []).filter(isPreparable);
+    const type = prefs[0]?.type ?? 'biga';
+    const name = prefWithArticle(type);
+    scheduleAt(NOTIF_ID.preferment,
+      `🥣 ${name.charAt(0).toUpperCase()}${name.slice(1)} dovrebbe essere ${prefIsFeminine(type) ? 'pronta' : 'pronto'}`,
+      "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", at);
+  }, [stage?.id, stage?.readyAt]);
 
   // Prossima fase pianificata: notifica all'orario previsto, riprogrammata
   // a ogni cambio di timeline; cancellata a fine sessione.

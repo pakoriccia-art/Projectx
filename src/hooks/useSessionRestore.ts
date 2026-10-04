@@ -2,14 +2,15 @@
  * PizzaMatrix — useSessionRestore
  * All'avvio riprende la sessione attiva da IndexedDB, con la sua timeline e
  * l'ultima fotografia del tick: useTickEngine recupera poi il tempo trascorso
- * ad app chiusa. Gli orfani "active" creati prima della correzione dell'id
+ * ad app chiusa. Senza impasto in corso riprende il prefermento in maturazione.
+ * Gli orfani "active" creati prima della correzione dell'id
  * non hanno la fotografia e restano dove sono.
  */
 import { useEffect, useRef } from 'react';
 import { useApp, type TickState } from '../context/AppContext';
 import { db, type Session } from '../db/db';
 import { classifyOrphans } from '../lib/orphans';
-import { deleteSession } from '../services/sessionService';
+import { deleteSession, findPrefermentStage } from '../services/sessionService';
 
 /**
  * Pulizia all'avvio dei record "active" orfani (doppioni del vecchio bug dell'id
@@ -45,7 +46,15 @@ export function useSessionRestore() {
     findResumableSession()
       .then(async s => {
         await cleanOrphanSessions(s?.id).catch(err => console.error('[cleanOrphanSessions]', err));
-        if (!s) return;
+        if (!s) {
+          // Nessun impasto in corso: forse c'è un prefermento in maturazione.
+          const stage = await findPrefermentStage().catch(() => null);
+          if (stage) {
+            dispatch({ type: 'PREF_STAGE_SET', stage });
+            dispatch({ type: 'NAV', view: 'preferment' });
+          }
+          return;
+        }
         const { lastTickState, ...session } = s;
         dispatch({ type: 'SESSION_START', session: session as Session });
         dispatch({ type: 'TICK', patch: lastTickState as unknown as Partial<TickState> });

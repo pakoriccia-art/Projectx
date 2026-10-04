@@ -3,7 +3,7 @@
  * Operazioni Dexie per sessioni, process_log, alerts
  */
 import { db, buildInitialTimeline } from '../db/db';
-import type { Session, ProcessLogEntry } from '../db/db';
+import type { Session, ProcessLogEntry, PrefermentStage } from '../db/db';
 import type { TickState } from '../context/AppContext';
 
 /**
@@ -89,4 +89,40 @@ export async function deleteSession(id: number): Promise<void> {
 /** Esito dato a posteriori, dallo Storico o dal promemoria. */
 export async function rateSession(id: number, outcomeRating: NonNullable<Session['outcomeRating']>): Promise<void> {
   await db.sessions.update(id, { outcomeRating });
+}
+
+// ─── Prefermento in preparazione ──────────────────────────────────────────────
+// Un record 'planning' con la fase del prefermento: non ha tick né timeline,
+// diventa una sessione vera quando l'utente conferma che il prefermento è pronto.
+
+/** Oltre questo, una preparazione mai conclusa non si riprende più. */
+const STAGE_MAX_AGE_MS = 5 * 24 * 3_600_000;
+
+export async function savePrefermentStage(stage: PrefermentStage): Promise<number> {
+  const d = stage.draft as { style?: Session['style']; prefermenti?: Session['prefermenti'] };
+  return Number(await db.sessions.add({
+    status: 'planning',
+    style: d.style ?? 'napoletana',
+    prefermenti: d.prefermenti ?? [],
+    startedAt: stage.startedAt,
+    createdAt: stage.startedAt,
+    prefermentStage: stage,
+  } as unknown as Session));
+}
+
+export async function findPrefermentStage(now = Date.now()): Promise<(PrefermentStage & { id: number }) | null> {
+  const rows = await db.sessions.where('status').equals('planning').toArray();
+  let best: (PrefermentStage & { id: number }) | null = null;
+  for (const r of rows) {
+    const st = r.prefermentStage;
+    if (!st || r.id == null) continue;
+    const t = new Date(st.startedAt).getTime();
+    if (!Number.isFinite(t) || now - t > STAGE_MAX_AGE_MS) { await db.sessions.delete(r.id); continue; }
+    if (!best || t > new Date(best.startedAt).getTime()) best = { ...st, id: r.id };
+  }
+  return best;
+}
+
+export async function deletePrefermentStage(id: number): Promise<void> {
+  await db.sessions.delete(id);
 }

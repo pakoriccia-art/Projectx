@@ -1147,12 +1147,12 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
   return (
     <Card elevated>
       <div style={{ ...S.label, marginBottom: 10 }}>Il tuo piano · Qualità</div>
-      {/* Il prefermento non è istantaneo: il piano presuppone che sia già pronto. */}
+      {/* Il prefermento non è istantaneo: la sessione parte dalla sua preparazione. */}
       {result.prefType !== 'none' && (
         <div style={{ marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, color: 'var(--pm4-ember-lo)',
           border: '1px solid rgba(255,140,50,0.35)', borderRadius: 8, padding: '8px 12px' }}>
-          Prima prepara {result.prefType === 'biga' ? 'la biga' : `il ${prefLabels[result.prefType].toLowerCase()}`}: {fmtHours(result.prefDurH)} a {result.prefTempC}°C.
-          Avvia la sessione quando impasti, non adesso.
+          Si parte {result.prefType === 'biga' ? 'dalla biga' : `dal ${prefLabels[result.prefType].toLowerCase()}`}: {fmtHours(result.prefDurH)} a {result.prefTempC}°C.
+          Dal riepilogo {result.prefType === 'biga' ? 'la' : 'lo'} impasti subito: ti avviso quando è {result.prefType === 'biga' ? 'pronta' : 'pronto'} e da lì parte l'impasto.
         </div>
       )}
 

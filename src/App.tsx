@@ -56,6 +56,7 @@ const HistoryView  = lazyView(() => import('./components/history/HistoryView'), 
 const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'RottaView');
 const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
 const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
+const PrefermentStageView = lazyView(() => import('./components/preferment/PrefermentStageView'), 'PrefermentStageView');
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useSessionRestore }         from './hooks/useSessionRestore';
 import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
@@ -122,7 +123,9 @@ function AppEffects() {
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 function HomeView() {
-  const { dispatch } = useApp();
+  const { state, dispatch } = useApp();
+  const stage = state.prefermentStage;
+  const stagePref = (stage?.draft as { prefermenti?: Array<{ type: string }> } | undefined)?.prefermenti?.find(p => p.type === 'biga' || p.type === 'poolish');
   return (
     <div style={{
       minHeight: '100dvh',
@@ -170,6 +173,25 @@ function HomeView() {
 
       {/* CTAs */}
       <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {stage && (
+          <button
+            onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}
+            className="pm-btn-secondary"
+            style={{
+              background: 'rgba(255,140,50,0.08)', color: 'var(--pm4-flour)',
+              border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-md)',
+              padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
+            }}
+          >
+            🥣 {stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso · {stagePref?.type === 'poolish' ? 'pronto' : 'pronta'} alle{' '}
+            {(() => {
+              const d = new Date(stage.readyAt);
+              const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+              return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short' })} ${t}`;
+            })()} →
+          </button>
+        )}
         <button
           onClick={() => {
             dispatch({ type: 'WIZARD_RESET' });
@@ -260,6 +282,7 @@ const VIEW_TITLES: Record<string, string> = {
   tools:     'Pianifica fermentazione',
   planner:   'Pianifica fermentazione',
   forno:     'Cottura',
+  preferment: 'Prefermento in corso',
   home:      'PizzaMatrix — gestione predittiva degli impasti',
 };
 
@@ -280,6 +303,7 @@ function AppRouter() {
       case 'tools':     return <FermentationPlannerView />;
       case 'planner':   return <FermentationPlannerView />;
       case 'forno':     return <BakeView />;
+      case 'preferment': return <PrefermentStageView />;
       default:          return <HomeView />;
     }
   })();

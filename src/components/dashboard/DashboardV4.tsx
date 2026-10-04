@@ -8,6 +8,7 @@
  *  - T_amb modificata via setTempAmbient() (aggiorna anche la ThermalTimeline)
  *  - W strutturale da computeDashboardEffectiveW (tRatio/tCritHours per la curva Hill)
  */
+import { fmtGrams, prefName } from '../../lib/preferment';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine, type PhaseSnapshot } from '../../hooks/useTickEngine';
@@ -1005,13 +1006,13 @@ export function DashboardV4() {
 
             {/* Prefermenti (condizionale) */}
             {session.prefermenti && session.prefermenti.length > 0 && (
-              <Collapsible title={`PREFERMENTI · ${session.prefermenti.length}`}>
+              <Collapsible title={session.prefermenti.length === 1 ? 'PREFERMENTO' : `PREFERMENTI · ${session.prefermenti.length}`}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {session.prefermenti.map((p: any, i: number) => (
                     <div key={p.id ?? i} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                      <span style={{ color: 'var(--pm4-ember-lo)', letterSpacing: '0.06em' }}>{(p.type ?? 'pref').toUpperCase()}</span>
+                      <span style={{ color: 'var(--pm4-ember-lo)', letterSpacing: '0.06em' }}>{prefName(p.type ?? '').toUpperCase()}</span>
                       <span style={{ color: 'var(--pm4-tan)' }}>
-                        {p.flourFraction ?? 0}% farina · {p.hydration ?? '—'}% idr · {p.durationH ?? '—'}h
+                        {fmtGrams((session.totalFlourGrams ?? 0) * (p.flourFraction ?? 0) / 100)} farina · {p.durationH ?? '—'} h a ~{Math.round(p.tempC ?? 16)}°C
                       </span>
                     </div>
                   ))}

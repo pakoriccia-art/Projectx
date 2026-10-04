@@ -14,7 +14,11 @@
  * dashboard: piano in alto, stato conservato, valori "dal Planner", niente modale
  * fuori protocollo, target "(dal piano)", fasi in frigo, annulla e ripresa.
  *
- * Uso: node scripts/test-telefono.mjs [--scenario nuovo|pianifica|tutti] [--wait 60] [--keep]
+ * Scenario "prefermento": biga da preparare → fase "in corso" → app chiusa e
+ * riaperta → impasto finale con la durata reale → dashboard. Poolish già pronto
+ * → la sessione parte subito.
+ *
+ * Uso: node scripts/test-telefono.mjs [--scenario nuovo|pianifica|prefermento|tutti] [--wait 60] [--keep]
  *   --scenario  quale percorso provare (default: tutti)
  *   --wait N    secondi ad app chiusa prima di riaprirla (default 60)
  *   --keep      non terminare la sessione alla fine (solo scenario nuovo)
@@ -103,6 +107,8 @@ async function readDb(page) {
         id: s.id, status: s.status, hasSnapshot: !!s.lastTickState,
         mat: s.lastTickState?.enzymaticMatPct ?? null,
         timeline: (s.thermalTimeline || []).map(x => `${x.phaseType}:${x.status}`),
+        stage: !!s.prefermentStage,
+        prefs: (s.prefermenti || []).map(p => ({ type: p.type, durationH: p.durationH, tempC: p.tempC })),
       })));
     };
   }));
@@ -138,6 +144,12 @@ if (!device) { console.error('Nessun telefono trovato da adb.'); process.exit(2)
 console.log(`Telefono: ${device.model()} (${device.serial()})`);
 
 let page = await openApp();
+// Una biga "in corso" lasciata da un test interrotto: la si annulla.
+if (await page.getByRole('button', { name: /^Annulla$/ }).count() && /sta maturando/.test(await page.locator('body').innerText())) {
+  await page.getByRole('button', { name: /^Annulla$/ }).click();
+  await page.getByRole('button', { name: /Sì, annulla/ }).click();
+  await sleep(1000);
+}
 const inDashboard = await page.locator('header').filter({ hasText: /Trascorso/i }).count();
 if (inDashboard) {
   console.error('C\'è già una sessione in corso sul telefono. Terminala dall\'app (Termina) e rilancia il test.');
@@ -369,6 +381,10 @@ async function scenarioPianifica() {
   check('Qualità: profilo calcolato', await useQ.count() > 0);
   if (await useQ.count()) {
     await useQ.click(); await sleep(1500);
+    // Il piano Qualità può avere un prefermento: qui lo si dà per pronto (la fase
+    // "in corso" ha il suo scenario).
+    const ready = page.getByRole('radio', { name: /Già pront/ }).first();
+    if (await ready.count()) await ready.click();
     await startFromWizard('Qualità');
     await shot(page, device, 'pian-08-qualita-dashboard');
     await endSession();
@@ -379,11 +395,102 @@ async function scenarioPianifica() {
   await page.getByRole('button', { name: 'Torna alla schermata iniziale' }).click().catch(() => {});
 }
 
+// ─── Scenario Prefermento ────────────────────────────────────────────────────
+
+/** Wizard fino al riepilogo con un prefermento: step 1, tipo, poi i default. */
+async function wizardWithPref(kind, configure) {
+  await page.getByRole('button', { name: /Nuovo impasto/ }).first().click();
+  await sleep(800);
+  await page.getByRole('radio', { name: /Napoletana/ }).click();
+  await page.getByRole('button', { name: /Continua/ }).click(); await sleep(500);
+  await page.getByRole('radio', { name: new RegExp(`Tipo di impasto: ${kind}`) }).click();
+  await page.getByRole('button', { name: /Continua/ }).click(); await sleep(800);
+  await configure();
+  for (let i = 3; i < 8; i++) {
+    const cont = page.getByRole('button', { name: /Continua/ }).first();
+    await sleep(400);
+    const groups = page.locator('[role=radiogroup]');
+    for (let g = 0; g < await groups.count(); g++) {
+      if (await cont.isEnabled()) break;
+      const grp = groups.nth(g);
+      if (await grp.locator('[aria-checked=true]').count()) continue;
+      await grp.locator('[role=radio]').first().click();
+    }
+    await cont.click();
+  }
+  await sleep(1000);
+}
+
+async function scenarioPrefermento() {
+  console.log('\nF1 · Biga da preparare');
+  let step3 = '';
+  await wizardWithPref('Biga', async () => {
+    step3 = clean(await page.locator('body').innerText());
+    await page.getByRole('radio', { name: /Dove matura: Fresco/ }).click();
+    await page.getByRole('radio', { name: /Per quante ore: 16 h/ }).click();
+  });
+  check('Passo 3: quota di farina con i grammi', /Farina nella biga/i.test(step3) && /\d+ g/.test(step3), step3.slice(0, 120));
+  const recap = clean(await page.locator('body').innerText());
+  await shot(page, device, 'pref-01-riepilogo');
+  check('Riepilogo: ricetta in grammi (biga + impasto finale)', /Impasto finale/i.test(recap) && /Biga \(tutta\)/.test(recap), recap.slice(0, 160));
+  const startBtn = page.getByRole('button', { name: /Impasta la biga adesso/ });
+  check('Riepilogo: si parte impastando la biga', await startBtn.count() > 0);
+  if (!(await startBtn.count())) return;
+  await startBtn.click(); await sleep(2000);
+  await shot(page, device, 'pref-02-biga-in-corso');
+  const stageText = clean(await page.locator('body').innerText());
+  check('Fase "biga in corso" con orario e segni', /La biga sta maturando/.test(stageText) && /Come capire che è pronta/i.test(stageText), stageText.slice(0, 120));
+  check('Cosa preparare per l\'impasto finale', /Per l'impasto finale prepara/i.test(stageText));
+  const dbS = await readDb(page);
+  check('Preparazione salvata in IndexedDB', (dbS ?? []).some(s => s.status === 'planning' && s.stage));
+
+  console.log(`\nF2 · App chiusa per ${WAIT_S}s e riaperta`);
+  await device.shell(`am force-stop ${PKG}`);
+  await sleep(WAIT_S * 1000);
+  page = await openApp();
+  await shot(page, device, 'pref-03-dopo-riapertura');
+  check('Riprende sulla biga in corso', /La biga sta maturando/.test(clean(await page.locator('body').innerText())));
+
+  console.log('\nF3 · Impasto finale');
+  await page.getByRole('button', { name: /impasto finale/ }).click(); await sleep(500);
+  const early = page.getByRole('button', { name: /Sì, impasto adesso/ });
+  check('Impasto in anticipo: chiede conferma', await early.count() > 0);
+  if (await early.count()) await early.click();
+  await sleep(2500);
+  await shot(page, device, 'pref-04-dashboard');
+  check('Parte la sessione dell\'impasto', /Trascorso/i.test(await headerText()), (await headerText()).slice(0, 100));
+  const dbF = await readDb(page);
+  const act = currentSession(dbF) ?? (dbF ?? []).filter(s => s.status === 'active').sort((a, b) => b.id - a.id)[0];
+  const bigaH = act?.prefs?.find(p => p.type === 'biga')?.durationH;
+  check('La biga entra con la durata reale', bigaH != null && bigaH <= WAIT_S / 3600 + 1, `durata biga ${bigaH} h`);
+  check('Nessuna preparazione rimasta nel DB', !(dbF ?? []).some(s => s.status === 'planning'));
+  await endSession();
+
+  console.log('\nF4 · Poolish già pronto');
+  await wizardWithPref('Poolish', async () => {
+    await page.getByRole('radio', { name: /Già pronto/ }).click();
+    await page.getByRole('radio', { name: /Dove è stato: Frigo/ }).click();
+  });
+  check('Poolish pronto: si avvia subito', await page.getByRole('button', { name: /Avvia sessione/ }).count() > 0);
+  await startFromWizard('Poolish pronto');
+  const dbP = await readDb(page);
+  const actP = (dbP ?? []).filter(s => s.status === 'active').sort((a, b) => b.id - a.id)[0];
+  const pool = actP?.prefs?.find(p => p.type === 'poolish');
+  check('Poolish dal frigo: 4°C nella ricetta', pool?.tempC != null && pool.tempC <= 6, `poolish ${pool?.durationH} h a ${pool?.tempC}°C`);
+  await shot(page, device, 'pref-05-poolish-dashboard');
+  await endSession();
+}
+
 if (SCENARIO === 'nuovo' || SCENARIO === 'tutti') await scenarioNuovo();
 if (SCENARIO === 'pianifica' || SCENARIO === 'tutti') {
   page = await openApp();
   if (await page.locator('header').filter({ hasText: /Trascorso/i }).count()) await endSession();
   await scenarioPianifica();
+}
+if (SCENARIO === 'prefermento' || SCENARIO === 'tutti') {
+  page = await openApp();
+  if (await page.locator('header').filter({ hasText: /Trascorso/i }).count()) await endSession();
+  await scenarioPrefermento();
 }
 
 const failed = results.filter(r => !r.ok);

@@ -3,10 +3,10 @@
  * React Context + useReducer (§4.2 KB: Strategy Pattern, no Redux overhead)
  */
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { Session, FlourGroup, PrefermentoComponent, PhaseSegment } from '../db/db';
+import type { Session, FlourGroup, PrefermentoComponent, PhaseSegment, PrefermentStage } from '../db/db';
 
 // ─── Views ────────────────────────────────────────────────────────────────────
-export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner' | 'forno';
+export type AppView = 'home' | 'wizard' | 'dashboard' | 'history' | 'rotta' | 'tools' | 'planner' | 'forno' | 'preferment';
 
 // ─── Wizard draft (built incrementally across steps) ─────────────────────────
 export interface WizardDraft {
@@ -54,6 +54,8 @@ export interface WizardDraft {
   alertThreshold?: number;
   // Navigazione: indica da dove è stato aperto il riepilogo (step 8)
   navigationSource?: 'planner';
+  // Prefermento: da preparare adesso (fase "in corso") o già pronto
+  prefermentTiming?: 'now' | 'ready';
 }
 
 // ─── Real-time tick state ─────────────────────────────────────────────────────
@@ -90,6 +92,8 @@ export interface AppState {
   wizardStep:  number;
   wizardDraft: WizardDraft;
   activeSession: Session | null;
+  /** Prefermento in maturazione (record 'planning' in IndexedDB). */
+  prefermentStage: (PrefermentStage & { id?: number }) | null;
   tickState:   TickState | null;
   alerts:      Array<{ id: string; level: 'info' | 'advisory' | 'critical' | 'collapse'; message: string; timestamp: number }>;
 }
@@ -99,6 +103,7 @@ const INITIAL_STATE: AppState = {
   wizardStep:    1,
   wizardDraft:   {},
   activeSession: null,
+  prefermentStage: null,
   tickState:     null,
   alerts:        [],
 };
@@ -116,7 +121,8 @@ type Action =
   | { type: 'TICK'; patch: Partial<TickState> }
   | { type: 'ALERT_ADD'; alert: AppState['alerts'][0] }
   | { type: 'ALERT_CLEAR' }
-  | { type: 'SESSION_END' };
+  | { type: 'SESSION_END' }
+  | { type: 'PREF_STAGE_SET'; stage: AppState['prefermentStage'] };
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -185,6 +191,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, alerts: [] };
     case 'SESSION_END':
       return { ...state, activeSession: null, tickState: null, view: 'home' };
+    case 'PREF_STAGE_SET':
+      return { ...state, prefermentStage: action.stage };
     default:
       return state;
   }

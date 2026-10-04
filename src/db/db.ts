@@ -60,7 +60,16 @@ export interface PrefermentoComponent {
   durationH: number;
   yeastPct?: number;                   // undefined per autolysis e riporto
   hydration: number;
+  place?: 'fresco' | 'stanza' | 'frigo';   // dove matura; tempC ne deriva
   state?: PrefermentoState;
+}
+
+/** Prefermento impastato e in maturazione, prima dell'impasto finale. */
+export interface PrefermentStage {
+  startedAt: Date;                     // quando è stato impastato il prefermento
+  readyAt: Date;                       // startedAt + durata prevista
+  /** WizardDraft dell'impasto finale, ricostruito alla conferma "è pronto". */
+  draft: Record<string, unknown>;
 }
 
 // ─── Thermal Timeline ─────────────────────────────────────────────────────────
@@ -172,6 +181,10 @@ export interface Session {
   // dello stile (es. fase frigo in stile ta_only). Default falsy = NON confermato →
   // la timeline effettiva resta all-TA. NON indicizzato: nessun bump versione Dexie.
   outOfProtocolPhaseConfirmed?: boolean;
+
+  // Prefermento in preparazione (status 'planning'): la sessione dell'impasto
+  // parte quando l'utente conferma che è pronto. Non indicizzato.
+  prefermentStage?: PrefermentStage;
 
   // v2.4.18 — modulo cottura (validatore advisory, opzionale e NON indicizzato:
   // nessun bump di versione Dexie richiesto; le sessioni esistenti restano valide).

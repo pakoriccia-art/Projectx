@@ -61,6 +61,8 @@ const PrefermentoComponentSchema = z.object({
   durationH:     z.number().min(0.33).max(72),
   yeastPct:      z.number().min(0.005).max(2.0).optional(),
   hydration:     z.number().min(40).max(110),
+  // Dove matura (fresco/stanza/frigo): da qui la UI ricava tempC.
+  place:         z.enum(['fresco', 'stanza', 'frigo']).optional(),
   state:         z.object({}).passthrough().optional(),  // PrefermentoState opaco a questo livello
 }).strict().superRefine((p, ctx) => {
   // KB §5.7 — vincoli per tipo (vedi validatePrefermentiMix engine-level per la versione completa)
@@ -152,6 +154,8 @@ export const WizardInputSchema = z.object({
   serviceWindowH:   z.number().min(0).max(12).optional(),
   // Navigazione: traccia l'origine del percorso verso il riepilogo
   navigationSource: z.enum(['planner']).optional(),
+  // Prefermento da preparare adesso (fase "in corso") o già pronto.
+  prefermentTiming: z.enum(['now', 'ready']).optional(),
 }).strict();
 
 export type WizardInput = z.infer<typeof WizardInputSchema>;

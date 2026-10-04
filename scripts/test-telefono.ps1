@@ -13,10 +13,10 @@
     -SkipBuild      non ricompila né reinstalla (app già aggiornata sul telefono)
     -WaitSeconds N  secondi ad app chiusa prima di riaprirla (default 60)
     -Keep           lascia la sessione di test aperta alla fine (scenario nuovo)
-    -Scenario X     nuovo | pianifica | tutti (default tutti)
+    -Scenario X     nuovo | pianifica | prefermento | tutti (default tutti)
 #>
 param(
-  [ValidateSet('nuovo', 'pianifica', 'tutti')][string]$Scenario = 'tutti',
+  [ValidateSet('nuovo', 'pianifica', 'prefermento', 'tutti')][string]$Scenario = 'tutti',
   [switch]$SkipBuild,
   [int]$WaitSeconds = 60,
   [switch]$Keep
