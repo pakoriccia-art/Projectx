@@ -40,7 +40,7 @@ import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPref
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
   prefName, prefWithArticle, prefIsFeminine, splitRecipe, prefTempAtMix, fmtGrams, type PrefPlace,
-  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems,
+  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems, mainPreparable,
 } from '../../lib/preferment';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import {
@@ -1839,7 +1839,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {fromPlannerStep8 && (() => {
         // Con un prefermento da preparare, l'impasto parte quando è pronto.
         // Stessa durata della fase "in corso": il prefermento biologico più lungo.
-        const prepPref = startsWithPreferment(draft) ? (draft.prefermenti ?? []).find(isPreparable) : undefined;
+        const prepPref = startsWithPreferment(draft) ? mainPreparable(draft.prefermenti) : undefined;
         const t0 = Date.now() + (prepPref ? stageDurationH(draft.prefermenti) * 3_600_000 : 0);
         const at = (h: number) => new Date(t0 + h * 3_600_000);
         const p = draft.puntataH ?? 0, sH = draft.staglioH ?? 0.5, tc = draft.tcHours ?? 0;
@@ -1990,7 +1990,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             💧 Acqua · impasto finale
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
-            La temperatura dell'acqua per l'impasto finale te la calcolo quando {prefWithArticle((draft.prefermenti ?? []).find(isPreparable)!.type)} è {prefIsFeminine((draft.prefermenti ?? []).find(isPreparable)!.type) ? 'pronta' : 'pronto'}: dipende da dove sarà.
+            La temperatura dell'acqua per l'impasto finale te la calcolo quando {prefWithArticle(mainPreparable(draft.prefermenti)!.type)} è {prefIsFeminine(mainPreparable(draft.prefermenti)!.type) ? 'pronta' : 'pronto'}: dipende da dove sarà.
           </div>
         </Card>
       ) : (() => {
@@ -2029,7 +2029,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         textAlign: 'center', padding: '4px 0',
       }}>
         {startsWithPreferment(draft)
-          ? `Ti avviso quando ${prefWithArticle((draft.prefermenti ?? []).find(isPreparable)!.type)} è ${prefIsFeminine((draft.prefermenti ?? []).find(isPreparable)!.type) ? 'pronta' : 'pronto'}: da lì parte il monitoraggio dell'impasto`
+          ? `Ti avviso quando ${prefWithArticle(mainPreparable(draft.prefermenti)!.type)} è ${prefIsFeminine(mainPreparable(draft.prefermenti)!.type) ? 'pronta' : 'pronto'}: da lì parte il monitoraggio dell'impasto`
           : 'Premi "🍕 Avvia sessione" per iniziare il monitoraggio'}
       </div>
     </div>
@@ -2217,7 +2217,7 @@ export function WizardView() {
           </div>
         )}
         {replaceStage === 'ask' && state.prefermentStage && (() => {
-          const cur = ((state.prefermentStage.draft as WizardDraft).prefermenti ?? []).find(isPreparable);
+          const cur = mainPreparable((state.prefermentStage.draft as WizardDraft).prefermenti);
           const t = cur?.type ?? 'biga';
           const at = new Date(state.prefermentStage.readyAt);
           const hm = at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -2247,7 +2247,7 @@ export function WizardView() {
           aria-describedby={!canProceed() ? 'wizard-blocked-hint' : undefined}>
           {step < TOTAL_STEPS ? 'Continua →'
             : startsWithPreferment(draft)
-              ? `🥣 Impasta ${prefWithArticle((draft.prefermenti ?? []).find(isPreparable)!.type)} adesso`
+              ? `🥣 Impasta ${prefWithArticle(mainPreparable(draft.prefermenti)!.type)} adesso`
               : '🍕 Avvia sessione'}
         </Btn>
         <Btn variant="secondary" onClick={prev}>

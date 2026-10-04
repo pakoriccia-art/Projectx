@@ -377,6 +377,13 @@ Risolti: ricetta impossibile, fase persa con un impasto attivo, dosi nella fase,
 
 Stesso punteggio della seconda, per motivi diversi: risolti doppio tocco, fasi legacy, correzione nel range dello stile, soglie e ghiaccio; il modello a più orologi apre nuovi errori di attribuzione. P1: stato sintetico (banner, riga, notifiche, conferme) col nome del principale e i numeri del secondo; secondo prefermento non avviato = vicolo cieco; gerarchia sul più lungo invece che sul più urgente.
 
+## Passaggio 23: P1 della terza critique del prefermento
+
+- Stato attribuito al prefermento giusto: il "focus" è quello che va oltre per primo. Titolo, banner, riga in dashboard, notifiche (130 con tutti i nomi, 131 col nome di chi va oltre, 133 sul primo impastato non in frigo) e conferme ("molto oltre" sul più maturo, "in anticipo" sul meno maturo) nominano l'elemento giusto.
+- Secondo prefermento non impastato all'ora: card "da impastare (era alle HH:MM)", ritardo, quando sarà pronto se lo impasti adesso e se l'altro regge (con l'opzione frigo); "Procedi senza" con conferma (farina e acqua passano all'impasto finale). Banner "⚠ Poolish da impastare".
+- Gerarchia sul più urgente e finestra per l'impasto finale in alto ("Impasto finale tra le … e le …", "Impasta entro le …", oppure "Non sono pronti insieme"). "TROPPO OLTRE" sopra il 150%, CTA "Impasto finale (è oltre)" mai primario insieme al frigo.
+- Piccoli: "pronta/pronto/pronti" declinato, "insieme alla biga", etichetta del timer per livello, aria-label sulla riga in dashboard, acqua finale con la temperatura dei prefermenti pesata sulla massa, wizard con il prefermento principale = il più lungo, "Acqua —" invece di 0 g.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

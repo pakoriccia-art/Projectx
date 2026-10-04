@@ -253,3 +253,38 @@ describe('recipeProblem: alternativa al rialzo dell\'idratazione', () => {
     expect(w ?? '').not.toMatch(/^0 g/);
   });
 });
+
+describe('stato attribuito al prefermento giusto', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  const bigaIt = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  const poolIt = { id: 'p', type: 'poolish', startAt: new Date(t0 + 4 * H), mixedAt: new Date(t0 + 4 * H), plannedH: 12, plannedTempC: 20 };
+  const mk = (items: any[]) => ({ startedAt: new Date(t0), readyAt: new Date(t0 + 16 * H), plannedH: 16, plannedTempC: 16, items, draft: {} }) as any;
+  it('il poolish va oltre per primo (115%): è lui il focus e il banner lo nomina', () => {
+    const now = t0 + 18.5 * H;   // biga ~116% (pronta), poolish ~121% (oltre)
+    const s = stageStatus(mk([bigaIt, poolIt]), now);
+    expect(s.focus.it.type).toBe('poolish');
+    expect(s.level).toBe('late');
+    expect(stageBannerText(s, now).text).toMatch(/^⚠ Poolish oltre da/);
+  });
+  it('finestra: da tutti pronti al primo che va oltre', () => {
+    const s = stageStatus(mk([bigaIt, { ...poolIt, mixedAt: undefined }]), t0 + H);
+    expect(s.window.from).toBeCloseTo(t0 + 16 * H, -3);
+    expect(s.window.to).toBeCloseTo(t0 + 4 * H + 12 * 1.15 * H, -3);
+  });
+  it('secondo non impastato all\'ora: segnalato, banner lo dice', () => {
+    const pending = { ...poolIt, mixedAt: undefined };
+    const now = t0 + 6 * H;
+    const s = stageStatus(mk([bigaIt, pending]), now);
+    expect(s.overdue?.it.type).toBe('poolish');
+    expect(s.overdue!.overdueMs).toBeCloseTo(2 * H, -3);
+    expect(stageBannerText(s, now).text).toMatch(/Poolish da impastare/);
+    expect(s.focus.it.type).toBe('biga');
+  });
+  it('tutti pronti: nomi di entrambi e "impasta entro"', () => {
+    const now = t0 + 16.2 * H;
+    const t = stageBannerText(stageStatus(mk([bigaIt, poolIt]), now), now).text;
+    expect(t).toMatch(/Biga e poolish/);
+    expect(t).toMatch(/impasta entro/);
+  });
+});

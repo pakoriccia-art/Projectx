@@ -540,6 +540,13 @@ async function scenarioPrefermento() {
   const hint = clean(await page.locator('body').innerText());
   await shot(page, device, 'pref-07-frigo-in-anticipo');
   check('Frigo suggerito prima che sia oltre', /mettila in frigo/i.test(hint) || /Mettila in frigo/.test(hint), hint.slice(0, 200));
+  check('Poolish non impastato all\'ora: segnalato', /il poolish: da impastare/i.test(hint) && /Sei in ritardo di/.test(hint), (hint.match(/il poolish: da impastare.{0,160}/i) || [''])[0]);
+  const skip = page.getByRole('button', { name: /Procedi senza il poolish/ });
+  if (await skip.count()) {
+    await skip.click(); await page.getByRole('button', { name: /Sì, procedi senza/ }).click(); await sleep(800);
+  }
+  const afterSkip = clean(await page.locator('body').innerText());
+  check('Si può procedere senza il poolish', !/da impastare/i.test(afterSkip) && /impasto finale →/.test(afterSkip), afterSkip.slice(0, 160));
   await page.getByRole('button', { name: /^Annulla$/ }).click();
   await page.getByRole('button', { name: /Sì, annulla/ }).click(); await sleep(1000);
 }

@@ -914,7 +914,7 @@ export function DashboardV4() {
         {state.prefermentStage && (() => {
           const b = stageBannerText(stageStatus(state.prefermentStage));
           return (
-            <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })} style={{
+            <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })} aria-label={`${b.text.replace(/^\S+\s/, '')}: apri`} style={{
               minHeight: 44, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
               background: b.tone === 'late' ? 'rgba(255,118,117,0.10)' : 'rgba(255,140,50,0.06)',
               border: `1px solid ${b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-line-strong)'}`, borderRadius: 8,

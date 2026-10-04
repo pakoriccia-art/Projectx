@@ -3,10 +3,11 @@
  *
  * La fase prima dell'impasto finale. Ogni prefermento ha il suo orologio
  * (tempo termico con fArrhenius del motore, anche se cambia posto): il più
- * lungo parte subito, gli altri più tardi per essere pronti insieme. La vista
- * dice cosa impastare adesso, a che punto è ciascuno, quando conviene il frigo
- * e cosa preparare dopo. Alla conferma "è pronta" le ore e le temperature
- * vissute entrano nella ricetta e parte la sessione dell'impasto.
+ * lungo parte subito, gli altri più tardi per essere pronti insieme. In alto
+ * c'è sempre il più urgente (quello che va oltre per primo) e la finestra per
+ * l'impasto finale: da quando sono tutti pronti a quando il primo va oltre.
+ * Alla conferma le ore e le temperature vissute entrano nella ricetta e parte
+ * la sessione dell'impasto.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
@@ -16,9 +17,10 @@ import { deleteAllPrefermentStages, deletePrefermentStage, updatePrefermentStage
 import type { PrefermentStage } from '../../db/db';
 import {
   EARLY_PCT, FRIDGE_HINT_PCT, currentSpot, elapsedPrefHours, equivalentTempC, finalWaterAdvice,
-  fmtGrams, fmtSpanH, fridgeGain, isPreparable, itemClock, itemProgress, lateLevel, normalizeStage,
-  overSign, placeOf, placeTempC, prefDdtC, prefIsFeminine, prefName, prefWithArticle, readySigns,
-  splitRecipe, stageReadyAt, waterAdvice, itemLateAt, type LateLevel, type PrefPlace, type StageItem,
+  fmtGrams, fmtSpanH, fridgeGain, isPreparable, itemClock, itemState, normalizeStage,
+  overSign, placeOf, placeTempC, prefAl, prefDdtC, prefIsFeminine, prefName, prefTempAtMix,
+  prefWithArticle, readySigns, readyWord, splitRecipe, stageReadyAt, stageStatus, waterAdvice,
+  type ItemState, type LateLevel, type PrefPlace, type StageItem,
 } from '../../lib/preferment';
 
 const MONO = { fontFamily: 'var(--font-mono)' } as const;
@@ -36,10 +38,10 @@ function fmtClock(d: Date | number, now: number): string {
 
 const cap = (t: string) => t.replace(/^./, c => c.toUpperCase());
 const LEVEL_COLOR: Record<LateLevel, string> = {
-  growing: 'var(--pm4-flour)', ready: 'var(--pm4-ember-lo)', late: 'var(--state-critical)', veryLate: 'var(--state-critical)',
+  growing: 'var(--pm4-flour)', ready: 'var(--pm4-ember-lo)', late: 'var(--state-critical)', veryLate: 'var(--state-collapsed, #d63031)',
 };
 
-type Confirm = null | 'early' | 'veryLate' | 'service';
+type Confirm = null | 'early' | 'veryLate' | 'service' | 'skip';
 
 export function PrefermentStageView() {
   const { state, dispatch } = useApp();
@@ -84,18 +86,19 @@ export function PrefermentStageView() {
   const prefs = draft.prefermenti ?? [];
   const prefOf = (it: StageItem) => prefs.find(p => p.id === it.id);
   const main = items[0];
-  const secondaries = items.slice(1);
-  const type = main?.type ?? 'biga';
+  const fridge = draft.fridgeTempC ?? 4;
+  const status = main ? stageStatus(stage, now) : null;
+  // In alto il più urgente: quello che va oltre per primo.
+  const focus: ItemState | null = status?.focus ?? null;
+  const fIt = focus?.it ?? main;
+  const type = fIt?.type ?? 'biga';
   const fem = prefIsFeminine(type);
   const Name = cap(prefWithArticle(type));
-  const fridge = draft.fridgeTempC ?? 4;
-  const mainProg = main ? itemProgress(main, now) : { pct: 0, etaMs: now, started: false };
-  const mainLevel = lateLevel(type, mainProg.pct);
-  const readyMs = mainProg.etaMs;
-  // "Oltre da" si conta dalla soglia di ritardo, come nel banner e nelle notifiche.
-  const mainLateAt = main ? itemLateAt(main, now) : null;
+  const level: LateLevel = focus?.level ?? 'growing';
+  const readyMs = focus?.etaMs ?? now;
   const spotOf = (it: StageItem) => currentSpot(it, prefOf(it) ? placeOf(prefOf(it)!) : 'fresco');
-  const spot = main ? spotOf(main) : { place: 'fresco' as PrefPlace, tempC: 16 };
+  const spot = fIt ? spotOf(fIt) : { place: 'fresco' as PrefPlace, tempC: 16 };
+  const others = items.filter(it => it.id !== fIt?.id);
   const recipe = splitRecipe({
     totalFlourG: draft.totalFlourGrams ?? 1000, hydrationPct: draft.hydration ?? 65,
     saltPct: draft.salt ?? 2, fatPct: draft.fat, agentDosePct: draft.agentDosePct ?? 0, prefermenti: prefs,
@@ -113,15 +116,22 @@ export function PrefermentStageView() {
       updatePrefermentStage(raw.id, rest).catch(err => console.error('[updatePrefermentStage]', err));
     }
   };
-  const updateItem = (id: string, patch: Partial<StageItem>) => {
+  const saveItems = (nextItems: StageItem[], patch: Partial<PrefermentStage> = {}) => {
     const t = Date.now();
-    const nextItems = items.map(it => (it.id === id ? { ...it, ...patch } : it));
     setNow(t);   // l'orologio della vista va al momento della modifica
-    save({ items: nextItems, readyAt: new Date(stageReadyAt(nextItems, t)) });
+    save({ ...patch, items: nextItems, readyAt: new Date(stageReadyAt(nextItems, t)) });
   };
+  const updateItem = (id: string, patch: Partial<StageItem>) =>
+    saveItems(items.map(it => (it.id === id ? { ...it, ...patch } : it)));
   const moveTo = (it: StageItem, place: PrefPlace) => {
     if (place === spotOf(it).place) return;
     updateItem(it.id, { moves: [...(it.moves ?? []), { at: new Date(), place, tempC: placeTempC(place, fridge) }] });
+  };
+  // Senza il secondo prefermento: la sua farina e la sua acqua vanno nell'impasto finale.
+  const skipItem = (it: StageItem) => {
+    const nextDraft = { ...draft, prefermenti: prefs.filter(p => p.id !== it.id) };
+    saveItems(items.filter(x => x.id !== it.id), { draft: nextDraft as Record<string, unknown> });
+    setConfirm(null);
   };
 
   const removeStage = () => {
@@ -164,10 +174,14 @@ export function PrefermentStageView() {
     removeStage();
   };
 
-  const progs = items.map(it => ({ it, p: itemProgress(it, now) }));
-  const anyVeryLate = progs.some(({ it, p }) => p.started && lateLevel(it.type, p.pct) === 'veryLate');
-  const anyEarly = progs.some(({ p }) => p.started && p.pct < EARLY_PCT);
-  const pendingSecondary = secondaries.find(it => !it.mixedAt);
+  const started = (status?.all ?? []).filter(x => x.started);
+  const worst = started.reduce<ItemState | null>((a, b) => (!a || b.pct > a.pct ? b : a), null);
+  const many = items.length > 1;
+  const allFem = items.every(it => prefIsFeminine(it.type));
+  const leastRipe = started.reduce<ItemState | null>((a, b) => (!a || b.pct < a.pct ? b : a), null);
+  const anyVeryLate = started.some(x => x.level === 'veryLate');
+  const anyEarly = started.some(x => x.pct < EARLY_PCT);
+  const pending = (status?.all ?? []).find(x => !x.started) ?? null;
   const askService = !!target && Math.abs(shiftMs) >= SHIFT_ASK_MS;
   const goOn = (from: Confirm) => {
     // Le domande in fila: troppo oltre → in anticipo → servizio.
@@ -197,21 +211,20 @@ export function PrefermentStageView() {
     );
   };
 
-  // Frigo: in anticipo dall'85%, come azione principale quando è già oltre.
+  // Frigo: in anticipo dall'85% (vale se lo sposti ora), azione principale quando è già oltre.
   const fridgeHint = (it: StageItem, urgent: boolean) => {
-    const p = itemProgress(it, now);
-    if (!p.started || spotOf(it).place === 'frigo') return null;
-    const lvl = lateLevel(it.type, p.pct);
-    if (!urgent && (p.pct < FRIDGE_HINT_PCT || lvl === 'late' || lvl === 'veryLate')) return null;
-    if (urgent && lvl !== 'late' && lvl !== 'veryLate') return null;
+    const s = itemState(it, now);
+    if (!s.started || spotOf(it).place === 'frigo') return null;
+    if (!urgent && (s.pct < FRIDGE_HINT_PCT || s.level === 'late' || s.level === 'veryLate')) return null;
+    if (urgent && s.level !== 'late') return null;
     const g = fridgeGain(it, now, fridge);
     const nm = prefWithArticle(it.type), f = prefIsFeminine(it.type);
     return (
-      <Card key={`fr-${it.id}`} elevated>
+      <Card key={`fr-${it.id}-${urgent}`} elevated>
         <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)', marginBottom: 10 }}>
           {urgent
             ? `${cap(nm)} è oltre: in frigo rallenta e ti dà tempo per impastare.`
-            : `Se non impasti entro le ${fmtClock(g.lateAtStay, now)}, metti ${nm} in frigo: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
+            : `Non impasti prima delle ${fmtClock(g.lateAtStay, now)}? Metti ${nm} in frigo adesso: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
         </div>
         <Btn variant={urgent ? 'primary' : 'secondary'} onClick={() => moveTo(it, 'frigo')}>
           Mett{f ? 'ila' : 'ilo'} in frigo{urgent ? ' (rallenta)' : ''}
@@ -229,47 +242,81 @@ export function PrefermentStageView() {
       </div>
     );
   }
+  const placePicker = (it: StageItem, lbl: string) => (
+    <SnapButtons<PrefPlace>
+      label={lbl}
+      options={(['fresco', 'stanza', 'frigo'] as PrefPlace[]).map(pl => ({ value: pl, label: PLACE_LABEL[pl], desc: `~${placeTempC(pl, fridge)}°C` }))}
+      value={spotOf(it).place}
+      onChange={pl => moveTo(it, pl)}
+    />
+  );
 
-  const dosesOpen = (!stage.mixedAck && mainProg.pct < 15) || showDoses;
+  const mainState = main ? itemState(main, now) : null;
+  const dosesOpen = (!stage.mixedAck && (mainState?.pct ?? 0) < 15) || showDoses;
   const autolysis = recipe.prefs.filter(g => g.type === 'autolysis');
-  const finalWater = finalWaterAdvice(draft, spot.tempC);
-  const title = mainLevel === 'growing' ? `${Name} sta maturando`
-    : mainLevel === 'ready' ? `${Name} è ${fem ? 'pronta' : 'pronto'}`
-      : `${Name} è oltre da ${fmtSpanH(now - (mainLateAt ?? readyMs))}`;
-  const big = mainLevel === 'growing' ? fmtClock(readyMs, now) : mainLevel === 'ready' ? 'PRONTA' : 'OLTRE';
-  const heroColor = LEVEL_COLOR[mainLevel];
+  // Acqua dell'impasto finale: temperatura dei prefermenti dove sono adesso, pesata sulla massa.
+  const prefsNow = prefs.map(p => {
+    const it = items.find(x => x.id === p.id);
+    return it ? { ...p, tempC: spotOf(it).tempC } : p;
+  });
+  const tPrefNow = prefTempAtMix(prefsNow, draft.totalFlourGrams ?? 1000);
+  const finalWater = finalWaterAdvice(draft, tPrefNow);
+  const title = level === 'growing' ? `${Name} sta maturando`
+    : level === 'ready' ? `${Name} è ${readyWord(fem)}`
+      : `${Name} è oltre da ${fmtSpanH(now - (focus?.lateAt ?? readyMs))}`;
+  const big = level === 'growing' ? fmtClock(readyMs, now) : level === 'ready' ? readyWord(fem).toUpperCase() : level === 'late' ? 'OLTRE' : 'TROPPO OLTRE';
+  const heroColor = LEVEL_COLOR[level];
+  const win = status?.window;
+  const timerLabel = level === 'growing' ? `${cap(readyWord(fem))} alle ${fmtClock(readyMs, now)}`
+    : level === 'ready' ? `${cap(readyWord(fem))} dalle ${fmtClock(readyMs, now)}`
+      : `Oltre dalle ${fmtClock(focus?.lateAt ?? readyMs, now)}`;
 
   return (
     <div style={{ padding: '24px var(--padding-h) max(24px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 560, margin: '0 auto' }}>
       <div style={label}>Prefermento · in corso</div>
 
-      {/* Hero: il prefermento principale (il più lungo) */}
+      {/* Hero: il prefermento più urgente */}
       <div>
-        <h2 ref={titleRef} tabIndex={-1} style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: mainLevel === 'growing' ? 'var(--pm4-flour)' : heroColor, outline: 'none' }}>
+        <h2 ref={titleRef} tabIndex={-1} style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: level === 'growing' ? 'var(--pm4-flour)' : heroColor, outline: 'none' }}>
           {title}
         </h2>
-        <div role="timer" aria-live="off"
-          aria-label={mainLevel === 'growing' ? `${fem ? 'Pronta' : 'Pronto'} alle ${fmtClock(readyMs, now)}` : `${fem ? 'Pronta' : 'Pronto'} dalle ${fmtClock(readyMs, now)}`}
+        <div role="timer" aria-live="off" aria-label={timerLabel}
           style={{ ...MONO, marginTop: 10, fontSize: 44, fontWeight: 800, lineHeight: 1, color: heroColor, fontVariantNumeric: 'tabular-nums' }}>
           {big}
         </div>
         <div style={{ ...MONO, marginTop: 8, fontSize: 13, color: 'var(--pm4-tan)' }}>
-          maturazione ~{Math.round(mainProg.pct)}% · {mainLevel === 'growing'
-            ? `${fem ? 'pronta' : 'pronto'} tra ${fmtSpanH(readyMs - now)}`
-            : `era ${fem ? 'pronta' : 'pronto'} alle ${fmtClock(readyMs, now)}${mainLevel === 'ready' ? ' · controlla i segni' : ''}`}
+          maturazione ~{Math.round(focus?.pct ?? 0)}% · {level === 'growing'
+            ? `${readyWord(fem)} tra ${fmtSpanH(readyMs - now)}`
+            : `era ${readyWord(fem)} alle ${fmtClock(readyMs, now)}${level === 'ready' ? ' · controlla i segni' : ''}`}
         </div>
         <div aria-hidden="true" style={{ marginTop: 12, height: 6, borderRadius: 3, background: 'var(--pm4-line)' }}>
-          <div style={{ width: `${Math.min(100, mainProg.pct)}%`, height: '100%', borderRadius: 3, background: mainLevel === 'growing' ? 'var(--pm4-tan)' : heroColor }} />
+          <div style={{ width: `${Math.min(100, focus?.pct ?? 0)}%`, height: '100%', borderRadius: 3, background: level === 'growing' ? 'var(--pm4-tan)' : heroColor }} />
         </div>
+        {/* La finestra per l'impasto finale: la vera domanda è "entro quando" */}
+        {win && level !== 'late' && level !== 'veryLate' && (
+          <div style={{ ...MONO, marginTop: 10, fontSize: 13, fontWeight: 700, color: win.from > win.to ? 'var(--state-critical)' : 'var(--pm4-flour)' }}>
+            {win.from > win.to
+              // Nessuna finestra: uno va oltre prima che l'ultimo sia pronto.
+              ? `⚠ Non sono pronti insieme: ${prefWithArticle(status!.all.reduce((a, b) => (b.lateAt < a.lateAt ? b : a)).it.type)} va oltre alle ${fmtClock(win.to, now)}, prima che tutto sia pronto (${fmtClock(win.from, now)})`
+              : now < win.from
+                ? `Impasto finale tra le ${fmtClock(win.from, now)} e le ${fmtClock(win.to, now)}`
+                : `Impasta entro le ${fmtClock(win.to, now)}`}
+          </div>
+        )}
         <div style={{ ...MONO, marginTop: 8, fontSize: 12, color: 'var(--pm4-umber)' }}>
-          {fem ? 'Impastata' : 'Impastato'} alle {fmtClock(startMs, now)} · ora {PLACE[spot.place]} (~{Math.round(spot.tempC)}°C)
+          {fem ? 'Impastata' : 'Impastato'} alle {fmtClock(fIt?.mixedAt ?? startMs, now)} · ora {PLACE[spot.place]} (~{Math.round(spot.tempC)}°C)
         </div>
+        {(level === 'late' || level === 'veryLate') && (
+          <div role="alert" style={{ ...MONO, marginTop: 8, fontSize: 13, lineHeight: 1.5, color: heroColor }}>
+            ⚠ {overSign(type)}.{level === 'veryLate' ? " Controllala prima di usarla: l'impasto può venire acido e meno strutturato." : ''}
+          </div>
+        )}
       </div>
 
       {/* Adesso: le dosi del principale */}
       {main && (dosesOpen ? (
         <Card elevated>
-          <div style={{ ...label, marginBottom: 8, color: 'var(--accent-brand)' }}>Adesso: impasta {prefWithArticle(type)}</div>
+          <div style={{ ...label, marginBottom: 8, color: 'var(--accent-brand)' }}>Adesso: impasta {prefWithArticle(main.type)}</div>
           {doses(main)}
           <div style={{ marginTop: 10 }}>
             <Btn onClick={() => { setShowDoses(false); save({ mixedAck: true }); }}>Fatto ✓</Btn>
@@ -280,69 +327,78 @@ export function PrefermentStageView() {
           alignSelf: 'flex-start', minHeight: 44, background: 'none', border: 'none', cursor: 'pointer',
           ...MONO, fontSize: 13, color: 'var(--pm4-tan)', textDecoration: 'underline', padding: 0,
         }}>
-          Rivedi le dosi {fem ? 'della' : 'del'} {prefName(type)}
+          Rivedi le dosi {prefIsFeminine(main.type) ? 'della' : 'del'} {prefName(main.type)}
         </button>
       ))}
 
-      {/* Già oltre: il frigo è l'azione principale */}
-      {main && fridgeHint(main, true)}
+      {/* Il più urgente: frigo come azione principale se è oltre, poi dove si trova, poi frigo in anticipo */}
+      {fIt && fridgeHint(fIt, true)}
+      {fIt && focus?.started && placePicker(fIt, others.length ? `Dove si trova ${prefWithArticle(type)}` : 'Dove si trova adesso')}
+      {fIt && fridgeHint(fIt, false)}
 
-      {/* Dove si trova adesso il principale */}
-      {main && (
-        <SnapButtons<PrefPlace>
-          label={secondaries.length ? `Dove si trova ${prefWithArticle(type)}` : 'Dove si trova adesso'}
-          options={(['fresco', 'stanza', 'frigo'] as PrefPlace[]).map(pl => ({
-            value: pl, label: PLACE_LABEL[pl], desc: `~${placeTempC(pl, fridge)}°C`,
-          }))}
-          value={spot.place}
-          onChange={pl => moveTo(main, pl)}
-        />
-      )}
-
-      {/* Frigo in anticipo */}
-      {main && fridgeHint(main, false)}
-
-      {/* Gli altri prefermenti: ognuno col suo orario */}
-      {secondaries.map(it => {
-        const p = itemProgress(it, now);
+      {/* Gli altri prefermenti */}
+      {others.map(it => {
+        const s = itemState(it, now);
         const nm = prefWithArticle(it.type), f = prefIsFeminine(it.type);
         const startAt = new Date(it.startAt).getTime();
-        const lvl = p.started ? lateLevel(it.type, p.pct) : 'growing';
-        if (!p.started) {
+        if (!s.started) {
           const due = now >= startAt;
+          const overdue = s.overdueMs > 0;
+          // Se lo impasti adesso: quando è pronto e se l'altro regge fino ad allora.
+          const readyIfNow = now + it.plannedH * 3_600_000;
+          const mainLate = mainState?.started ? mainState.lateAt : null;
+          const mainFridge = main && mainState?.started && spotOf(main).place !== 'frigo' ? fridgeGain(main, now, fridge) : null;
           return (
             <Card key={it.id} elevated={due}>
-              <div style={{ ...label, marginBottom: 8, color: due ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
-                {due ? `Adesso: impasta ${nm}` : `Poi: ${nm} alle ${fmtClock(startAt, now)}`}
+              <div style={{ ...label, marginBottom: 8, color: overdue ? 'var(--state-critical)' : due ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
+                {overdue ? `${cap(nm)}: da impastare (era alle ${fmtClock(startAt, now)})` : due ? `Adesso: impasta ${nm}` : `Poi: ${nm} alle ${fmtClock(startAt, now)}`}
               </div>
               {!due && (
                 <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5, marginBottom: 6 }}>
-                  Tra {fmtSpanH(startAt - now)}: così {f ? 'è pronta' : 'è pronto'} insieme a {prefWithArticle(type)}. Ti avviso.
+                  Tra {fmtSpanH(startAt - now)}: così {f ? 'è pronta' : 'è pronto'} insieme {main ? prefAl(main.type) : ''}. Ti avviso.
+                </div>
+              )}
+              {overdue && (
+                <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', lineHeight: 1.5, marginBottom: 8 }}>
+                  Sei in ritardo di {fmtSpanH(s.overdueMs)}. Se {f ? 'la' : 'lo'} impasti adesso è {readyWord(f)} alle {fmtClock(readyIfNow, now)}
+                  {mainLate != null && main && (mainLate < readyIfNow
+                    ? `, ma ${prefWithArticle(main.type)} va oltre alle ${fmtClock(mainLate, now)}${mainFridge ? ` (in frigo regge fino alle ${fmtClock(mainFridge.lateAtFridge, now)})` : ''}.`
+                    : `, in tempo per ${prefWithArticle(main.type)}.`)}
                 </div>
               )}
               {doses(it)}
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Btn variant={due ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
-                  {due ? 'Fatto ✓' : `L'ho già impastat${f ? 'a' : 'o'}`}
+                  {due ? (overdue ? `L${f ? 'a' : 'o'} impasto adesso ✓` : 'Fatto ✓') : `L'ho già impastat${f ? 'a' : 'o'}`}
                 </Btn>
+                {overdue && mainFridge && mainLate != null && mainLate < readyIfNow && (
+                  <Btn variant="secondary" onClick={() => { moveTo(main!, 'frigo'); }}>Metti {prefWithArticle(main!.type)} in frigo</Btn>
+                )}
+                {overdue && (
+                  confirm === 'skip' ? (
+                    <div ref={confirmRef} tabIndex={-1} role="group" aria-label={`Procedi senza ${nm}`} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
+                      <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+                        Senza {nm} la sua farina e la sua acqua vanno nell'impasto finale. Confermi?
+                      </div>
+                      <Btn variant="danger" onClick={() => skipItem(it)}>Sì, procedi senza</Btn>
+                      <Btn variant="secondary" onClick={() => setConfirm(null)}>No</Btn>
+                    </div>
+                  ) : (
+                    <Btn variant="secondary" onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn>
+                  )
+                )}
               </div>
             </Card>
           );
         }
-        const sp = spotOf(it);
         return (
           <Card key={it.id}>
             <div style={{ ...label, marginBottom: 6 }}>{cap(prefName(it.type))}</div>
-            <div style={{ ...MONO, fontSize: 13, color: LEVEL_COLOR[lvl], marginBottom: 10 }}>
-              ~{Math.round(p.pct)}% · {lvl === 'growing' ? `${f ? 'pronta' : 'pronto'} alle ${fmtClock(p.etaMs, now)}`
-                : lvl === 'ready' ? `${f ? 'pronta' : 'pronto'} · controlla i segni` : `oltre da ${fmtSpanH(now - (itemLateAt(it, now) ?? p.etaMs))} · ${overSign(it.type)}`}
+            <div style={{ ...MONO, fontSize: 13, color: LEVEL_COLOR[s.level], marginBottom: 10 }}>
+              ~{Math.round(s.pct)}% · {s.level === 'growing' ? `${readyWord(f)} alle ${fmtClock(s.etaMs, now)}`
+                : s.level === 'ready' ? `${readyWord(f)} · controlla i segni` : `oltre da ${fmtSpanH(now - s.lateAt)} · ${overSign(it.type)}`}
             </div>
-            <SnapButtons<PrefPlace>
-              label={`Dove si trova ${nm}`}
-              options={(['fresco', 'stanza', 'frigo'] as PrefPlace[]).map(pl => ({ value: pl, label: PLACE_LABEL[pl], desc: `~${placeTempC(pl, fridge)}°C` }))}
-              value={sp.place}
-              onChange={pl => moveTo(it, pl)}
-            />
+            {placePicker(it, `Dove si trova ${nm}`)}
             {fridgeHint(it, true)}
             {fridgeHint(it, false)}
           </Card>
@@ -351,12 +407,7 @@ export function PrefermentStageView() {
 
       {/* Segni */}
       <Card>
-        <div style={{ ...label, marginBottom: 8 }}>Come capire che è {fem ? 'pronta' : 'pronto'}</div>
-        {(mainLevel === 'late' || mainLevel === 'veryLate') && (
-          <div role="alert" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--state-critical)', marginBottom: 8 }}>
-            ⚠ {overSign(type)}.
-          </div>
-        )}
+        <div style={{ ...label, marginBottom: 8 }}>Come capire che è {readyWord(fem)}</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14, lineHeight: 1.45, color: 'var(--pm4-flour)' }}>
           {readySigns(type).map(s => <li key={s}>{s}</li>)}
         </ul>
@@ -367,7 +418,7 @@ export function PrefermentStageView() {
         <div style={{ ...label, marginBottom: 8 }}>Per l'impasto finale prepara</div>
         {recipe.prefs.filter(g => g.type !== 'autolysis').map(g => row(`${cap(prefName(g.type))} (${prefIsFeminine(g.type) ? 'tutta' : 'tutto'})`, fmtGrams(g.totalG)))}
         {row('Farina', fmtGrams(recipe.final.flourG))}
-        {row('Acqua', fmtGrams(recipe.final.waterG))}
+        {row('Acqua', recipe.final.waterG >= 1 ? fmtGrams(recipe.final.waterG) : '—')}
         {row('Sale', fmtGrams(recipe.final.saltG))}
         {recipe.final.fatG > 0 && row('Grassi', fmtGrams(recipe.final.fatG))}
         {recipe.final.yeastG > 0 && row(yeastLabel, fmtGrams(recipe.final.yeastG))}
@@ -378,7 +429,7 @@ export function PrefermentStageView() {
         ))}
         {finalWater && (
           <div style={{ ...MONO, marginTop: 6, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5 }}>
-            Con {prefWithArticle(type)} a ~{Math.round(spot.tempC)}°C: {finalWater}.
+            Con i prefermenti dove sono adesso (~{Math.round(tPrefNow ?? spot.tempC)}°C): {finalWater}.
           </div>
         )}
       </Card>
@@ -393,22 +444,22 @@ export function PrefermentStageView() {
           </div>
           <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}>Vai all'impasto in corso</Btn>
         </div>
-      ) : pendingSecondary ? (
+      ) : pending ? (
         <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
-          L'impasto finale si sblocca quando hai impastato anche {prefWithArticle(pendingSecondary.type)} (alle {fmtClock(new Date(pendingSecondary.startAt), now)}).
+          L'impasto finale si sblocca quando hai impastato anche {prefWithArticle(pending.it.type)}{pending.overdueMs > 0 ? ', o se procedi senza.' : ` (alle ${fmtClock(new Date(pending.it.startAt), now)}).`}
         </div>
-      ) : confirm ? (
+      ) : confirm && confirm !== 'skip' ? (
         <div ref={confirmRef} tabIndex={-1} role="group" aria-label="Conferma impasto finale" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>
-          {confirm === 'veryLate' && (<>
+          {confirm === 'veryLate' && worst && (<>
             <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--state-critical)' }}>
-              {Name} è al ~{Math.round(Math.max(...progs.filter(x => x.p.started).map(x => x.p.pct)))}%: l'impasto può venire acido e meno strutturato.
+              {cap(prefWithArticle(worst.it.type))} è al ~{Math.round(worst.pct)}%: l'impasto può venire acido e meno strutturato.
             </div>
-            <Btn onClick={() => setConfirm(null)}>Aspetto, la controllo</Btn>
+            <Btn onClick={() => setConfirm(null)}>Aspetto, {prefIsFeminine(worst.it.type) ? 'la' : 'lo'} controllo</Btn>
             <Btn variant="secondary" onClick={() => goOn('veryLate')}>Impasto lo stesso</Btn>
           </>)}
-          {confirm === 'early' && (<>
+          {confirm === 'early' && leastRipe && (<>
             <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
-              {Name} è al ~{Math.round(mainProg.pct)}%: l'impasto partirà meno maturo e ci metterà di più.
+              {cap(prefWithArticle(leastRipe.it.type))} è al ~{Math.round(leastRipe.pct)}%: l'impasto partirà meno maturo e ci metterà di più.
             </div>
             <Btn onClick={() => setConfirm(null)}>Aspetto</Btn>
             <Btn variant="secondary" onClick={() => goOn('early')}>Impasto lo stesso</Btn>
@@ -426,8 +477,11 @@ export function PrefermentStageView() {
         </div>
       ) : !dosesOpen ? (
         <div ref={readyRef}>
-          <Btn variant={mainLevel === 'growing' ? 'secondary' : 'primary'} onClick={() => goOn(null)}>
-            {fem ? 'È pronta' : 'È pronto'}: impasto finale →
+          {/* Primario solo quando è il momento: mai due primari (con il frigo urgente resta secondario) */}
+          <Btn variant={level === 'ready' ? 'primary' : 'secondary'} onClick={() => goOn(null)}>
+            {level === 'late' || level === 'veryLate'
+              ? 'Impasto finale (è oltre) →'
+              : many ? `Sono ${readyWord(allFem, true)}: impasto finale →` : `È ${readyWord(fem)}: impasto finale →`}
           </Btn>
         </div>
       ) : null}

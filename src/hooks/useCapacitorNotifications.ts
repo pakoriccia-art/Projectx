@@ -11,7 +11,7 @@ import { getStyleProfile } from '../engine';
 import { buildEffectiveTimeline } from '../engine/outOfProtocol';
 import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../lib/bakeReadiness';
-import { currentSpot, fridgeGain, normalizeStage, overSign, prefIsFeminine, prefWithArticle, stageStatus } from '../lib/preferment';
+import { currentSpot, fmtWhen, fridgeGain, normalizeStage, overSign, prefAl, prefIsFeminine, prefWithArticle, readyWord, stageStatus } from '../lib/preferment';
 
 export const NOTIF_ID = {
   ready:   100,
@@ -63,29 +63,41 @@ export function useCapacitorNotifications() {
     if (!stage) { ids.forEach(cancelNotification); return; }
     const st = normalizeStage(stage);
     const items = st.items ?? [];
-    const main = items[0];
-    const type = main?.type ?? 'biga';
-    const Name = prefWithArticle(type).replace(/^./, c => c.toUpperCase());
-    const fem = prefIsFeminine(type);
+    if (!items.length) { ids.forEach(cancelNotification); return; }
     const now = Date.now();
     const at = (id: number, title: string, body: string, when: number | null | undefined) => {
       if (when != null && when > now) scheduleAt(id, title, body, new Date(when)); else cancelNotification(id);
     };
+    const hm = (ms: number) => fmtWhen(ms, now);
+    const Cap = (t: string) => t.replace(/^./, c => c.toUpperCase());
     const status = stageStatus(st, now);
-    at(NOTIF_ID.preferment, `🥣 ${Name} dovrebbe essere ${fem ? 'pronta' : 'pronto'}`,
+    // 130: tutti pronti, con i nomi di tutti.
+    const allFem = items.every(it => prefIsFeminine(it.type));
+    const names = items.map(it => prefWithArticle(it.type)).join(' e ');
+    at(NOTIF_ID.preferment,
+      `🥣 ${Cap(names)} ${items.length > 1 ? `dovrebbero essere ${readyWord(allFem, true)}` : `dovrebbe essere ${readyWord(allFem)}`}`,
       "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", status.readyAt);
-    at(NOTIF_ID.prefermentLate, `⚠️ ${Name} potrebbe essere oltre`,
-      `${overSign(type).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${fem ? 'ila' : 'ilo'} in frigo.`, status.lateAt);
-    const next = items.slice(1).find(it => !it.mixedAt);
+    // 131: il primo che va oltre, col suo nome.
+    const first = status.all.reduce((a, b) => (b.lateAt < a.lateAt ? b : a));
+    const ft = first.it.type, ff = prefIsFeminine(ft);
+    at(NOTIF_ID.prefermentLate, `⚠️ ${Cap(prefWithArticle(ft))} potrebbe essere oltre`,
+      `${overSign(ft).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${ff ? 'ila' : 'ilo'} in frigo.`, first.lateAt);
+    // 132: ora di impastare il prossimo.
+    const next = items.find(it => !it.mixedAt);
     at(NOTIF_ID.prefermentNext, `🥣 Ora impasta ${prefWithArticle(next?.type ?? 'poolish')}`,
-      `Così è pronto insieme a ${prefWithArticle(type)}. Le dosi sono in PizzaMatrix.`, next ? new Date(next.startAt).getTime() : null);
-    // Frigo in anticipo: un'ora prima del pronto, se non è già in frigo.
-    const hintAt = status.readyAt - 3_600_000;
-    if (main?.mixedAt && currentSpot(main, 'fresco').place !== 'frigo' && hintAt > now) {
-      const g = fridgeGain(main, hintAt, (stage.draft as { fridgeTempC?: number }).fridgeTempC ?? 4);
-      const hm = (ms: number) => new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-      at(NOTIF_ID.prefermentFridge, `🥣 ${Name} tra un'ora è ${fem ? 'pronta' : 'pronto'}`,
-        `Se non impasti entro le ${hm(g.lateAtStay)}, mett${fem ? 'ila' : 'ilo'} in frigo: regge fino alle ${hm(g.lateAtFridge)}.`, hintAt);
+      `Così è ${readyWord(prefIsFeminine(next?.type ?? 'poolish'))} insieme ${prefAl(items[0].type)}. Le dosi sono in PizzaMatrix.`,
+      next ? new Date(next.startAt).getTime() : null);
+    // 133: frigo in anticipo, un'ora prima del pronto del primo impastato che non è in frigo.
+    const fridgeT = (stage.draft as { fridgeTempC?: number }).fridgeTempC ?? 4;
+    const cand = status.all
+      .filter(x => x.started && currentSpot(x.it, 'fresco').place !== 'frigo' && x.etaMs - 3_600_000 > now)
+      .sort((a, b) => a.etaMs - b.etaMs)[0];
+    if (cand) {
+      const hintAt = cand.etaMs - 3_600_000;
+      const g = fridgeGain(cand.it, hintAt, fridgeT);
+      const t = cand.it.type, f = prefIsFeminine(t);
+      at(NOTIF_ID.prefermentFridge, `🥣 ${Cap(prefWithArticle(t))} tra un'ora è ${readyWord(f)}`,
+        `Non impasti prima di ${hm(g.lateAtStay).replace(/^alle /, 'le ')}? Mett${f ? 'ila' : 'ilo'} in frigo: regge fino ${hm(g.lateAtFridge)}.`, hintAt);
     } else cancelNotification(NOTIF_ID.prefermentFridge);
   }, [stage?.id, stage?.readyAt, stage?.items]);
 

@@ -455,35 +455,70 @@ export function itemLateAt(it: StageItem, now = Date.now()): number | null {
   return it.mixedAt ? prefProgress(itemClock(it), now, lateThresholdPct(it.type)).etaMs : null;
 }
 
+/** Stato di un prefermento della fase, con le sue scadenze. */
+export interface ItemState {
+  it: StageItem;
+  pct: number;
+  /** Pronto (100%): passato o futuro; per chi non è impastato, da quando lo sarà. */
+  etaMs: number;
+  started: boolean;
+  level: LateLevel;
+  /** Quando supera la soglia di ritardo (stimato anche per chi non è impastato). */
+  lateAt: number;
+  /** Non impastato e in ritardo sull'orario di avvio (ms), altrimenti 0. */
+  overdueMs: number;
+}
+
+/** Oltre questo ritardo sull'orario di avvio, il secondo prefermento è "da impastare". */
+export const START_GRACE_MS = 15 * 60_000;
+
+export function itemState(it: StageItem, now = Date.now()): ItemState {
+  const p = itemProgress(it, now);
+  const th = lateThresholdPct(it.type);
+  if (!p.started) {
+    const from = Math.max(now, new Date(it.startAt).getTime());
+    const overdue = now - new Date(it.startAt).getTime();
+    return {
+      it, pct: 0, etaMs: p.etaMs, started: false, level: 'growing',
+      lateAt: from + it.plannedH * th / 100 * 3_600_000,
+      overdueMs: overdue > START_GRACE_MS ? overdue : 0,
+    };
+  }
+  return { it, pct: p.pct, etaMs: p.etaMs, started: true, level: lateLevel(it.type, p.pct), lateAt: itemLateAt(it, now)!, overdueMs: 0 };
+}
+
 export interface StageStatus {
+  /** Il prefermento più urgente (scadenza più vicina): guida titolo, banner e avvisi. */
+  focus: ItemState;
+  all: ItemState[];
   type: string;
   level: LateLevel;
   pct: number;
+  /** Tutti pronti. */
   readyAt: number;
-  /** Primo istante in cui un prefermento impastato supera la soglia di ritardo. */
-  lateAt: number | null;
+  /** Primo che va oltre. */
+  lateAt: number;
+  /** Finestra per l'impasto finale: da quando sono tutti pronti a quando il primo va oltre. */
+  window: { from: number; to: number };
+  /** Un prefermento da impastare in ritardo sull'orario previsto. */
+  overdue: ItemState | null;
 }
 
-/** Stato sintetico della fase (principale + peggiore dei ritardi) per banner e notifiche. */
+/** Stato sintetico della fase, attribuito al prefermento giusto. */
 export function stageStatus(stage: PrefermentStage, now = Date.now()): StageStatus {
   const st = normalizeStage(stage);
   const items = st.items ?? [];
-  if (!items.length) {
-    const p = prefProgress(st, now);
-    return { type: 'biga', level: lateLevel('biga', p.pct), pct: p.pct, readyAt: p.etaMs, lateAt: null };
-  }
-  const order: LateLevel[] = ['growing', 'ready', 'late', 'veryLate'];
-  let level: LateLevel = 'growing';
-  for (const it of items) {
-    const p = itemProgress(it, now);
-    const l = p.started ? lateLevel(it.type, p.pct) : 'growing';
-    if (order.indexOf(l) > order.indexOf(level)) level = l;
-  }
-  const main = itemProgress(items[0], now);
-  const lates = items.map(it => itemLateAt(it, now)).filter((x): x is number => x != null);
+  const all = items.map(it => itemState(it, now));
+  const started = all.filter(x => x.started);
+  const pool = started.length ? started : all;
+  // Il più urgente è quello che va oltre per primo.
+  const focus = pool.reduce((a, b) => (b.lateAt < a.lateAt ? b : a));
+  const readyAt = Math.max(...all.map(x => x.etaMs));
+  const lateAt = Math.min(...all.map(x => x.lateAt));
+  const overdue = all.find(x => x.overdueMs > 0) ?? null;
   return {
-    type: items[0].type, level: order.indexOf(level) >= 2 ? level : (main.started ? lateLevel(items[0].type, main.pct) : 'growing'),
-    pct: main.pct, readyAt: stageReadyAt(items, now), lateAt: lates.length ? Math.min(...lates) : null,
+    focus, all, type: focus.it.type, level: focus.level, pct: focus.pct,
+    readyAt, lateAt, window: { from: readyAt, to: lateAt }, overdue,
   };
 }
 
@@ -494,16 +529,45 @@ export function fmtSpanH(ms: number): string {
   return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, '0')}`;
 }
 
-/** Testo breve per banner in home e riga in dashboard. */
-export function stageBannerText(s: StageStatus, now = Date.now()): { text: string; tone: 'normal' | 'ready' | 'late' } {
-  const Name = prefName(s.type).replace(/^./, c => c.toUpperCase());
-  const fem = prefIsFeminine(s.type);
-  if (s.level === 'late' || s.level === 'veryLate') {
-    return { text: `⚠ ${Name} oltre da ${fmtSpanH(now - (s.lateAt ?? s.readyAt))}`, tone: 'late' };
-  }
-  if (s.level === 'ready') return { text: `🥣 ${Name} ${fem ? 'pronta' : 'pronto'} · controlla i segni`, tone: 'ready' };
-  const d = new Date(s.readyAt);
+/** "la biga e il poolish", oppure il solo nome. */
+function namesOf(states: ItemState[]): { text: string; fem: boolean; plural: boolean } {
+  if (states.length === 1) return { text: prefName(states[0].it.type), fem: prefIsFeminine(states[0].it.type), plural: false };
+  return { text: states.map(x => prefName(x.it.type)).join(' e '), fem: states.every(x => prefIsFeminine(x.it.type)), plural: true };
+}
+
+export function readyWord(fem: boolean, plural = false): string {
+  return plural ? (fem ? 'pronte' : 'pronti') : (fem ? 'pronta' : 'pronto');
+}
+
+export function fmtWhen(ms: number, now = Date.now()): string {
+  const d = new Date(ms);
   const hm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const when = d.toDateString() === new Date(now).toDateString() ? `alle ${hm}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
-  return { text: `🥣 ${Name} in corso · ${fem ? 'pronta' : 'pronto'} ${when}`, tone: 'normal' };
+  return d.toDateString() === new Date(now).toDateString() ? `alle ${hm}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
+}
+
+/** Testo breve per banner in home e riga in dashboard, col nome giusto. */
+export function stageBannerText(s: StageStatus, now = Date.now()): { text: string; tone: 'normal' | 'ready' | 'late' } {
+  const cap = (t: string) => t.replace(/^./, c => c.toUpperCase());
+  if (s.focus.started && (s.level === 'late' || s.level === 'veryLate')) {
+    return { text: `⚠ ${cap(prefName(s.type))} oltre da ${fmtSpanH(now - s.lateAt)}`, tone: 'late' };
+  }
+  if (s.overdue) {
+    return { text: `⚠ ${cap(prefName(s.overdue.it.type))} da impastare (era ${fmtWhen(new Date(s.overdue.it.startAt).getTime(), now)})`, tone: 'late' };
+  }
+  const n = namesOf(s.all);
+  if (s.all.every(x => x.started && x.pct >= 100)) {
+    return { text: `🥣 ${cap(n.text)} ${readyWord(n.fem, n.plural)} · impasta entro ${fmtWhen(s.window.to, now).replace(/^alle /, 'le ')}`, tone: 'ready' };
+  }
+  return { text: `🥣 ${cap(n.text)} in corso · ${readyWord(n.fem, n.plural)} ${fmtWhen(s.readyAt, now)}`, tone: 'normal' };
+}
+
+/** "alla biga", "al poolish". */
+export function prefAl(type: string): string {
+  const n = prefName(type);
+  return n === 'biga' ? 'alla biga' : n === 'autolisi' ? "all'autolisi" : `al ${n}`;
+}
+
+/** Il prefermento da preparare principale: il più lungo (quello che parte subito). */
+export function mainPreparable<T extends { type: string; durationH?: number }>(prefs: T[] | undefined): T | undefined {
+  return (prefs ?? []).filter(isPreparable).sort((a, b) => (b.durationH ?? 12) - (a.durationH ?? 12))[0];
 }
