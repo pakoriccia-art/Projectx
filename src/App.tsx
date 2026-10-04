@@ -176,6 +176,7 @@ function HomeView() {
         {stage && (
           <button
             onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}
+            aria-label={`${stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso: apri`}
             className="pm-btn-secondary"
             style={{
               background: 'rgba(255,140,50,0.08)', color: 'var(--pm4-flour)',
@@ -184,11 +185,11 @@ function HomeView() {
               fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
             }}
           >
-            🥣 {stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso · {stagePref?.type === 'poolish' ? 'pronto' : 'pronta'} alle{' '}
+            🥣 {stagePref?.type === 'poolish' ? 'Poolish' : 'Biga'} in corso · {stagePref?.type === 'poolish' ? 'pronto' : 'pronta'}{' '}
             {(() => {
               const d = new Date(stage.readyAt);
               const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-              return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short' })} ${t}`;
+              return d.toDateString() === new Date().toDateString() ? `alle ${t}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${t}`;
             })()} →
           </button>
         )}

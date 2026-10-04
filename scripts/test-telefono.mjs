@@ -441,6 +441,16 @@ async function scenarioPrefermento() {
   const stageText = clean(await page.locator('body').innerText());
   check('Fase "biga in corso" con orario e segni', /La biga sta maturando/.test(stageText) && /Come capire che è pronta/i.test(stageText), stageText.slice(0, 120));
   check('Cosa preparare per l\'impasto finale', /Per l'impasto finale prepara/i.test(stageText));
+  check('Dosi della biga da impastare adesso', /Adesso: impasta la biga/i.test(stageText) && /Farina \d+ g/.test(stageText), stageText.slice(0, 200));
+  const clock = async () => (clean(await page.locator('[role=timer]').innerText().catch(() => '')).match(/(\d{2}):(\d{2})/) || []).slice(1).map(Number);
+  const [h1, m1] = await clock();
+  await page.getByRole('radio', { name: /Dove si trova adesso: Frigo/ }).click(); await sleep(800);
+  const [h2, m2] = await clock();
+  const before = h1 * 60 + m1, after = h2 * 60 + m2;
+  check('In frigo la biga sarà pronta più tardi', Number.isFinite(before) && Number.isFinite(after) && after !== before,
+    `prima ${h1}:${String(m1).padStart(2, '0')}, dopo ${h2}:${String(m2).padStart(2, '0')}`);
+  await page.getByRole('radio', { name: /Dove si trova adesso: Fresco/ }).click(); await sleep(500);
+  await page.getByRole('button', { name: /Fatto ✓/ }).click(); await sleep(500);
   const dbS = await readDb(page);
   check('Preparazione salvata in IndexedDB', (dbS ?? []).some(s => s.status === 'planning' && s.stage));
 
@@ -451,10 +461,26 @@ async function scenarioPrefermento() {
   await shot(page, device, 'pref-03-dopo-riapertura');
   check('Riprende sulla biga in corso', /La biga sta maturando/.test(clean(await page.locator('body').innerText())));
 
+  console.log('\nF2b · Un impasto diretto mentre la biga matura');
+  await page.getByRole('button', { name: /← Home/ }).click(); await sleep(800);
+  await runWizard(page);
+  const rowSel = () => page.getByRole('button', { name: /Biga in corso/ });
+  check('In dashboard la biga resta raggiungibile', await rowSel().count() > 0);
+  await device.shell(`am force-stop ${PKG}`);
+  page = await openApp();
+  check('Dopo la riapertura: impasto e biga entrambi presenti', /Trascorso/i.test(await headerText()) && await rowSel().count() > 0);
+  await rowSel().first().click(); await sleep(1000);
+  check('Dalla dashboard si apre la biga in corso', /La biga sta maturando/.test(clean(await page.locator('body').innerText())));
+  await page.getByRole('button', { name: /Impasto in corso/ }).click(); await sleep(1000);
+  await endSession();
+  await rowSel().first().click(); await sleep(1000);
+
   console.log('\nF3 · Impasto finale');
   await page.getByRole('button', { name: /impasto finale/ }).click(); await sleep(500);
-  const early = page.getByRole('button', { name: /Sì, impasto adesso/ });
-  check('Impasto in anticipo: chiede conferma', await early.count() > 0);
+  const wait = page.getByRole('button', { name: /^Aspetto$/ });
+  const early = page.getByRole('button', { name: /Impasto lo stesso/ });
+  check('Impasto in anticipo: chiede conferma, "Aspetto" in evidenza', await wait.count() > 0 && await early.count() > 0
+    && /pm-btn-primary/.test(await wait.getAttribute('class') ?? ''));
   if (await early.count()) await early.click();
   await sleep(2500);
   await shot(page, device, 'pref-04-dashboard');

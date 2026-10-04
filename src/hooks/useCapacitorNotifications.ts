@@ -11,7 +11,7 @@ import { getStyleProfile } from '../engine';
 import { buildEffectiveTimeline } from '../engine/outOfProtocol';
 import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../lib/bakeReadiness';
-import { isPreparable, prefIsFeminine, prefWithArticle } from '../lib/preferment';
+import { isPreparable, lateThresholdPct, overSign, prefIsFeminine, prefProgress, prefWithArticle } from '../lib/preferment';
 
 export const NOTIF_ID = {
   ready:   100,
@@ -20,6 +20,7 @@ export const NOTIF_ID = {
   snooze:  111,
   outcome: 120,
   preferment: 130,
+  prefermentLate: 131,
 } as const;
 
 /** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
@@ -52,19 +53,26 @@ export function useCapacitorNotifications() {
     LocalNotifications.requestPermissions().catch(() => {/* no-op su web */});
   }, []);
 
-  // Prefermento in maturazione: avviso all'ora prevista, anche ad app chiusa.
+  // Prefermento in maturazione: avviso all'ora prevista e, se resta lì, un
+  // secondo avviso quando diventa troppo maturo. Anche ad app chiusa.
   const stage = state.prefermentStage;
   useEffect(() => {
-    if (!stage) { cancelNotification(NOTIF_ID.preferment); return; }
-    const at = new Date(stage.readyAt);
-    if (at.getTime() <= Date.now()) return;
+    if (!stage) { cancelNotification(NOTIF_ID.preferment); cancelNotification(NOTIF_ID.prefermentLate); return; }
     const prefs = ((stage.draft as { prefermenti?: Array<{ type: string }> }).prefermenti ?? []).filter(isPreparable);
     const type = prefs[0]?.type ?? 'biga';
-    const name = prefWithArticle(type);
-    scheduleAt(NOTIF_ID.preferment,
-      `🥣 ${name.charAt(0).toUpperCase()}${name.slice(1)} dovrebbe essere ${prefIsFeminine(type) ? 'pronta' : 'pronto'}`,
-      "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", at);
-  }, [stage?.id, stage?.readyAt]);
+    const Name = prefWithArticle(type).replace(/^./, c => c.toUpperCase());
+    const fem = prefIsFeminine(type);
+    const at = new Date(stage.readyAt);
+    if (at.getTime() > Date.now()) {
+      scheduleAt(NOTIF_ID.preferment, `🥣 ${Name} dovrebbe essere ${fem ? 'pronta' : 'pronto'}`,
+        "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", at);
+    } else cancelNotification(NOTIF_ID.preferment);
+    const lateAt = new Date(prefProgress(stage, Date.now(), lateThresholdPct(type)).etaMs);
+    if (lateAt.getTime() > Date.now()) {
+      scheduleAt(NOTIF_ID.prefermentLate, `⚠️ ${Name} sta andando oltre`,
+        `${overSign(type)}. Impasta appena puoi.`, lateAt);
+    } else cancelNotification(NOTIF_ID.prefermentLate);
+  }, [stage?.id, stage?.readyAt, stage?.moves?.length]);
 
   // Prossima fase pianificata: notifica all'orario previsto, riprogrammata
   // a ogni cambio di timeline; cancellata a fine sessione.

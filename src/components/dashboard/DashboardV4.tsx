@@ -8,7 +8,7 @@
  *  - T_amb modificata via setTempAmbient() (aggiorna anche la ThermalTimeline)
  *  - W strutturale da computeDashboardEffectiveW (tRatio/tCritHours per la curva Hill)
  */
-import { fmtGrams, prefName } from '../../lib/preferment';
+import { fmtGrams, prefIsFeminine, prefName } from '../../lib/preferment';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTickEngine, type PhaseSnapshot } from '../../hooks/useTickEngine';
@@ -909,6 +909,24 @@ export function DashboardV4() {
             </div>
           </DarkCard>
         )}
+
+        {/* Un prefermento in maturazione resta raggiungibile anche con un impasto in corso */}
+        {state.prefermentStage && (() => {
+          const t = ((state.prefermentStage.draft as { prefermenti?: Array<{ type: string }> }).prefermenti ?? [])
+            .find(p => p.type === 'biga' || p.type === 'poolish')?.type ?? 'biga';
+          const d = new Date(state.prefermentStage.readyAt);
+          const hm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          return (
+            <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })} style={{
+              minHeight: 44, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
+              background: 'rgba(255,140,50,0.06)', border: '1px solid var(--pm4-line-strong)', borderRadius: 8,
+              color: 'var(--pm4-flour)', fontFamily: 'var(--font-mono)', fontSize: 13,
+            }}>
+              🥣 {prefName(t).replace(/^./, c => c.toUpperCase())} in corso · {prefIsFeminine(t) ? 'pronta' : 'pronto'}{' '}
+              {d.toDateString() === new Date().toDateString() ? `alle ${hm}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`} →
+            </button>
+          );
+        })()}
 
         {/* ── MODE TOGGLE — Monitor · Analisi (R5): sotto la risposta, non sopra ── */}
         <div role="group" aria-label="Modalità dashboard"

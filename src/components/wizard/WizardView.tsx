@@ -36,10 +36,11 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
-import { startSession, savePrefermentStage } from '../../services/sessionService';
+import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPrefermentStages } from '../../services/sessionService';
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
   prefName, prefWithArticle, prefIsFeminine, splitRecipe, prefTempAtMix, fmtGrams, type PrefPlace,
+  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT,
 } from '../../lib/preferment';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import {
@@ -525,7 +526,7 @@ function Step2({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         options={[
           { value: 'direct',   label: 'Diretto',  desc: 'Tutto in una volta' },
           { value: 'biga',     label: 'Biga',     desc: 'Asciutta · 16–24 h prima' },
-          { value: 'poolish',  label: 'Poolish',  desc: 'Liquido · 8–16 h prima' },
+          { value: 'poolish',  label: 'Poolish',  desc: 'Liquido · 8–16 h prima (di più in frigo)' },
           { value: 'advanced', label: 'Avanzato', desc: 'Riporto, autolisi, due prefermenti' },
         ]}
         value={kind}
@@ -657,12 +658,37 @@ const PLACE_LABEL: Record<PrefPlace, string> = { fresco: 'Fresco', stanza: 'Stan
 
 /** "Da preparare / Già pronta": vale per tutti i prefermenti che si preparano. */
 function PrefTimingPicker({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+  const [undo, setUndo] = useState<{ prev: PrefermentoComponent[]; text: string } | null>(null);
   const prep = (draft.prefermenti ?? []).filter(isPreparable);
   if (prep.length === 0) return null;
   const type = prep.length === 1 ? prep[0].type : 'biga';
   const fem = prep.length === 1 ? prefIsFeminine(type) : false;
   const name = prep.length === 1 ? prefWithArticle(type) : 'i prefermenti';
+  // "Impastata 20 h fa" non è una durata di maturazione: passando a "da preparare"
+  // la durata torna quella proposta per il luogo, con avviso e ripristino.
+  const choose = (v: 'now' | 'ready') => {
+    setUndo(null);
+    const all = draft.prefermenti ?? [];
+    if (v === 'now' && draft.prefermentTiming === 'ready') {
+      const changed: string[] = [];
+      const next = all.map(p => {
+        if (!isPreparable(p)) return p;
+        const opts = durationOptions(p.type, placeOf(p));
+        if (opts.includes(p.durationH)) return p;
+        const d = defaultDuration(p.type, placeOf(p));
+        changed.push(`${prefName(p.type)} ${d} h (era ${p.durationH} h)`);
+        return { ...p, durationH: d };
+      });
+      if (changed.length) {
+        setUndo({ prev: all, text: `Ho riportato la durata a quella proposta: ${changed.join(', ')}.` });
+        update({ prefermentTiming: v, prefermenti: next });
+        return;
+      }
+    }
+    update({ prefermentTiming: v });
+  };
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
     <SnapButtons<'now' | 'ready'>
       label={prep.length === 1 ? `${name.charAt(0).toUpperCase()}${name.slice(1)} è…` : 'I prefermenti sono…'}
       options={[
@@ -671,8 +697,14 @@ function PrefTimingPicker({ draft, update }: { draft: WizardDraft; update: (p: P
           desc: prep.length === 1 ? (fem ? "l'ho già fatta" : "l'ho già fatto") : "li ho già fatti" },
       ]}
       value={draft.prefermentTiming ?? 'now'}
-      onChange={v => update({ prefermentTiming: v })}
+      onChange={choose}
     />
+    {undo && (
+      <Advisory tone="teal" text={undo.text} undoLabel="Ripristina"
+        onUndo={() => { update({ prefermenti: undo.prev }); setUndo(null); }}
+        onDismiss={() => setUndo(null)} />
+    )}
+    </div>
   );
 }
 
@@ -729,7 +761,8 @@ function SimplePrefCard({ pref, draft, update, onUpdate }: {
       ) : (
         <SnapButtons<string>
           label="Per quante ore"
-          options={durations.map(h => ({ value: String(h), label: `${h} h` }))}
+          options={(durations.includes(pref.durationH) ? durations : [...durations, pref.durationH].sort((a, b) => a - b))
+            .map(h => ({ value: String(h), label: `${h} h` }))}
           value={String(pref.durationH)}
           onChange={v => onUpdate({ ...pref, durationH: Number(v) })}
         />
@@ -790,9 +823,9 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
     <Card elevated style={{ border: `1px solid ${color}55` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ ...S.label, color }}>Pre-fermento {idx + 1}</span>
-        <button onClick={onRemove} style={{
+        <button onClick={onRemove} aria-label={`Rimuovi pre-fermento ${idx + 1}`} style={{
           background: 'none', border: 'none', color: 'var(--text-muted)',
-          cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px',
+          cursor: 'pointer', fontSize: '1.1rem', minWidth: 44, minHeight: 44,
         }}>×</button>
       </div>
 
@@ -890,7 +923,8 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
         fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
       }}>
         {pref.flourFraction}% farina · {pref.tempC}°C · {pref.durationH}h
-        {pref.type !== 'autolysis' ? ` · idr. ${pref.hydration}% · lievito ${pref.yeastPct ?? 0.05}%` : ''}
+        {pref.type !== 'autolysis' ? ` · idr. ${pref.hydration}%` : ''}
+        {isPreparable(pref) ? ` · lievito ${pref.yeastPct ?? 0.05}%` : ''}
       </div>
     </Card>
   );
@@ -962,7 +996,11 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     if (!draft.mainFlourGroup || prefermenti.length >= maxPrefs) return;
     const newType: 'poolish' | 'biga' | 'autolysis' | 'riporto' =
       prefermenti.length === 0 ? 'poolish' : 'biga';
-    update({ prefermenti: [...prefermenti, createDefaultPref(newType, draft.mainFlourGroup)] });
+    // Il nuovo prefermento prende la farina che resta (almeno il 10% va all'impasto finale).
+    const left = 100 - MIN_FINAL_FLOUR_PCT - totalPrefFrac;
+    if (left < 5) return;
+    const np = createDefaultPref(newType, draft.mainFlourGroup);
+    update({ prefermenti: [...prefermenti, { ...np, flourFraction: Math.min(np.flourFraction, left) }] });
   };
 
   const removePref = (idx: number) => {
@@ -1007,7 +1045,7 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
           {!simple && <PrefTimingPicker draft={draft} update={update} />}
 
-          {!simple && prefermenti.length < maxPrefs && (
+          {!simple && prefermenti.length < maxPrefs && 100 - MIN_FINAL_FLOUR_PCT - totalPrefFrac >= 5 && (
             <Btn variant="secondary" onClick={addPref}>
               + Aggiungi pre-fermento
             </Btn>
@@ -1626,6 +1664,35 @@ function RecipeCard({ draft, update, recipe }: {
   const yeastLabel = agent === 'sourdough_wheat' ? 'Lievito madre' : agent === 'instant_dry_yeast' ? 'Lievito secco' : 'Lievito di birra';
   const heading = { marginBottom: 6, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)' };
   const fmtH = (h: number) => `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
+  // Nell'ordine in cui si fanno: prima biga/poolish, poi riporto e autolisi.
+  const rank = (t: string) => (isPreparable({ type: t }) ? 0 : t === 'riporto' ? 1 : 2);
+  const ordered = [...recipe.prefs].sort((a, b) => rank(a.type) - rank(b.type));
+  // Ricetta impossibile: si blocca l'avvio e si propone la correzione, annullabile.
+  const problem = recipeProblem(draft);
+  const [undo, setUndo] = useState<{ prev: Partial<WizardDraft>; text: string } | null>(null);
+  const fix = (() => {
+    if (!problem) return null;
+    if (problem.kind === 'water' && problem.fixValue <= 90) {
+      return {
+        label: `Porta l'idratazione al ${problem.fixValue}%`,
+        apply: () => {
+          setUndo({ prev: { hydration: draft.hydration }, text: `Idratazione portata dal ${draft.hydration ?? 65}% al ${problem.fixValue}%.` });
+          update({ hydration: problem.fixValue });
+        },
+      };
+    }
+    if (problem.kind === 'flour') {
+      const big = prefs.reduce((a, b) => ((b.flourFraction ?? 0) > (a.flourFraction ?? 0) ? b : a));
+      return {
+        label: `Riduci ${prefWithArticle(big.type)} al ${problem.fixValue}%`,
+        apply: () => {
+          setUndo({ prev: { prefermenti: prefs }, text: `${prefName(big.type).replace(/^./, c => c.toUpperCase())} ridott${prefIsFeminine(big.type) ? 'a' : 'o'} dal ${big.flourFraction}% al ${problem.fixValue}%.` });
+          update({ prefermenti: prefs.map(p => (p.id === big.id ? { ...p, flourFraction: problem.fixValue } : p)) });
+        },
+      };
+    }
+    return null;
+  })();
   return (
     <Card elevated>
       <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)' }}>
@@ -1635,8 +1702,8 @@ function RecipeCard({ draft, update, recipe }: {
         <div style={{ marginBottom: 12 }}><PrefTimingPicker draft={draft} update={update} /></div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {recipe.prefs.map((g, i) => {
-          const p = prefs[i];
+        {ordered.map((g, i) => {
+          const p = prefs.find(x => x.id === g.id)!;
           const name = prefName(g.type);
           const title = name.charAt(0).toUpperCase() + name.slice(1);
           const when = isPreparable(p)
@@ -1655,7 +1722,7 @@ function RecipeCard({ draft, update, recipe }: {
         })}
         <div>
           {recipe.prefs.length > 0 && <div style={heading}>{recipe.prefs.length + 1} · Impasto finale</div>}
-          {recipe.prefs.map((g, i) => (
+          {ordered.map((g, i) => (
             <RecipeRow key={g.id} label={`${prefName(g.type).charAt(0).toUpperCase()}${prefName(g.type).slice(1)} (${prefIsFeminine(g.type) ? 'tutta' : 'tutto'})`} value={fmtGrams(g.totalG)} strong={i === 0} />
           ))}
           <RecipeRow label="Farina" value={fmtGrams(recipe.final.flourG)} />
@@ -1664,11 +1731,22 @@ function RecipeCard({ draft, update, recipe }: {
           {recipe.final.fatG > 0 && <RecipeRow label="Grassi" value={fmtGrams(recipe.final.fatG)} />}
           {recipe.final.yeastG > 0 && <RecipeRow label={yeastLabel} value={fmtGrams(recipe.final.yeastG)} />}
         </div>
-        {recipe.minHydrationPct != null && (
-          <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, color: 'var(--state-critical)' }}>
-            L'acqua dei prefermenti supera quella della ricetta: con queste dosi l'idratazione totale è almeno {recipe.minHydrationPct}%.
-            Alzala al passo 4 o riduci la quota di prefermento.
+        {problem && (
+          <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, color: 'var(--state-critical)' }}>
+            <span>{problem.message} Così non si può impastare.</span>
+            {fix && (
+              <button type="button" onClick={fix.apply} style={{
+                alignSelf: 'flex-start', minHeight: 44, padding: '10px 14px', cursor: 'pointer',
+                background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-flour)',
+                border: '1px solid var(--pm4-line-strong)', borderRadius: 'var(--radius-md)',
+                fontFamily: 'var(--font-mono)', fontSize: 13,
+              }}>{fix.label}</button>
+            )}
           </div>
+        )}
+        {undo && (
+          <Advisory tone="teal" text={undo.text} undoLabel="Annulla"
+            onUndo={() => { update(undo.prev); setUndo(null); }} onDismiss={() => setUndo(null)} />
         )}
       </div>
     </Card>
@@ -1747,8 +1825,9 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {/* ── Piano dal Planner: gli orari, non solo le durate ── */}
       {fromPlannerStep8 && (() => {
         // Con un prefermento da preparare, l'impasto parte quando è pronto.
+        // Stessa durata della fase "in corso": il prefermento biologico più lungo.
         const prepPref = startsWithPreferment(draft) ? (draft.prefermenti ?? []).find(isPreparable) : undefined;
-        const t0 = Date.now() + (prepPref ? prepPref.durationH * 3_600_000 : 0);
+        const t0 = Date.now() + (prepPref ? stageDurationH(draft.prefermenti) * 3_600_000 : 0);
         const at = (h: number) => new Date(t0 + h * 3_600_000);
         const p = draft.puntataH ?? 0, sH = draft.staglioH ?? 0.5, tc = draft.tcHours ?? 0;
         const proto = draft.apprettoProtocol ?? 'ta';
@@ -1759,6 +1838,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             : [['Impasta', at(0)], ['Staglio', at(p)]];
         if (prepPref) rows.unshift([`Impasta ${prefWithArticle(prepPref.type)}`, new Date()]);
         if (draft.targetBakeAt) rows.push([draft.serviceWindowH ? 'Servizio' : 'Forno', new Date(draft.targetBakeAt)]);
+        const hl = (label: string) => label === 'Forno' || label === 'Servizio';
         const fmtAt = (d: Date) => {
           const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
           return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
@@ -1769,10 +1849,10 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
               Il tuo piano · dal Planner
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {rows.map(([label, d], i) => (
+              {rows.map(([label, d]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                  <span style={{ color: i === rows.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>{label}</span>
-                  <span style={{ color: i === rows.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(d)}</span>
+                  <span style={{ color: hl(label) ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>{label}</span>
+                  <span style={{ color: hl(label) ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(d)}</span>
                 </div>
               ))}
             </div>
@@ -1907,7 +1987,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         return (
           <Card>
             <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
-              💧 Acqua di impastamento
+              {startsWithPreferment(draft) ? "💧 Acqua · impasto finale" : '💧 Acqua di impastamento'}
             </div>
             <WaterTempResultCard
               result={wResult}
@@ -1959,6 +2039,40 @@ export function WizardView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [step]);
 
+  // "Sostituisci la biga in corso?": null = nessuna domanda, 'ask' = in attesa.
+  const [replaceStage, setReplaceStage] = useState<null | 'ask'>(null);
+  const [starting, setStarting] = useState(false);
+
+  /** Salva la preparazione e solo dopo la mostra: l'id c'è sempre (annulla sicuro). */
+  const startStage = async () => {
+    setStarting(true);
+    try {
+      const old = state.prefermentStage;
+      if (old) {
+        if (old.id != null) await deletePrefermentStage(old.id);
+        else await deleteAllPrefermentStages();
+      }
+      const startedAt = new Date();
+      const prep = (draft.prefermenti ?? []).filter(isPreparable);
+      const durH = stageDurationH(draft.prefermenti);
+      const main = prep.find(p => p.durationH === durH) ?? prep[0];
+      const stage = {
+        startedAt, readyAt: new Date(startedAt.getTime() + durH * 3_600_000),
+        plannedH: durH, plannedTempC: main?.tempC ?? 16,
+        draft: draft as Record<string, unknown>,
+      };
+      const id = await savePrefermentStage(stage);
+      setReplaceStage(null);
+      dispatch({ type: 'PREF_STAGE_SET', stage: { ...stage, id } });
+      dispatch({ type: 'NAV', view: 'preferment' });
+    } catch (err) {
+      console.error('[savePrefermentStage]', err);
+      setBuildError('Non riesco a salvare la preparazione. Riprova.');
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const next = () => {
     setBuildError(null);
     if (step < TOTAL_STEPS) {
@@ -1968,14 +2082,9 @@ export function WizardView() {
         if (startsWithPreferment(draft)) {
           // Prima il prefermento: la sessione dell'impasto partirà alla conferma "è pronto".
           buildSession(draft);   // valida subito: gli errori si vedono adesso, non domani
-          const startedAt = new Date();
-          const durH = Math.max(...(draft.prefermenti ?? []).filter(isPreparable).map(p => p.durationH ?? 12));
-          const stage = { startedAt, readyAt: new Date(startedAt.getTime() + durH * 3_600_000), draft: draft as Record<string, unknown> };
-          dispatch({ type: 'PREF_STAGE_SET', stage });
-          dispatch({ type: 'NAV', view: 'preferment' });
-          savePrefermentStage(stage)
-            .then(id => dispatch({ type: 'PREF_STAGE_SET', stage: { ...stage, id } }))
-            .catch(err => console.error('[savePrefermentStage]', err));
+          // Una sola preparazione alla volta: se ce n'è già una, si chiede.
+          if (state.prefermentStage && !replaceStage) { setReplaceStage('ask'); return; }
+          void startStage();
           return;
         }
         launchSession(draft, dispatch);
@@ -1992,6 +2101,7 @@ export function WizardView() {
 
   const prev = () => {
     setBuildError(null);
+    setReplaceStage(null);
     if (step === 8 && draft.navigationSource === 'planner') {
       dispatch({ type: 'WIZARD_UPDATE', patch: { navigationSource: undefined } });
       dispatch({ type: 'NAV', view: 'planner' });
@@ -2009,7 +2119,8 @@ export function WizardView() {
       if (!draft.mainFlourGroup) return false;
       if (draft.protocol === 'direct') return true;
       // prefermenti richiesti per single_pref e mix_advanced
-      return !!(draft.prefermenti && draft.prefermenti.length >= 1);
+      // Al passo 3 conta solo la farina: l'idratazione si sceglie dopo, al passo 4.
+      return !!(draft.prefermenti && draft.prefermenti.length >= 1) && recipeProblem(draft)?.kind !== 'flour';
     }
     if (step === 4) return !!(draft.hydration && draft.salt !== undefined);
     if (step === 5) return !!(draft.agentType && draft.agentDosePct);
@@ -2021,7 +2132,7 @@ export function WizardView() {
     // sia in buildSession (proto 'ta', puntata 8h, staglio 0.5h, ...): il passo
     // è sempre strutturalmente valido. Nessun solver gira a questo passo.
     if (step === 7) return true;
-    if (step === 8) return true;
+    if (step === 8) return !recipeProblem(draft);
     return true;
   };
 
@@ -2029,6 +2140,8 @@ export function WizardView() {
   const blockedReason = (): string => {
     if (step === 1) return draft.style ? 'Indica farina totale e numero di panetti' : 'Scegli uno stile per continuare';
     if (step === 2) return 'Scegli il tipo di impasto per continuare';
+    const pb = recipeProblem(draft);
+    if (pb && (step === 8 || (step === 3 && pb.kind === 'flour'))) return pb.message;
     if (step === 3) return draft.mainFlourGroup ? 'Aggiungi almeno un pre-fermento' : 'Scegli la farina per continuare';
     if (step === 4) return 'Imposta idratazione e sale';
     if (step === 5) return draft.agentType ? 'Imposta la dose di lievito' : 'Scegli l\'agente lievitante per continuare';
@@ -2072,6 +2185,23 @@ export function WizardView() {
             )}
           </div>
         )}
+        {replaceStage === 'ask' && state.prefermentStage && (() => {
+          const cur = ((state.prefermentStage.draft as WizardDraft).prefermenti ?? []).find(isPreparable);
+          const t = cur?.type ?? 'biga';
+          const at = new Date(state.prefermentStage.readyAt);
+          const hm = at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          return (
+            <div role="group" aria-label="Preparazione già in corso" style={{
+              display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
+              border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-sm)',
+              fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--pm4-flour)',
+            }}>
+              <span>C'è già {prefWithArticle(t)} in corso ({prefIsFeminine(t) ? 'pronta' : 'pronto'} alle {hm}). {prefIsFeminine(t) ? 'La' : 'Lo'} sostituisco con la nuova preparazione?</span>
+              <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai a quella in corso</Btn>
+              <Btn variant="danger" onClick={() => void startStage()}>Sostituisci</Btn>
+            </div>
+          );
+        })()}
         {!canProceed() && (
           <p id="wizard-blocked-hint" role="status" style={{
             margin: 0, textAlign: 'center', fontSize: '0.75rem',
@@ -2080,7 +2210,7 @@ export function WizardView() {
             {blockedReason()}
           </p>
         )}
-        <Btn onClick={next} disabled={!canProceed()}
+        <Btn onClick={next} disabled={!canProceed() || starting || replaceStage === 'ask'}
           aria-describedby={!canProceed() ? 'wizard-blocked-hint' : undefined}>
           {step < TOTAL_STEPS ? 'Continua →'
             : startsWithPreferment(draft)

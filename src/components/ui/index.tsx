@@ -265,7 +265,8 @@ export function Btn({
 }) {
   const base = variant === 'primary' ? S.btn
              : variant === 'danger'
-               ? { ...S.btn, background: 'var(--state-critical)', color: '#fff' }
+               // Testo scuro: il bianco su #ff7675 non arriva ad AA (~2,6:1).
+               ? { ...S.btn, background: 'var(--state-critical)', color: 'var(--pm4-char, #0a0806)' }
                : S.btnSecondary;
   return (
     <button

@@ -1,11 +1,13 @@
 /**
  * PizzaMatrix — prefermento in pratica: dove matura, quanto dura, quanti grammi.
  *
- * Solo aritmetica sugli input della ricetta (nessun modello di fermentazione):
- * il motore riceve gli stessi campi di sempre (tempC, durationH, flourFraction…),
- * qui li si ricava da poche scelte e si trasformano in grammi da pesare.
+ * Aritmetica sugli input della ricetta: il motore riceve gli stessi campi di
+ * sempre (tempC, durationH, flourFraction…), qui li si ricava da poche scelte e
+ * si trasformano in grammi da pesare. La maturazione del prefermento in corso
+ * usa solo fArrhenius del motore (chiamata, non modificata).
  */
-import type { PrefermentoComponent } from '../db/db';
+import type { PrefermentoComponent, PrefermentStage } from '../db/db';
+import { fArrhenius, computeWaterTempDDT, type KneadingMethod, type WaterTempResult } from '../engine';
 
 export type PrefPlace = 'fresco' | 'stanza' | 'frigo';
 export type PrefTiming = 'now' | 'ready';
@@ -150,8 +152,162 @@ export function fmtGrams(g: number): string {
   return `${Math.round(g).toLocaleString('it-IT')} g`;
 }
 
+/** Segno di troppo maturo, da evidenziare quando il ritardo è grande. */
+export function overSign(type: string): string {
+  return type === 'poolish'
+    ? 'Cupola crollata, odore alcolico forte: è oltre'
+    : 'Odore pungente, si strappa senza filamenti: è oltre';
+}
+
+/** Maturazione (%) oltre la quale il ritardo diventa un avviso. */
+export function lateThresholdPct(type: string): number {
+  return type === 'poolish' ? 115 : 125;
+}
+
+/** Sotto questa maturazione (%) l'impasto finale chiede conferma. */
+export const EARLY_PCT = 75;
+
+/** Minimo di farina che resta all'impasto finale (rinfresco), come nel motore. */
+export const MIN_FINAL_FLOUR_PCT = 10;
+
+/** Durata della fase: il prefermento biologico più lungo. */
+export function stageDurationH(prefermenti: PrefermentoComponent[] | undefined): number {
+  const prep = (prefermenti ?? []).filter(isPreparable);
+  return prep.length ? Math.max(...prep.map(p => p.durationH ?? 12)) : 0;
+}
+
+export interface RecipeProblem {
+  kind: 'flour' | 'water';
+  message: string;
+  /** Correzione proposta: idratazione minima o quota massima del prefermento più grande. */
+  fixValue: number;
+}
+
+/** Una ricetta che non si può impastare: null se va bene. */
+export function recipeProblem(d: {
+  totalFlourGrams?: number; hydration?: number; salt?: number; prefermenti?: PrefermentoComponent[];
+}): RecipeProblem | null {
+  const prefs = d.prefermenti ?? [];
+  if (!prefs.length) return null;
+  const totalFrac = prefs.reduce((s, p) => s + (p.flourFraction ?? 0), 0);
+  if (totalFrac > 100 - MIN_FINAL_FLOUR_PCT) {
+    const biggest = prefs.reduce((a, b) => ((b.flourFraction ?? 0) > (a.flourFraction ?? 0) ? b : a));
+    const fixValue = Math.max(5, (biggest.flourFraction ?? 0) - (totalFrac - (100 - MIN_FINAL_FLOUR_PCT)));
+    return {
+      kind: 'flour', fixValue,
+      message: `Prefermenti al ${totalFrac}% della farina: lascia almeno il ${MIN_FINAL_FLOUR_PCT}% per l'impasto finale.`,
+    };
+  }
+  const split = splitRecipe({
+    totalFlourG: d.totalFlourGrams ?? 1000, hydrationPct: d.hydration ?? 65,
+    saltPct: d.salt ?? 2, agentDosePct: 0, prefermenti: prefs,
+  });
+  if (split.minHydrationPct != null) {
+    return {
+      kind: 'water', fixValue: split.minHydrationPct,
+      message: `L'acqua dei prefermenti supera quella della ricetta: l'idratazione deve essere almeno ${split.minHydrationPct}%.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Maturazione del prefermento in corso, come tempo termico: ∫fArrhenius(T)dt
+ * rispetto a quello previsto (fArrhenius(T del piano) × durata del piano).
+ * Gli spostamenti (frigo, stanza…) cambiano la velocità da quel momento.
+ */
+export function prefProgress(
+  stage: Pick<PrefermentStage, 'startedAt' | 'plannedH' | 'plannedTempC' | 'moves'> & { readyAt?: Date | string },
+  now = Date.now(),
+  /** Maturazione (%) di cui stimare l'orario; 100 = pronto. */
+  atPct = 100,
+): { pct: number; etaMs: number } {
+  const start = new Date(stage.startedAt).getTime();
+  // Preparazioni salvate prima di plannedH: la durata è readyAt − startedAt.
+  const fallbackH = stage.readyAt ? (new Date(stage.readyAt).getTime() - start) / 3_600_000 : 12;
+  const plannedH = Math.max(0.25, stage.plannedH ?? (Number.isFinite(fallbackH) ? fallbackH : 12));
+  const target = (fArrhenius as (t: number) => number)(stage.plannedTempC ?? 16) * plannedH;
+  const moves = [...(stage.moves ?? [])]
+    .map(m => ({ at: new Date(m.at).getTime(), tempC: m.tempC }))
+    .filter(m => Number.isFinite(m.at) && m.at >= start)
+    .sort((a, b) => a.at - b.at);
+  const goal = target * atPct / 100;
+  let t = start, temp = stage.plannedTempC ?? 16, acc = 0;
+  let crossedAt: number | null = null;   // istante in cui si è raggiunto atPct, se già passato
+  const rate = (c: number) => (fArrhenius as (t: number) => number)(c);
+  const advance = (until: number) => {
+    const dh = Math.max(0, until - t) / 3_600_000;
+    const add = rate(temp) * dh;
+    if (crossedAt == null && acc + add >= goal && rate(temp) > 1e-9) {
+      crossedAt = t + ((goal - acc) / rate(temp)) * 3_600_000;
+    }
+    acc += add; t = Math.max(t, until);
+  };
+  for (const m of moves) {
+    if (m.at > now) break;
+    advance(m.at);
+    temp = m.tempC;
+  }
+  advance(now);
+  const r = rate(temp);
+  const remainingH = goal > acc && r > 1e-9 ? (goal - acc) / r : 0;
+  if (crossedAt != null) return { pct: target > 0 ? (acc / target) * 100 : 0, etaMs: crossedAt };
+  return { pct: target > 0 ? (acc / target) * 100 : 0, etaMs: now + remainingH * 3_600_000 };
+}
+
 /** Ore dal momento in cui il prefermento è stato impastato, arrotondate al quarto d'ora. */
 export function elapsedPrefHours(startedAt: Date | string, now = Date.now()): number {
   const h = (now - new Date(startedAt).getTime()) / 3_600_000;
   return Math.max(0.5, Math.round(h * 4) / 4);
+}
+
+/** Luogo e temperatura dove si trova adesso il prefermento in corso. */
+export function currentSpot(stage: Pick<PrefermentStage, 'plannedTempC' | 'moves'>, fallbackPlace: PrefPlace): { place: PrefPlace; tempC: number } {
+  const last = [...(stage.moves ?? [])].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()).pop();
+  return last ? { place: last.place, tempC: last.tempC } : { place: fallbackPlace, tempC: stage.plannedTempC ?? 16 };
+}
+
+/**
+ * Temperatura costante equivalente a quella vissuta dal prefermento (stesso
+ * tempo termico nelle stesse ore): è quella che entra nella ricetta del motore.
+ */
+export function equivalentTempC(stage: Pick<PrefermentStage, 'startedAt' | 'plannedH' | 'plannedTempC' | 'moves'> & { readyAt?: Date | string }, now = Date.now()): number {
+  const base = stage.plannedTempC ?? 16;
+  if (!(stage.moves ?? []).length) return base;
+  const hours = Math.max(1e-6, (now - new Date(stage.startedAt).getTime()) / 3_600_000);
+  const { pct } = prefProgress(stage, now);
+  const plannedH = Math.max(0.25, stage.plannedH ?? 12);
+  const f = fArrhenius as (t: number) => number;
+  const goalRate = (pct / 100) * f(base) * plannedH / hours;   // fArrhenius medio
+  let lo = 0, hi = 40;
+  for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (f(mid) < goalRate) lo = mid; else hi = mid; }
+  return Math.round(((lo + hi) / 2) * 10) / 10;
+}
+
+/** Temperatura target dell'impasto del prefermento (biga più fresca del poolish). */
+export function prefDdtC(type: string): number {
+  return type === 'poolish' ? 20 : 18;
+}
+
+/** Acqua per un impasto (prefermento o finale): una riga leggibile, o null. */
+export function waterAdvice(p: {
+  ddtTarget: number; tempAmbient: number; waterG: number; massKg: number; hydrationPct: number;
+  kneadingMethod?: KneadingMethod; kneadDurationMin?: number; tempPreferment?: number; tapWaterC?: number;
+}): string | null {
+  if (!(p.waterG > 0)) return null;
+  let r: WaterTempResult;
+  try {
+    r = computeWaterTempDDT({
+      ddtTarget: p.ddtTarget, tempAmbient: p.tempAmbient,
+      kneadingMethod: p.kneadingMethod ?? 'spiral', waterTotalGrams: Math.round(p.waterG),
+      tempPreferment: p.tempPreferment, kneadDurationMin: p.kneadDurationMin,
+      hydrationEff: p.hydrationPct, doughMassKg: p.massKg, tapWaterC: p.tapWaterC,
+    });
+  } catch { return null; }
+  if (r.mode === 'liquid' && r.tWaterLiquid != null) return `acqua a ${Math.round(r.tWaterLiquid)}°C`;
+  if (r.mode === 'ice' && r.iceGrams != null) {
+    return `${fmtGrams(r.iceGrams)} di ghiaccio tritato + ${fmtGrams(r.liquidGrams ?? 0)} di acqua fredda`;
+  }
+  if (r.mode === 'unreachable') return 'acqua più fredda che puoi (con ghiaccio) e farina fredda';
+  return null;
 }

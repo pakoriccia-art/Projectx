@@ -2,7 +2,7 @@
  * PizzaMatrix — useSessionRestore
  * All'avvio riprende la sessione attiva da IndexedDB, con la sua timeline e
  * l'ultima fotografia del tick: useTickEngine recupera poi il tempo trascorso
- * ad app chiusa. Senza impasto in corso riprende il prefermento in maturazione.
+ * ad app chiusa. Riprende anche il prefermento in maturazione (aperto da solo se non c'è un impasto).
  * Gli orfani "active" creati prima della correzione dell'id
  * non hanno la fotografia e restano dove sono.
  */
@@ -46,13 +46,12 @@ export function useSessionRestore() {
     findResumableSession()
       .then(async s => {
         await cleanOrphanSessions(s?.id).catch(err => console.error('[cleanOrphanSessions]', err));
+        // Il prefermento in maturazione si riprende sempre; si apre da solo
+        // solo se non c'è un impasto in corso (altrimenti resta raggiungibile).
+        const stage = await findPrefermentStage().catch(() => null);
+        if (stage) dispatch({ type: 'PREF_STAGE_SET', stage });
         if (!s) {
-          // Nessun impasto in corso: forse c'è un prefermento in maturazione.
-          const stage = await findPrefermentStage().catch(() => null);
-          if (stage) {
-            dispatch({ type: 'PREF_STAGE_SET', stage });
-            dispatch({ type: 'NAV', view: 'preferment' });
-          }
+          if (stage) dispatch({ type: 'NAV', view: 'preferment' });
           return;
         }
         const { lastTickState, ...session } = s;

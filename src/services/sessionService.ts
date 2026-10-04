@@ -126,3 +126,13 @@ export async function findPrefermentStage(now = Date.now()): Promise<(Preferment
 export async function deletePrefermentStage(id: number): Promise<void> {
   await db.sessions.delete(id);
 }
+
+export async function updatePrefermentStage(id: number, stage: PrefermentStage): Promise<void> {
+  await db.sessions.update(id, { prefermentStage: stage });
+}
+
+/** Rete di sicurezza: elimina ogni preparazione (anche senza id noto). */
+export async function deleteAllPrefermentStages(): Promise<void> {
+  const rows = await db.sessions.where('status').equals('planning').toArray();
+  for (const r of rows) if (r.id != null) await db.sessions.delete(r.id);
+}

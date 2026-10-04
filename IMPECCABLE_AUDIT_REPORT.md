@@ -350,6 +350,15 @@ Biga e poolish con poche scelte (quota, da preparare/già pronta, luogo, durata)
 
 Critique (dual-agent): 25/40, 0 P0, 4 P1 — ricetta incoerente avviabile (acqua o farina dei prefermenti oltre il totale), fase in corso che convive male con altre sessioni o con una seconda fase, dosi della biga assenti nella fase in corso, conferma anticipata e ritardo non calibrati sul rischio. Detector: solo advisory (font fuori scala, in gran parte legacy). Snapshot in `.impeccable/critique/`.
 
+## Passaggio 19: P1 e P2 della critique del prefermento, previsione della biga
+
+- Ricette impossibili bloccate (farina dei prefermenti oltre il 90%, acqua dei prefermenti oltre il totale) con la correzione proposta e annullabile; il secondo prefermento nasce con la quota rimasta.
+- Una sola preparazione alla volta (domanda "sostituisco?"), salvata prima di aprirsi; ripresa anche con un impasto in corso e raggiungibile dalla dashboard.
+- Fase in corso: dosi del prefermento e acqua alla temperatura giusta, "Dove si trova adesso" (Fresco/Stanza/Frigo), maturazione in % con tempo termico (fArrhenius del motore, solo chiamato); all'impasto entrano ore e temperatura equivalente vissute.
+- Conferma anticipata con "Aspetto" in evidenza; ritardo oltre 125% (biga) / 115% (poolish) con titolo, segno di troppo maturo e seconda notifica.
+- Servizio fisso o spostato: lo sceglie chi impasta quando c'è un orario di cottura.
+- Durata non più reinterpretata in silenzio; orari del Planner coerenti con la fase; pulsante "danger" a contrasto AA.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

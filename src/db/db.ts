@@ -70,6 +70,13 @@ export interface PrefermentStage {
   readyAt: Date;                       // startedAt + durata prevista
   /** WizardDraft dell'impasto finale, ricostruito alla conferma "è pronto". */
   draft: Record<string, unknown>;
+  /** Piano della maturazione: durata e temperatura alla partenza. */
+  plannedH?: number;
+  plannedTempC?: number;
+  /** Spostamenti successivi (es. messa in frigo): cambiano la velocità. */
+  moves?: Array<{ at: Date; place: 'fresco' | 'stanza' | 'frigo'; tempC: number }>;
+  /** Dosi del prefermento confermate come impastate ("Fatto"). */
+  mixedAck?: boolean;
 }
 
 // ─── Thermal Timeline ─────────────────────────────────────────────────────────

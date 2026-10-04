@@ -85,3 +85,80 @@ describe('formati', () => {
     expect(fmtGrams(240.4)).toBe('240 g');
   });
 });
+
+import { recipeProblem, prefProgress, stageDurationH, equivalentTempC, waterAdvice, MIN_FINAL_FLOUR_PCT } from '../lib/preferment';
+import { fArrhenius } from '../engine';
+
+describe('recipeProblem', () => {
+  it('ricetta valida: nessun problema', () => {
+    expect(recipeProblem({ totalFlourGrams: 1000, hydration: 65, prefermenti: [biga] })).toBeNull();
+    expect(recipeProblem({ totalFlourGrams: 1000, hydration: 65 })).toBeNull();
+  });
+  it('troppa farina nei prefermenti: riduce il più grande', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 65, prefermenti: [biga, { ...poolish, flourFraction: 50 }] })!;
+    expect(pb.kind).toBe('flour');
+    expect(pb.fixValue).toBe(50 - (100 - (100 - MIN_FINAL_FLOUR_PCT)));   // 40
+  });
+  it('acqua dei prefermenti oltre il totale: idratazione minima', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 55, prefermenti: [{ ...poolish, flourFraction: 70 }] })!;
+    expect(pb.kind).toBe('water');
+    expect(pb.fixValue).toBe(70);
+  });
+});
+
+describe('stageDurationH', () => {
+  it('il prefermento biologico più lungo; autolisi esclusa', () => {
+    expect(stageDurationH([biga, poolish, { ...biga, id: 'a', type: 'autolysis', durationH: 30 }])).toBe(16);
+    expect(stageDurationH([])).toBe(0);
+  });
+});
+
+describe('prefProgress (tempo termico con fArrhenius)', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const st = { startedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  it('a temperatura costante è lineare nel tempo', () => {
+    expect(prefProgress(st, t0 + 8 * 3_600_000).pct).toBeCloseTo(50, 5);
+    expect(prefProgress(st, t0 + 8 * 3_600_000).etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
+  });
+  it('in frigo rallenta secondo il rapporto fArrhenius', () => {
+    const f = fArrhenius as (t: number) => number;
+    const moved = { ...st, moves: [{ at: new Date(t0 + 8 * 3_600_000), place: 'frigo' as const, tempC: 4 }] };
+    const at = t0 + 8 * 3_600_000;
+    const { etaMs } = prefProgress(moved, at);
+    const expectedH = 8 * f(16) / f(4);
+    expect((etaMs - at) / 3_600_000).toBeCloseTo(expectedH, 3);
+    expect(expectedH).toBeGreaterThan(8);
+  });
+  it('orario a una maturazione data (ritardo)', () => {
+    expect(prefProgress(st, t0, 125).etaMs).toBeCloseTo(t0 + 20 * 3_600_000, -3);
+  });
+  it('preparazioni vecchie senza plannedH: durata da readyAt', () => {
+    const old = { startedAt: new Date(t0), readyAt: new Date(t0 + 10 * 3_600_000), plannedTempC: 16 };
+    expect(prefProgress(old, t0 + 5 * 3_600_000).pct).toBeCloseTo(50, 5);
+  });
+  it('temperatura equivalente: tra quella del piano e quella del frigo', () => {
+    const moved = { ...st, moves: [{ at: new Date(t0 + 8 * 3_600_000), place: 'frigo' as const, tempC: 4 }] };
+    const tEq = equivalentTempC(moved, t0 + 16 * 3_600_000);
+    expect(tEq).toBeGreaterThan(4);
+    expect(tEq).toBeLessThan(16);
+    expect(equivalentTempC(st, t0 + 16 * 3_600_000)).toBe(16);
+  });
+});
+
+describe('waterAdvice', () => {
+  it('dà una riga leggibile o null', () => {
+    const w = waterAdvice({ ddtTarget: 18, tempAmbient: 20, waterG: 240, massKg: 0.74, hydrationPct: 48, kneadDurationMin: 3 });
+    expect(w).toMatch(/acqua|ghiaccio/);
+    expect(waterAdvice({ ddtTarget: 18, tempAmbient: 20, waterG: 0, massKg: 0.5, hydrationPct: 48 })).toBeNull();
+  });
+});
+
+describe('prefProgress oltre il 100%', () => {
+  it("l'orario di pronto resta quello in cui è stato raggiunto", () => {
+    const t0 = new Date('2026-10-04T18:00:00').getTime();
+    const st = { startedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+    const r = prefProgress(st, t0 + 22 * 3_600_000);
+    expect(r.pct).toBeCloseTo(137.5, 3);
+    expect(r.etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
+  });
+});
