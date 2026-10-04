@@ -215,6 +215,15 @@ Scelte dell'utente: un solo orario (la previsione) con il piano come scarto, fin
 
 Rilevatore su dashboard, Storico e index.html: 20 segnalazioni, le stesse 2 non solo informative volute.
 
+## Passaggio 10: quarta critique (27/40)
+
+Andamento: 19 → 26 → 25 → 27, al limite tra "accettabile" e "buono". Gli orari di header, blocco centrale e timeline ora coincidono in ogni stato. Banda, "Fatto alle", racconto dell'infornata, focus del pannello di conferma e Storico funzionano. 0 target sotto 44px, 0 contrasti insufficienti.
+
+Aperti:
+- **P1-a.** Registrare lo staglio all'orario giusto lo allunga a 4h e l'annulla non ripristina lo stato. Causa probabile: la sessione attiva non ha la timeline in memoria e la transizione la ricostruisce dall'orario.
+- **P1-b.** Il 🍕 del grafico usa ancora il target del wizard; lo scarto dal piano è ripetuto tre volte già dal minuto zero.
+- **P2.** Restano i glow dei LED e del pallino corrente; lo Storico non confronta previsione e realtà; il focus si perde dopo alcune azioni.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
