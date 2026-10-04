@@ -135,6 +135,22 @@ L'utente ha scelto: parole chiare più un "?" con la spiegazione; spiegazioni ap
 
 **Verifica:** typecheck e test verdi; rilevatore senza segnalazioni non advisory sui file modificati; nel browser i "?" aprono le spiegazioni e gli avvisi seguono l'avanzare del tempo.
 
+## Passaggio 5: polish e nuova critique
+
+**Polish:**
+- Niente pannelli annidati: grafico "04 · Andamento" e Profilo impasto ora vivono in un solo pannello.
+- `QualityProfileCard` estratto in un file suo (stesse formule, usa `buildPiecewiseData`); eliminata `DashboardView.tsx` (1245 righe di codice morto) e `ProgressBar`.
+- Grafico: legenda su una riga, etichette non tagliate, soglia allineata al profilo di stile (80%), transizioni senza testo sovrapposto.
+- Colori riportati ai token (Scioglievolezza, ❄ senza glow).
+
+**Nuova critique (dual-agent): 26/40, prima 19/40.** Rilevatore CLI: 73 → 30 segnalazioni, 2 non advisory intenzionali. Nessun target sotto 44px; contrasto ok in Monitor e Analisi.
+
+**Aperti (per un prossimo giro):**
+- P0: le fasi pianificate passano senza avviso e, una volta scadute, non si possono più toccare dalla timeline.
+- P1: l'eroe non si legge in 1s a 1m (etichetta "Pronto per infornare" sopra IN CORSO, readout 35px); l'header mostra l'orario del piano invece della previsione.
+- P2: verde usato anche per stati non pronti; chiusura della sessione senza riepilogo.
+- P3: a11y dei modali, testo a 10px, contrasto della timeline a PRONTO.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
