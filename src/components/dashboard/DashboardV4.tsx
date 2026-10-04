@@ -104,25 +104,53 @@ function DarkCard({ children, style }: { children: React.ReactNode; style?: Reac
 }
 
 // Etichetta-canale incisa: "NN · NOME ————————— [right]"
-function ChannelLabel({ idx, name, tick, right }: {
+function ChannelLabel({ idx, name, tick, right, help }: {
   idx: string; name: string; tick?: string; right?: React.ReactNode;
+  /** Spiegazione breve, mostrata solo a richiesta (progressive disclosure). */
+  help?: string;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="pm4-chan">
-      <span className="pm4-chan-idx">{idx}</span>
-      <span className="pm4-chan-name">{name}</span>
-      <span className="pm4-chan-rule" />
-      {right ?? (tick ? <span className="pm4-chan-tick">{tick}</span> : null)}
-    </div>
+    <>
+      <div className="pm4-chan">
+        <span className="pm4-chan-idx">{idx}</span>
+        <span className="pm4-chan-name">{name}</span>
+        {help && (
+          <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+            aria-label={open ? `Nascondi spiegazione: ${name}` : `Cosa significa: ${name}`}
+            style={{
+              width: 44, height: 44, margin: '-14px -12px -14px -10px', flexShrink: 0,
+              background: 'none', border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center',
+            }}>
+            <span aria-hidden="true" style={{
+              width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center',
+              border: `1px solid ${open ? 'var(--pm4-ember)' : 'var(--pm4-line-strong)'}`,
+              color: open ? 'var(--pm4-ember)' : 'var(--pm4-tan)', fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
+            }}>?</span>
+          </button>
+        )}
+        <span className="pm4-chan-rule" />
+        {right ?? (tick ? <span className="pm4-chan-tick">{tick}</span> : null)}
+      </div>
+      {help && open && (
+        <p style={{ margin: '-4px 0 10px', color: 'var(--pm4-tan)', fontSize: 12, lineHeight: 1.5, fontFamily: 'var(--font-mono)' }}>
+          {help}
+        </p>
+      )}
+    </>
   );
 }
+
+const HELP_STATO = 'Due orologi: la lievitazione (gas prodotto dal lievito) e la maturazione (enzimi che lavorano la farina) corrono a velocità diverse. Il semaforo segue la maturazione.';
+const HELP_GLUTINE = 'Col tempo la W cala perché gli enzimi tagliano il glutine. Al 100% di usura la pasta non regge più la stesura.';
+const HELP_TEMPERATURA = "Il cuore dell'impasto insegue lentamente la temperatura dell'ambiente: il contenitore fa da isolante.";
 
 function SecondaryRow({ pH, leaveningPct, W, matPct }: {
   pH?: number; leaveningPct?: number; W?: number; matPct?: number;
 }) {
   const items: Array<{ label: string; value: React.ReactNode; color: string }> = [];
-  if (matPct != null)       items.push({ label: 'MATUR.',  value: <>{matPct.toFixed(1)}<small>%</small></>,      color: 'var(--accent-brand)' });
-  if (leaveningPct != null) items.push({ label: 'LIEVIT.', value: <>{leaveningPct.toFixed(1)}<small>%</small></>, color: 'var(--pm4-green)' });
+  if (matPct != null)       items.push({ label: 'Maturazione',  value: <>{matPct.toFixed(1)}<small>%</small></>,      color: 'var(--accent-brand)' });
+  if (leaveningPct != null) items.push({ label: 'Lievitazione', value: <>{leaveningPct.toFixed(1)}<small>%</small></>, color: 'var(--pm4-green)' });
   if (pH != null)           items.push({ label: 'pH',      value: pH.toFixed(2),                                   color: 'var(--accent-warning)' });
   if (W != null)            items.push({ label: 'W',       value: `${Math.round(W)}`,                              color: 'var(--pm4-flour)' });
   return (
@@ -161,14 +189,14 @@ function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | nul
   let label: string;
   let color = 'var(--pm4-umber)';
   if (!info || info.reachesPeak === false) {
-    label = 'nessuna prevista · sotto-proof';
+    label = 'non prevista: a questa T il lievito non arriva al picco';
   } else if (info.collapseTime == null || info.marginH == null) {
-    label = `picco oltre la finestra · stabile a ${ambientTempC.toFixed(0)}°C`;
+    label = `nessuna nelle prossime 48h a ${ambientTempC.toFixed(0)}°C`;
     color = 'var(--pm4-green)';
   } else {
     const m = info.marginH;
     color = m < 1 ? 'var(--state-critical)' : m < 3 ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)';
-    label = `+${m.toFixed(1)}h dopo il picco @ ${ambientTempC.toFixed(0)}°C`;
+    label = `${fmtDuration(m)} dopo il picco di lievitazione, a ${ambientTempC.toFixed(0)}°C`;
   }
   return (
     <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -189,11 +217,11 @@ function CoreTempAtBakeReadout({ coreTempAtBake }: { coreTempAtBake: number | nu
   const warn    = deficit > 0;
   const color   = warn ? (deficit > 4 ? 'var(--state-critical)' : 'var(--pm4-ember-lo)') : 'var(--pm4-tan)';
   const label   = warn
-    ? `${coreTempAtBake.toFixed(1)}° · ${deficit.toFixed(1)}° sotto la soglia (min ${CORE_TEMP_AT_BAKE_MIN_C}°)`
-    : `${coreTempAtBake.toFixed(1)}° · ok (≥ ${CORE_TEMP_AT_BAKE_MIN_C}°)`;
+    ? `${coreTempAtBake.toFixed(1)}° · ${deficit.toFixed(1)}° sotto il minimo di ${CORE_TEMP_AT_BAKE_MIN_C}°`
+    : `${coreTempAtBake.toFixed(1)}° · ok (min ${CORE_TEMP_AT_BAKE_MIN_C}°)`;
   return (
     <div style={{ marginTop: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>a cottura</span>
+      <span className="pm4-cell-k" style={{ textAlign: 'left' }}>cuore a cottura</span>
       <span style={{ color, fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.02em' }}>
         {warn ? '⚠ ' : ''}{label}
       </span>
@@ -536,6 +564,10 @@ export function DashboardV4() {
         currentPhaseCold={canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
         coldBakeWarning={coldBakeMsg}
         onAdjust={() => dispatch({ type: 'NAV', view: 'rotta' })}
+        maturationMessage={
+          alertRes.level === 'APPROACHING' ? `Quasi pronto · tra ~${fmtDuration(readyInH)}`
+          : alertRes.level === 'SWEET_SPOT' ? `Pronto per infornare · ${windowStr}`
+          : undefined}
       />
 
       {/* annuncio per screen reader dei cambi di stato che contano */}
@@ -583,7 +615,7 @@ export function DashboardV4() {
         </div>
 
         {/* ── ZONA 1 — SEMAFORO ── */}
-        <ChannelLabel idx="01" name="Stato · 2-clock" />
+        <ChannelLabel idx="01" name="Stato" help={HELP_STATO} />
         {primarySignal === 'maturation' && (
           <>
             <SemaforoCard label="Pronto per infornare" value={etaValue} sub={etaSub}
@@ -655,25 +687,27 @@ export function DashboardV4() {
           <>
             {/* ── ZONA 2 — STRUTTURA ── */}
             <DarkCard>
-              <ChannelLabel idx="02" name="Struttura · decad. W" right={
+              <ChannelLabel idx="02" name="Forza del glutine (W)" help={HELP_GLUTINE} right={
                 <span className="pm4-chan-tick" style={{ color: SEMAFORO_COLORS[wState], fontWeight: 700 }}>−{decayPct.toFixed(1)}%</span>
               } />
               <div style={{ display: 'flex', gap: 24, marginBottom: 6 }}>
                 <div>
-                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>W₀ → W</div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>W iniziale → ora</div>
                   <div style={{ color: 'var(--pm4-flour)', fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
                     {Math.round(W_initial)} <span style={{ color: 'var(--pm4-umber)' }}>→</span> {Math.round(W_current)}
                   </div>
                 </div>
                 <div>
-                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>t / t_crit</div>
+                  <div className="pm4-cell-k" style={{ textAlign: 'left' }}>Usura glutine</div>
                   <div style={{ color: SEMAFORO_COLORS[wState], fontSize: 17, fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 3, textShadow: `0 0 14px ${SEMAFORO_COLORS[wState]}55` }}>
                     {(liveRatio * 100).toFixed(0)}%
                   </div>
                 </div>
               </div>
               <div style={{ color: 'var(--pm4-umber)', fontSize: 10, marginBottom: 8, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
-                t/t_crit {(liveRatio * 100).toFixed(0)}% · t_crit {Math.round(tCritHours)}h · pH {pH.toFixed(2)}
+                {tCritHours - elapsedH > 0
+                  ? `limite di stesura tra ~${fmtDuration(tCritHours - elapsedH)}`
+                  : 'limite di stesura superato'} · pH {pH.toFixed(2)}
               </div>
               <MiniHillCurve W0={W_initial} tCrit={tCritHours} currentT={elapsedH} sessionDurationH={sessionDurationH} width={358} height={92} />
               {/* ── Sovra-lievitazione: collasso post-picco (separato dal Hill proteolitico) ── */}
@@ -682,7 +716,7 @@ export function DashboardV4() {
 
             {/* Temperature + slider T_amb */}
             <DarkCard>
-              <ChannelLabel idx="03" name="Termica · cuore impasto" tick="Newton τ" />
+              <ChannelLabel idx="03" name="Temperatura" help={HELP_TEMPERATURA} />
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, margin: '2px 0 13px' }}>
                 <div>
                   <div className="pm4-cell-k" style={{ textAlign: 'left' }}>T impasto</div>
@@ -745,7 +779,7 @@ export function DashboardV4() {
 
             {/* ── ZONA 4 — GRAFICO + TIMELINE (tutte e 3 le viste da effectiveTimeline) ── */}
             <DarkCard style={{ padding: '13px 12px 4px' }}>
-              <ChannelLabel idx="04" name="Curve & cronologia" />
+              <ChannelLabel idx="04" name="Andamento" />
               <GompertzChartV4
                 key={`chart-${session.id}-${effectiveTimeline.find((s: any) => s.status === 'current')?.startElapsedH ?? 0}-${oopConfirmed ? 'tc' : 'ta'}`}
                 session={effectiveSession} ts={ts} horizonH={horizonH}

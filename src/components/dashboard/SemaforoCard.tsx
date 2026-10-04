@@ -186,7 +186,7 @@ export function CollapseModal({
         cursor: 'pointer', marginTop: 8, fontFamily: 'var(--font-mono)',
         boxShadow: '0 8px 22px -8px rgba(214,48,49,0.7)',
       }}>
-        Termina e registra
+        Termina · salva nello Storico
       </button>
       <button onClick={onContinue} style={{
         background: 'none', border: 'none', color: 'var(--pm4-umber)',

@@ -24,6 +24,8 @@ interface LiveHeaderProps {
   coldBakeWarning?:   string;
   /** Azione suggerita sui ribbon strutturali (→ Aggiusta Rotta). */
   onAdjust?:          () => void;
+  /** Testo del ribbon di maturazione (quasi pronto / pronto) composto dalla dashboard con l'ETA. */
+  maturationMessage?: string;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -55,7 +57,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, totalFlourGrams, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, maturationMessage,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -70,7 +72,9 @@ export function LiveHeader({
   const bakeClock  = targetBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   const bakeDay    = targetBakeAt.toDateString() === now.toDateString()
     ? '' : `${targetBakeAt.toLocaleDateString('it-IT', { weekday: 'short' })} `;
-  const remainStr  = remainingH > 0.05 ? `${bakeDay}${bakeClock}` : '🍕 ora';
+  // L'header riporta il TARGET pianificato; se è passato lo dice, senza ordinare di
+  // infornare (quando infornare lo dice il semaforo, dal modello).
+  const remainStr  = remainingH > 0.05 ? `${bakeDay}${bakeClock}` : `${bakeClock} · superato`;
   const banner     = BANNER_STYLE[alertLevel];
   // v2.4.20: env dalla fase canonica se fornita, altrimenti dal phaseType.
   const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
@@ -100,7 +104,7 @@ export function LiveHeader({
         </span>
         <span style={{ width: 1, height: 22, background: 'var(--pm4-line-strong)' }} />
         <div><div style={K}>Farina</div><div style={V}>{totalFlourGrams}<span style={{ color: 'var(--pm4-ember)' }}>g</span></div></div>
-        <div><div style={K}>Trascorso</div><div style={V}>+{elapsedH.toFixed(1)}h</div></div>
+        <div><div style={K}>Trascorso</div><div style={V}>{Math.floor(elapsedH)}h {String(Math.floor((elapsedH % 1) * 60)).padStart(2, '0')}m</div></div>
         <div><div style={K}>Cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
         <span style={{
           marginLeft: 'auto', flexShrink: 0, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
@@ -124,7 +128,7 @@ export function LiveHeader({
           fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
         }}>
           <span aria-hidden="true">{banner.icon}</span>
-          <span style={{ flex: 1 }}>{alertMessage}</span>
+          <span style={{ flex: 1 }}>{maturationMessage ?? alertMessage}</span>
           {banner.action && onAdjust && (
             <button type="button" onClick={onAdjust} style={{
               background: 'none', border: `1px solid ${banner.border}`, borderRadius: 6, color: banner.color,

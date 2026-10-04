@@ -98,6 +98,43 @@ Punteggio stimato dopo il passaggio 2: **Theming 3→4**, **Integrità 3→4**. 
 
 **Rimane:** glossario e spiegazioni inline per "2-clock", t_crit e Newton τ (`/impeccable clarify`, testi di dominio da validare); `transition: width` nella `ProgressBar` di `ui/index.tsx` (`/impeccable optimize`).
 
+## Passaggio 4: clarify (testi della dashboard e dei modali)
+
+L'utente ha scelto: parole chiare più un "?" con la spiegazione; spiegazioni approvate così come proposte; scope limitato a dashboard e modali.
+
+**Gergo del motore sostituito da italiano chiaro.** I termini da fornaio restano (puntata, appretto, W, sbollatura, TA/TC):
+
+| Prima | Dopo |
+|---|---|
+| `STATO · 2-CLOCK` | `STATO` |
+| `STRUTTURA · DECAD. W` | `FORZA DEL GLUTINE (W)` |
+| `TERMICA · CUORE IMPASTO · Newton τ` | `TEMPERATURA` |
+| `CURVE & CRONOLOGIA` | `ANDAMENTO` |
+| `W₀ → W` | `W iniziale → ora` |
+| `t / t_crit` | `Usura glutine` |
+| `t/t_crit · t_crit 95h` | `limite di stesura tra ~94h 56m` |
+| `MATUR.` / `LIEVIT.` | `Maturazione` / `Lievitazione` |
+
+**Sbollatura e temperatura a cottura**, ora in frasi complete:
+- `sotto-proof` → "non prevista: a questa T il lievito non arriva al picco";
+- "nessuna nelle prossime 48h a 20°C";
+- "2h 30m dopo il picco di lievitazione, a 20°C";
+- `a cottura … (≥ 18°)` → "cuore a cottura 20.4° · ok (min 18°)".
+
+**Spiegazioni a richiesta.** I canali 01–03 hanno un "?" (target 44px, `aria-expanded`) che apre una riga di spiegazione: i due orologi, l'usura del glutine, la temperatura al cuore.
+
+**Avvisi nell'header** composti con l'ETA: "Quasi pronto · tra ~23 min" e "Pronto per infornare · ancora ~Xh prima della sbollatura". Quando l'orario target è passato, l'header mostra "23:04 · superato" invece di "🍕 ora". Quel testo contraddiceva il semaforo, che diceva ancora "quasi pronto".
+
+**Altri testi aggiornati:**
+- "Trascorso" ora è nel formato "11h 00m".
+- La legenda del grafico dice "prima di «ora» il registrato, dopo la previsione".
+- Modale fuori protocollo: "❄ Aggiungi la fase in frigo" e "Resta tutto a temperatura ambiente".
+- Modale collasso: "Termina · salva nello Storico".
+
+**Non toccati:** i messaggi di allerta strutturale prodotti dal motore (vincolo: nessuna modifica al motore) e i termini di dominio.
+
+**Verifica:** typecheck e test verdi; rilevatore senza segnalazioni non advisory sui file modificati; nel browser i "?" aprono le spiegazioni e gli avvisi seguono l'avanzare del tempo.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

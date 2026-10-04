@@ -523,7 +523,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
         </span>
         {elapsedH > 0 && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            · passato congelato · proiezione reattiva
+            · prima di «ora» il registrato, dopo la previsione
           </span>
         )}
       </div>
