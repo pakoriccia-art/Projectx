@@ -301,6 +301,28 @@ Scelte dell'utente: soglia della sessione, "pronto = infornabile", nessun modale
 
 **Riscaldo allineato (su richiesta dell'utente):** nella modalità Orario il riscaldo del planner ora considera il contenitore, come il wizard e la dashboard (cassetta chiusa di default). Il motore non è stato toccato. Verificato: niente più "inforni a ~12°" all'avvio; PRONTO alle 21:06 con il piano alle 21:00, prima era all'01:07.
 
+## Passaggio 15: seconda critique del ramo Pianifica (23/40, prima 15/40)
+
+Risolti i P0 della prima critique, verificati anche sul telefono (scenario "pianifica" 28/28): il Servizio parte, niente PRONTO in frigo, soglia del piano rispettata, piano intatto dal planner alla dashboard, stato conservato. Rilevatore: 87 → 71 segnalazioni, tutte advisory. Il piano consigliato e il suo pulsante sono ora a ~450–600px, prima a 2.600–3.200px.
+
+Aperti:
+- **P1:**
+  - Servizio: cottura e soglia calcolate sulla fine del servizio, quindi all'inizio del servizio la dashboard dice "non ancora";
+  - il piano scivola in silenzio, e l'anteprima della banda promette "l'orario non cambia";
+  - card di Servizio e Qualità da debug, con la risposta in fondo;
+  - `pickRecommended` instabile: a dati identici il consigliato cambia tra TC Appretto e TC Puntata.
+- **P2:** il wizard al passo 8 non mostra gli orari; senza data il planner propone un piano di 66h con il pulsante attivo.
+- **P3:** troppo arancione nella prima schermata; 3 slider della modalità Qualità senza nome accessibile.
+
+## Passaggio 16: pulizia delle sessioni orfane
+
+All'avvio `cleanOrphanSessions` (`useSessionRestore.ts`) usa `classifyOrphans` (`src/lib/orphans.ts`, con 6 test):
+- un record "active" senza fotografia, o più vecchio di 72h, con un gemello "completed" viene eliminato: è il doppione del vecchio bug;
+- senza gemello diventa "interrotta" e resta visibile nello Storico;
+- la sessione da riprendere non viene mai toccata.
+
+Verificato nel browser con record finti; lo script del telefono ora controlla che non restino orfane.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

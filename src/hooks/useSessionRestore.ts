@@ -8,6 +8,23 @@
 import { useEffect, useRef } from 'react';
 import { useApp, type TickState } from '../context/AppContext';
 import { db, type Session } from '../db/db';
+import { classifyOrphans } from '../lib/orphans';
+import { deleteSession } from '../services/sessionService';
+
+/**
+ * Pulizia all'avvio dei record "active" orfani (doppioni del vecchio bug dell'id
+ * o sessioni mai chiuse). Non tocca mai la sessione da riprendere.
+ */
+export async function cleanOrphanSessions(keepId?: number, now = Date.now()): Promise<{ removed: number; aborted: number }> {
+  const rows = await db.sessions.toArray();
+  const plan = classifyOrphans(rows as any, now, keepId);
+  for (const id of plan.remove) await deleteSession(id);
+  for (const id of plan.abort) {
+    const r = rows.find(x => x.id === id);
+    await db.sessions.update(id, { status: 'aborted', endedAt: r?.startedAt ? new Date(r.startedAt) : new Date() });
+  }
+  return { removed: plan.remove.length, aborted: plan.abort.length };
+}
 
 const MAX_AGE_MS = 72 * 3_600_000;
 
@@ -26,7 +43,8 @@ export function useSessionRestore() {
     if (tried.current || state.activeSession) return;
     tried.current = true;
     findResumableSession()
-      .then(s => {
+      .then(async s => {
+        await cleanOrphanSessions(s?.id).catch(err => console.error('[cleanOrphanSessions]', err));
         if (!s) return;
         const { lastTickState, ...session } = s;
         dispatch({ type: 'SESSION_START', session: session as Session });

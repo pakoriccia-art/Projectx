@@ -175,7 +175,7 @@ async function scenarioNuovo() {
 
   const db1 = await readDb(page);
   const orphans = (db1 ?? []).filter(s => s.status === 'active' && !s.hasSnapshot).length;
-  if (orphans) console.log(`  · ${orphans} sessioni "active" orfane di versioni precedenti nel DB (ignorate)`);
+  check('Nessuna sessione orfana nel DB (pulizia all\'avvio)', orphans === 0, orphans ? `${orphans} orfane` : '');
   const active1 = currentSession(db1);
   check('Timeline salvata in IndexedDB', !!active1 && active1.timeline.includes('balled_room:current'),
     active1 ? active1.timeline.join(' → ') : 'nessuna sessione attiva nel DB');
