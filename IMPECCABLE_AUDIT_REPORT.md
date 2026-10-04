@@ -373,6 +373,10 @@ Risolti: ricetta impossibile, fase persa con un impasto attivo, dosi nella fase,
 - Un solo calcolo dell'acqua finale (nella fase in corso, con il prefermento dov'è); correzione della ricetta entro il range dello stile ("Riduci il poolish al 55%").
 - "Fatto ✓" principale all'inizio; con un impasto in corso "È pronta" non c'è e si va all'impasto; focus sulle conferme e ritorno al pulsante.
 
+## Passaggio 22: terza critique del flusso prefermento (27/40)
+
+Stesso punteggio della seconda, per motivi diversi: risolti doppio tocco, fasi legacy, correzione nel range dello stile, soglie e ghiaccio; il modello a più orologi apre nuovi errori di attribuzione. P1: stato sintetico (banner, riga, notifiche, conferme) col nome del principale e i numeri del secondo; secondo prefermento non avviato = vicolo cieco; gerarchia sul più lungo invece che sul più urgente.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
