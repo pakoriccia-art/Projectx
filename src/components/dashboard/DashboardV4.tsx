@@ -512,7 +512,9 @@ export function DashboardV4() {
   // Piano corrente = cottura della timeline (si sposta quando si registra una fase),
   // lo stesso orario che mostra la strip. Il target del wizard resta solo di partenza.
   const planBakeMs = canonicalPhases.find(p => p.isBake)?.startMs;
-  const planBake   = planBakeMs != null && Number.isFinite(planBakeMs) ? new Date(planBakeMs) : targetBake;
+  // Servizio: la timeline finisce a fine finestra, ma la cottura del piano è il suo inizio.
+  const serviceWindowMs = (session.serviceWindowH ?? 0) * 3_600_000;
+  const planBake   = planBakeMs != null && Number.isFinite(planBakeMs) ? new Date(planBakeMs - serviceWindowMs) : targetBake;
 
   // v2.4.21: cuore impasto proiettato al momento della cottura. < 18°C → impasto
   // troppo freddo per infornare (advisory in 3 viste). Funzione pura → nessun hook.
@@ -567,8 +569,20 @@ export function DashboardV4() {
   const etaSuffix = isReady ? undefined : (etaParts.day || undefined);
   // Un solo orario (la previsione); il piano delle fasi solo come scarto, se conta.
   const planDelta = usePlan || isReady ? null : planDeltaText(readyAt.getTime(), planBake.getTime());
+  // Quando comanda il piano, lo scarto che conta è dall'OBIETTIVO dell'utente (orario
+  // scelto nel planner/wizard): se il piano scivola lo si dice, non lo si nasconde.
+  const goalDelta = !usePlan || isReady || session.bakedAt ? null : (() => {
+    const devMin = Math.round((readyAt.getTime() - targetBake.getTime()) / 60_000);
+    if (Math.abs(devMin) < 15) return null;
+    return `obiettivo ${fmtClock(targetBake, nowDate)} · ${devMin > 0 ? '+' : '−'}${fmtDuration(Math.abs(devMin) / 60)}`;
+  })();
+  // Servizio: la finestra, non solo l'orario di inizio.
+  const serviceWindowStr = serviceWindowMs > 0
+    // la finestra pianificata resta quella, anche se si arriva pronti in ritardo
+    ? `servizio ${fmtClock(targetBake, nowDate)}–${fmtClock(new Date(targetBake.getTime() + serviceWindowMs), nowDate)}`
+    : null;
   const etaSub    = isReady
-    ? windowStr
+    ? (serviceWindowStr ? `${serviceWindowStr} · ${windowStr}` : windowStr)
     : usePlan
       ? `${isColdPhase ? 'in frigo' : fridgeAhead ? 'frigo in programma' : 'in riscaldo'} · secondo il piano · tra ${fmtDuration(readyInH)}`
       : `tra ${fmtDuration(readyInH)}${holdUntil ? ` · regge fino a ~${fmtClock(holdUntil, nowDate)}` : ''}`;
@@ -635,8 +649,8 @@ export function DashboardV4() {
         cutH,
         curLabel: canonicalCurrent ? canonicalDisplayLabel(canonicalCurrent) : 'fase corrente',
         isCold,
-        bakeBefore: new Date(startedMs + endH(base) * 3_600_000),
-        bakeAfter:  new Date(startedMs + endH(next) * 3_600_000),
+        bakeBefore: new Date(startedMs + endH(base) * 3_600_000 - serviceWindowMs),
+        bakeAfter:  new Date(startedMs + endH(next) * 3_600_000 - serviceWindowMs),
       };
     } catch { return null; }
   };
@@ -647,6 +661,11 @@ export function DashboardV4() {
     ? `In frigo: cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}`
     : isColdPhase || !bakeable
       ? `Riscaldo a temperatura ambiente · cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}`
+      : usePlan
+        // con un frigo in programma comanda il piano: registrare ora sposta la cottura
+        ? (Math.abs(pv.bakeAfter.getTime() - readyAt.getTime()) > 60_000
+          ? `Cottura prevista ${fmtClock(pv.bakeAfter, nowDate)} invece di ${fmtClock(readyAt, nowDate)}`
+          : `Cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}, come da piano`)
     : `L'orario di cottura non cambia: ${isReady ? 'si può infornare ora' : `~${fmtClock(readyAt, nowDate)}`}`;
   const preview    = previewFor(pendingPhase?.phaseType ?? null);
   const duePreview = showDue ? previewFor(dueSeg!.phaseType) : null;
@@ -829,7 +848,11 @@ export function DashboardV4() {
               </div>
               <div style={{ color: 'var(--pm4-umber)', fontSize: 11, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
                 maturazione {(session.bakedMaturationPct ?? enzymaticMatPct).toFixed(0)}%
-                {session.predictedBakeAt && <> · piano delle fasi {fmtClock(new Date(session.predictedBakeAt), nowDate)}</>}
+                {/* confronto con l'obiettivo scelto dall'utente, non col piano delle fasi */}
+                {(() => {
+                  const dev = Math.round((bakedAt.getTime() - targetBake.getTime()) / 60_000);
+                  return <> · obiettivo {fmtClock(targetBake, nowDate)}{Math.abs(dev) >= 15 ? ` (${dev > 0 ? '+' : '−'}${fmtDuration(Math.abs(dev) / 60)})` : ' ✓'}</>;
+                })()}
               </div>
             </div>
             {primarySignal === 'maturation' && <SecondaryRowCard><SecondaryRow pH={pH} leaveningPct={leaveningPct} W={W_current} /></SecondaryRowCard>}
@@ -840,12 +863,12 @@ export function DashboardV4() {
             <SemaforoCard label={isReady ? 'Inforna' : matState === 'FREDDO' ? (isColdPhase ? 'Matura in frigo · inforni alle' : 'In riscaldo · inforni alle') : 'Inforni alle'} value={etaValue} valueSuffix={etaSuffix}
               big={dashMode === 'monitor'} sub={etaSub}
               help={dashMode === 'monitor' ? HELP_STATO : undefined}
-              note={planDelta && (
-                // Lo scarto dal piano vive solo qui, con l'azione per rimediare.
+              note={(planDelta || goalDelta) && (
+                // Lo scarto (dal piano o dal tuo obiettivo) vive solo qui, con l'azione per rimediare.
                 <button type="button" onClick={() => dispatch({ type: 'NAV', view: 'rotta' })}
                   className="pm4-btn pm4-btn-ghost"
                   style={{ ...BTN_GHOST, flex: 'none', width: '100%', minHeight: 44, padding: '10px 12px', fontSize: 12, fontWeight: 400, textAlign: 'left', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <span>{planDelta} delle fasi</span>
+                  <span>{planDelta ? `${planDelta} delle fasi` : goalDelta}</span>
                   <span style={{ color: 'var(--pm4-ember-lo)', fontWeight: 700, whiteSpace: 'nowrap' }}>Aggiusta rotta →</span>
                 </button>
               )}

@@ -323,6 +323,27 @@ All'avvio `cleanOrphanSessions` (`useSessionRestore.ts`) usa `classifyOrphans` (
 
 Verificato nel browser con record finti; lo script del telefono ora controlla che non restino orfane.
 
+## Passaggio 17: P1 della seconda critique del ramo Pianifica
+
+- **Piano consigliato stabile.** Lo scarto dal target viene arrotondato al punto percentuale prima del confronto, così a parità di dati il consigliato non cambia più tra TC Appretto e TC Puntata.
+- **Servizio.**
+  - La cottura del piano è l'*inizio* del servizio. Il planner passa `serviceWindowH`, e la dashboard mostra la finestra pianificata "servizio 19:00–21:00".
+  - La soglia è la maturazione prevista dal solver a inizio servizio (`atServiceStart`): il target del piano vale a fine finestra.
+  - La card del Servizio diventa "Il tuo piano · Servizio": orari assoluti, esito "Fattibile" o "Fattibile, al limite", avvisi in italiano, un solo pulsante. Durate, dose e vincoli sono in "Dettagli".
+- **Piano che scivola.**
+  - Quando comanda il piano l'anteprima è onesta ("Cottura prevista 20:19 invece di 20:00").
+  - Una riga mostra lo scarto dall'obiettivo dell'utente ("obiettivo 20:00 · +50 min · Aggiusta rotta →").
+  - Il racconto finale si confronta con l'obiettivo ("obiettivo 20:00 (+1h 07m)").
+- **Servizio e Qualità in alto.** Obiettivo e risposta stanno sopra i parametri dell'impasto. Qualità avvisa di preparare prima il prefermento; i suoi 3 cursori hanno un nome accessibile.
+- **P2.**
+  - Senza data niente piano avviabile ("Scegli giorno e ora della cottura").
+  - Il wizard al passo 8 mostra per primi gli orari del piano.
+  - "12h 60min" dei suggerimenti del motore diventa "13h" (solo visualizzazione).
+
+**Verifica:** test verdi; telefono 40/40 sulla build precedente; finto telefono 29/29 sulla build nuova; percorsi Orario e Servizio nel browser senza errori.
+
+**Aperto (motore):** nel Servizio il solver calcola il riscaldo senza il contenitore. Nella prova il PRONTO è arrivato ~2h dopo l'inizio del servizio, in parte per ritardi del test nel registrare l'uscita dal frigo. Va allineato nel solver (`engine/serviceWindowSolver.js`), che è fuori perimetro.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

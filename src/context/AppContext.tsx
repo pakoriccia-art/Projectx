@@ -49,6 +49,7 @@ export interface WizardDraft {
   bubbleThresholdPct?: number;
   // Ore di tempering (uscita frigo → TA): > 0 → marker USCITA FRIGO sulla timeline
   temperingH?: number;
+  serviceWindowH?: number;
   // Target maturazione: 85% default (ora di cottura), 90% per finestra servizio
   alertThreshold?: number;
   // Navigazione: indica da dove è stato aperto il riepilogo (step 8)

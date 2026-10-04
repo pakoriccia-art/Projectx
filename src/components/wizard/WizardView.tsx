@@ -424,6 +424,7 @@ function buildSession(draft: WizardDraft): Session {
     bubbleThresholdPct:      draft.bubbleThresholdPct ?? 92,
     // temperingH: dal planner (draft.temperingH) o calcolato da buildSession per tc_appreto
     temperingH:              draft.temperingH ?? (_proto === 'tc_appreto' ? _a : 0),
+    serviceWindowH:          draft.serviceWindowH,
   } as unknown as Session;
 }
 
@@ -1496,6 +1497,39 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* ── Piano dal Planner: gli orari, non solo le durate ── */}
+      {fromPlannerStep8 && (() => {
+        const t0 = Date.now();
+        const at = (h: number) => new Date(t0 + h * 3_600_000);
+        const p = draft.puntataH ?? 0, sH = draft.staglioH ?? 0.5, tc = draft.tcHours ?? 0;
+        const proto = draft.apprettoProtocol ?? 'ta';
+        const rows: Array<[string, Date]> = proto === 'tc_appreto'
+          ? [['Impasta', at(0)], ['Staglio', at(p)], ['In frigo', at(p + sH)], ['Fuori dal frigo', at(p + sH + tc)]]
+          : proto === 'tc' || proto === 'tc_puntata'
+            ? [['Impasta · in frigo', at(0)], ['Staglio', at(tc)]]
+            : [['Impasta', at(0)], ['Staglio', at(p)]];
+        if (draft.targetBakeAt) rows.push([draft.serviceWindowH ? 'Servizio' : 'Forno', new Date(draft.targetBakeAt)]);
+        const fmtAt = (d: Date) => {
+          const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+          return d.toDateString() === new Date(t0).toDateString() ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
+        };
+        return (
+          <Card>
+            <div style={{ marginBottom: 10, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)' }}>
+              Il tuo piano · dal Planner
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {rows.map(([label, d], i) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                  <span style={{ color: i === rows.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>{label}</span>
+                  <span style={{ color: i === rows.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(d)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* ── Dimensioni impasto ── */}
       <Card elevated>

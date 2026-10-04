@@ -150,6 +150,8 @@ export interface Session {
   // "Ho infornato": ora reale, cottura pianificata, maturazione raggiunta.
   bakedAt?: Date;
   readyAt?: Date;
+  // Modalità Servizio: durata della finestra; la cottura del piano è il suo inizio.
+  serviceWindowH?: number;
   // Fotografia dello stato del tick (TickState), per riprendere la sessione dopo
   // la chiusura dell'app. Non indicizzata: nessun bump dello schema.
   lastTickState?: Record<string, unknown>;                      // primo istante in cui il semaforo è andato a PRONTO

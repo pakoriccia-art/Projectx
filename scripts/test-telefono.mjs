@@ -340,7 +340,7 @@ async function scenarioPianifica() {
   // cerca un target fattibile partendo dal valore attuale, poi verso l'alto e verso il basso
   for (const key of ['ArrowRight', 'ArrowLeft']) {
     for (let i = 0; i < 16 && !feasible; i++) {
-      if (await page.getByRole('button', { name: /Usa questo schema/ }).count()) { feasible = true; target = await slider.inputValue(); break; }
+      if (await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).count()) { feasible = true; target = await slider.inputValue(); break; }
       await slider.focus(); await page.keyboard.press(key); await sleep(350);
     }
     if (feasible) break;
@@ -348,11 +348,13 @@ async function scenarioPianifica() {
   await shot(page, device, 'pian-06-servizio');
   check('Servizio: esiste un target fattibile per domani alle 19:00', feasible, feasible ? `target ${target}%` : 'nessun target 64–100% fattibile');
   if (feasible) {
-    await page.getByRole('button', { name: /Usa questo schema/ }).first().click();
+    await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).first().click();
     await sleep(1500);
     await startFromWizard('Servizio');
     const heroS = await heroText(); const tlS = (await timelineTimes(page)).text;
-    check('Servizio: target del piano in dashboard', new RegExp(`target ${target}% \\(dal piano\\)`).test(heroS) || (target === String(80) && /target 80%/.test(heroS)), heroS.slice(-60));
+    // la soglia è la maturazione prevista a INIZIO servizio (il target vale a fine finestra)
+    check('Servizio: soglia del piano in dashboard', /target \d+% \(dal piano\)/.test(heroS), heroS.slice(-60));
+    check('Servizio: pronto per l\'inizio del servizio (19:00)', /COTTURA\s*~?19:00/i.test(await headerText()), (await headerText()).slice(0, 110));
     check('Servizio: fase in corso PUNTATA (non riproposta)', !(await page.getByRole('region', { name: 'Fase da registrare' }).count()) && /PUNTATA/.test(await headerText()));
     check('Servizio: timeline con uscita frigo', /USCITA FRIGO/.test(tlS), tlS.slice(-140));
     await shot(page, device, 'pian-07-servizio-dashboard');
@@ -363,7 +365,7 @@ async function scenarioPianifica() {
   await openPlanner();
   await page.getByRole('radio', { name: /Qualità/ }).click();
   await sleep(1200);
-  const useQ = page.getByRole('button', { name: /Usa questo schema/ }).first();
+  const useQ = page.getByRole('button', { name: /Usa questo (schema|piano)/ }).first();
   check('Qualità: profilo calcolato', await useQ.count() > 0);
   if (await useQ.count()) {
     await useQ.click(); await sleep(1500);

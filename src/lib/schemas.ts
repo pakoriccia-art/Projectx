@@ -148,6 +148,8 @@ export const WizardInputSchema = z.object({
   alertThreshold:   z.number().min(50).max(100).optional(),
   // Riscaldo TA dopo il frigo calcolato dal Planner (marker USCITA FRIGO)
   temperingH:       z.number().min(0).max(24).optional(),
+  // Durata della finestra di servizio (modalità Servizio del Planner)
+  serviceWindowH:   z.number().min(0).max(12).optional(),
   // Navigazione: traccia l'origine del percorso verso il riepilogo
   navigationSource: z.enum(['planner']).optional(),
 }).strict();
