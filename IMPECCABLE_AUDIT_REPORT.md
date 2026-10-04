@@ -171,6 +171,18 @@ Scelte dell'utente: banda + notifica per le fasi, header sulla previsione, voto 
 
 **Verifica:** typecheck e test verdi (incluso il nuovo `phaseDue.test.ts`). Percorso completo nel browser con orologio simulato, senza errori in console: banda, rinvio, "Fatto ora", PRONTO, infornata, annulla, Storico, voto. Rilevatore sulla dashboard: 30 → 24 segnalazioni, le stesse 2 non advisory intenzionali.
 
+## Passaggio 7: terza critique (25/40)
+
+Andamento sulla dashboard: 19 → 26 → 25. Le correzioni del passaggio 6 tengono (banda della fase, orario a 60px, annulla, verde quasi solo a "pronto", 0 target sotto 44px, 0 fallimenti di contrasto). Il percorso completo però ha fatto emergere problemi nuovi:
+- **P0, due risposte a "quando inforno?".** Il blocco centrale usa la maturazione. Header ("piano"), cottura in timeline e anteprima della banda usano la fine della timeline pianificata, che si sposta di ore a ogni fase registrata.
+- **P1:**
+  - dopo "Ho infornato" il blocco centrale e l'annuncio per screen reader restano su "Inforna · ORA";
+  - la timeline mostra orari pianificati superati;
+  - "Fatto ora" non accetta l'orario reale;
+  - il modale di collasso mette il focus su "Termina".
+- **P2:** Storico ancora Classic (cestino senza conferma, voto non modificabile); `role=status` con pulsanti dentro; banda dello staglio non annunciata.
+- **Detector:** 24 segnalazioni. Il verdetto "glow solo negli stati critici" è stato corretto: alcuni glow cromatici restano anche negli stati normali.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
