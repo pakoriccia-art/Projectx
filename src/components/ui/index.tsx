@@ -278,19 +278,6 @@ export function Btn({
   );
 }
 
-// ─── Progress Bar ─────────────────────────────────────────────────────────────
-export function ProgressBar({ pct, color }: { pct: number; color?: string }) {
-  const c = color ?? (pct >= 85 ? 'var(--state-optimal-hi)'
-           : pct >= 65 ? 'var(--state-optimal-lo)'
-           : pct >= 30 ? 'var(--state-approaching)'
-           : 'var(--state-underfermented)');
-  return (
-    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-      <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: c, transition: 'width 0.5s var(--ease-out)' }} />
-    </div>
-  );
-}
-
 // ─── Alert Badge ──────────────────────────────────────────────────────────────
 export function AlertBadge({ level, message }: { level: string; message: string }) {
   const colors: Record<string, string> = {

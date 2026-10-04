@@ -6,8 +6,7 @@
  *   Projected [now, end] ← piecewise sim from live tickState (slider-reactive)
  *
  * Moving the T_amb slider no longer rewrites the historical temperature curve.
- * buildPiecewiseData is a verbatim copy of DashboardView.buildMultiSegmentData
- * (v3.1 — that file must not be touched).
+ * buildPiecewiseData nasce come copia di buildMultiSegmentData (vecchia DashboardView, rimossa).
  */
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -18,11 +17,11 @@ import { getSessionLog } from '../../services/processLog';
 import { buildHeaderTempString } from '../../engine/outOfProtocol';
 import { simulateTimeline } from '../../engine/serviceWindowSolver';
 import { ddtForStyle } from '../../data/styleConstraints';
-import { Card, S } from '../ui';
+import { S } from '../ui';
 import { downsampleLTTB } from '../../lib/lttb';
 import {
   gompertz, kEffective, CONTAINER_THERMAL_PRESETS,
-  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt,
+  fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
 } from '../../engine';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -42,9 +41,9 @@ type ChartPoint = { h: number; pct: number; matPct: number; tempC: number };
 type Transition = { h: number; label: string; color: string };
 
 // ─── buildPiecewiseData (exported for tests) ─────────────────────────────────
-// Verbatim copy of DashboardView.buildMultiSegmentData (v3.1).
+// Origine: buildMultiSegmentData della vecchia DashboardView (v3.1, rimossa); ora unica sorgente.
 // Called ONLY for the projected [now, end] portion; the realized part comes
-// from db.process_log. Do NOT merge this back into DashboardView.tsx.
+// from db.process_log. Usato anche da QualityProfileCard (proiezione a cottura).
 export function buildPiecewiseData(
   session: {
     apprettoProtocol: string;
@@ -504,19 +503,19 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
   const headerStr = buildHeaderTempString(session.thermalTimeline ?? [], tAmb);
 
   return (
-    <Card>
+    <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={S.label}>Lievitazione · Maturazione</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--text-muted)' }}>
           {headerStr}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, rowGap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--accent-brand)' }}>
-          ╌╌ Lievitazione (lievito)
+          ╌╌ Lievitazione
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: '#e6c84a' }}>
-          —— Maturazione (enzimatica)
+          —— Maturazione
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.69rem', color: 'var(--state-cold)' }}>
           ╌╌ T impasto
@@ -528,7 +527,7 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
         )}
       </div>
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', margin: '0 -4px', paddingBottom: 4 }}>
-        <LineChart width={chartW} height={200} data={points} margin={{ top: 4, right: 40, bottom: 4, left: -8 }}>
+        <LineChart width={chartW} height={214} data={points} margin={{ top: 18, right: 40, bottom: 4, left: -8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis
             dataKey="h"
@@ -567,11 +566,13 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
             <ReferenceLine yAxisId="left" x={effectiveTargetBakeH} stroke="var(--state-optimal-hi)" strokeWidth={1.5} strokeDasharray="6 2"
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
-          <ReferenceLine yAxisId="left" y={session.alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
+          {/* stessa soglia del semaforo (profilo di stile), così "target N%" e la linea coincidono */}
+          <ReferenceLine yAxisId="left" y={getStyleProfile(session.style).alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
           <ReferenceLine yAxisId="left" y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
           {transitions.map(t => (
-            <ReferenceLine yAxisId="left" key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3"
-              label={{ value: t.label, position: 'top', fill: t.color, fontSize: 10, fontFamily: 'var(--font-mono)' }} />
+            // senza testo: le fasi sono già nominate nella timeline sotto, e le
+            // transizioni ravvicinate (staglio 0.5h) si sovrapponevano
+            <ReferenceLine yAxisId="left" key={t.h} x={t.h} stroke={t.color} strokeDasharray="3 3" />
           ))}
           <Line yAxisId="left" type="monotone" dataKey="pct" name="pct" stroke="var(--accent-brand)" strokeWidth={2}
             strokeDasharray="5 3" dot={false} activeDot={{ r: 4, fill: 'var(--accent-brand)' }} />
@@ -581,6 +582,6 @@ export function GompertzChartV4({ session, ts, horizonH = null }: {
             strokeDasharray="4 2" dot={false} activeDot={{ r: 3, fill: 'var(--state-cold)' }} />
         </LineChart>
       </div>
-    </Card>
+    </div>
   );
 }

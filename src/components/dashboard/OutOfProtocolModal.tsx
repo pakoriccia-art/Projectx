@@ -24,7 +24,7 @@ export function OutOfProtocolModal({
       alignItems: 'center', justifyContent: 'center',
       gap: 16, padding: 24,
     }}>
-      <div className="pm4-glow-ember" style={{ color: 'var(--pm4-ember)', fontSize: 44 }}>❄</div>
+      <div aria-hidden="true" style={{ color: 'var(--state-cold)', fontSize: 44 }}>❄</div>
       <div style={{
         color: 'var(--pm4-ember)', fontSize: 16, fontWeight: 800,
         textAlign: 'center', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em',

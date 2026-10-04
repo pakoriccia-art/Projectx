@@ -1,8 +1,7 @@
 /**
  * PizzaMatrix — Dashboard v4 (VIEW B — Monitor Fermentazione)
  * Layout mobile-first, dark theme, semaforo adattivo per stile.
- * Coesiste con DashboardView (v2.4) — GompertzChart sostituito con GompertzChartV4
- * (v2.4.18 BUG 1: now-split realized/projected, slider-safe).
+ * Grafico: GompertzChartV4 (v2.4.18 BUG 1: now-split realized/projected, slider-safe).
  *
  * Adattata alle API reali del progetto:
  *  - dati live da state.tickState (two-clock) anziché da un hook che ritorna metriche
@@ -25,7 +24,7 @@ import {
 } from '../../engine/outOfProtocol';
 import { deriveCanonicalPhases, canonicalDisplayLabel } from '../../engine/canonicalPhases';
 import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
-import { QualityProfileCard } from './DashboardView';
+import { QualityProfileCard } from './QualityProfileCard';
 import { GompertzChartV4 } from './GompertzChartV4';
 import { MiniHillCurve } from '../shared/MiniHillCurve';
 import { FermentationTimeline } from './FermentationTimeline';

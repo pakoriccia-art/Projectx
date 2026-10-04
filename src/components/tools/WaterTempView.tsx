@@ -9,7 +9,6 @@
  * Usato in:
  *   • WizardView Step 4 — live inline (compact=true)
  *   • WizardView Step 8 — card compatta con formula (showFormula=true)
- *   • DashboardView    — card di riferimento impasto (showFormula=false)
  */
 import type React from 'react';
 import { type WaterTempResult, ICE_THRESHOLD_C } from '../../engine';

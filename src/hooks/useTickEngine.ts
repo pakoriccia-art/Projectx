@@ -132,7 +132,7 @@ export function useTickEngine() {
     ) as number;
 
     // ── kEffective + amylase correction ───────────────────────────────────────
-    // Fallback ?? 1.0 allineato alla dashboard (DashboardView.tsx:534, 1064): senza
+    // Fallback ?? 1.0 allineato alla dashboard: senza
     // di esso una sessione priva di effectiveAmylaseIndex (schema vecchio, restore da
     // IndexedDB, Session costruita fuori dal wizard) manda in NaN l'intero tickState.
     // Math.max(0.50, NaN) propaga NaN, non lo scarta.
