@@ -12,9 +12,11 @@
   Parametri:
     -SkipBuild      non ricompila né reinstalla (app già aggiornata sul telefono)
     -WaitSeconds N  secondi ad app chiusa prima di riaprirla (default 60)
-    -Keep           lascia la sessione di test aperta alla fine
+    -Keep           lascia la sessione di test aperta alla fine (scenario nuovo)
+    -Scenario X     nuovo | pianifica | tutti (default tutti)
 #>
 param(
+  [ValidateSet('nuovo', 'pianifica', 'tutti')][string]$Scenario = 'tutti',
   [switch]$SkipBuild,
   [int]$WaitSeconds = 60,
   [switch]$Keep
@@ -58,8 +60,8 @@ if (-not $SkipBuild) {
   if ($LASTEXITCODE -ne 0) { throw 'npx cap run android non riuscito' }
 }
 
-Step "Eseguo il test (app chiusa per $WaitSeconds s durante la prova di ripresa)"
-$nodeArgs = @('scripts/test-telefono.mjs', '--wait', $WaitSeconds)
+Step "Eseguo il test, scenario $Scenario (app chiusa per $WaitSeconds s durante le prove di ripresa)"
+$nodeArgs = @('scripts/test-telefono.mjs', '--scenario', $Scenario, '--wait', $WaitSeconds)
 if ($Keep) { $nodeArgs += '--keep' }
 node @nodeArgs
 $code = $LASTEXITCODE

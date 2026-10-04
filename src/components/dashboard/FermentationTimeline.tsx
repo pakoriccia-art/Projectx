@@ -108,7 +108,7 @@ function formatCountdown(h: number): string {
 }
 
 // v2.4.20: marker derivato da una fase CANONICA (single source of truth).
-function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdue, onTransition, onLockedTap, displayMs, done, subline }: {
+function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdue, enterable, onTransition, onLockedTap, displayMs, done, subline }: {
   phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
   /** Orario mostrato: il segmento pianificato reale (o la previsione per la cottura). */
   displayMs: number;
@@ -120,6 +120,12 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   isCurrent: boolean;
   /** Fase pianificata il cui orario è arrivato: resta toccabile e lo dice. */
   overdue: boolean;
+  /**
+   * Il suo segmento è ancora pianificato anche se la fase canonica risulta già
+   * "in corso" (es. APPRETTO TC durante il riposo dello staglio): si può entrare
+   * prima dell'orario previsto, con la solita conferma.
+   */
+  enterable?: boolean;
   onTransition?: (phaseType: string, label: string) => void;
   onLockedTap?: () => void;
 }) {
@@ -133,7 +139,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
   const showBadge = overdue || (phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4);
   // Bug #94 / v2.4.20: la tappabilità a monte vale per le fasi oltre now+5min; in più
   // la fase in ritardo resta toccabile, altrimenti lo staglio mancato non si registra più.
-  const canTransition = (phase.tappable || overdue) && !!onTransition;
+  const canTransition = (phase.tappable || overdue || !!enterable) && !!onTransition;
   // Una fase è "bloccata" se è passata/corrente (non tappabile) ma comunque toccabile
   // dall'utente che si aspetta una reazione. WP-5(A): feedback senza dispatch.
   const isLocked = !canTransition && !done && !phase.isBake && (isCompleted || isCurrent);
@@ -318,6 +324,8 @@ export function FermentationTimeline({
   const baked = bakedAtMs != null;
   const currentKey = baked ? undefined : phases.find(p => p.state === 'current')?.key;
   // La fase in ritardo è quella che porta al segmento pianificato già scaduto.
+  // phaseType dei segmenti ancora pianificati (si possono anticipare con conferma)
+  const plannedTypes = new Set(tlNow.filter(x => x && x.status === 'planned').map(x => x.phaseType));
   const overdueKey = dueTransition
     ? phases.find(p => p.key !== currentKey && !p.isBake && p.state !== 'past' && p.transitionTo === dueTransition)?.key
     : undefined;
@@ -347,6 +355,7 @@ export function FermentationTimeline({
               currentSemaforoState={currentSemaforoState}
               isCurrent={phase.key === currentKey}
               overdue={phase.key === overdueKey}
+              enterable={phase.key !== currentKey && !phase.isBake && phase.key !== 'puntata' && plannedTypes.has(phase.transitionTo)}
               onTransition={onPhaseTransition}
               onLockedTap={showLocked}
               displayMs={displayFor(phase)}

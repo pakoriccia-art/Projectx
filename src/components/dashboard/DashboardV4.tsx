@@ -516,10 +516,15 @@ export function DashboardV4() {
 
   // v2.4.21: cuore impasto proiettato al momento della cottura. < 18°C → impasto
   // troppo freddo per infornare (advisory in 3 viste). Funzione pura → nessun hook.
-  const bakeH = horizonH != null ? horizonH : (targetBake.getTime() - startedAt.getTime()) / 3_600_000;
+  // Cottura del piano corrente (si sposta quando si registrano le fasi), non il target del wizard.
+  const bakeH = horizonH != null ? horizonH : (planBake.getTime() - startedAt.getTime()) / 3_600_000;
   const coreTempAtBake = projectCoreTempAtBakeC({
     timeline: effectiveTimeline, nowElapsedH: elapsedH, bakeH,
-    currentDoughTempC: T_dough, ambientTempC, session: session as any,
+    // Le fasi calde future seguono l'ambiente della cucina: in frigo tempAmbient
+    // è la T del frigo, che farebbe "restare freddo" l'impasto anche dopo l'uscita.
+    currentDoughTempC: T_dough,
+    ambientTempC: isFridgePhase(phase) ? (session.tLaboratorio ?? 22) : ambientTempC,
+    session: session as any,
   });
   const coldAtBake = coreTempAtBake != null && coreTempAtBake < CORE_TEMP_AT_BAKE_MIN_C;
   const coldBakeMsg = coldAtBake
