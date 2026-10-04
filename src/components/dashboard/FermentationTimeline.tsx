@@ -61,7 +61,7 @@ export function buildTimelinePhases(
       case 'bulk_room':     label = 'PUNTATA · TA'; break;
       case 'bulk_fridge':   label = 'PUNTATA · TC'; break;
       case 'balled_room':   label = 'STAGLIO';      break;
-      case 'balled_fridge': label = 'APPRETO · TC'; break;
+      case 'balled_fridge': label = 'APPRETTO · TC'; break;
       case 'baking':        label = 'COTTURA'; isBake = true; break;
       case 'proofing': {
         const dur = (seg.endElapsedH ?? seg.startElapsedH) - seg.startElapsedH;
@@ -105,13 +105,13 @@ function formatCountdown(h: number): string {
 // v2.4.20: marker derivato da una fase CANONICA (single source of truth).
 function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
   phase: CanonicalPhase; nowMs: number; currentSemaforoState: SemaforoState;
-  onTransition?: (phaseType: string) => void;
+  onTransition?: (phaseType: string, label: string) => void;
 }) {
   const isCurrent    = phase.state === 'current';
   const isCompleted  = phase.state === 'past';
   const hoursFromNow = (phase.startMs - nowMs) / 3_600_000;
 
-  const dotColor = isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : '#2a8f74';
+  const dotColor = isCurrent ? SEMAFORO_COLORS[currentSemaforoState] : 'var(--pm4-green)';
 
   const showBadge = phase.tappable && hoursFromNow > 0 && hoursFromNow <= 4;
   // Bug #94 / v2.4.20: la tappabilità è decisa a monte (state==='future' && start>now+5min).
@@ -144,16 +144,26 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
   const pipStyle: React.CSSProperties = isCurrent
     ? { ...pipBase, background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33, 0 0 16px ${dotColor}` }
     : isCompleted
-      ? { ...pipBase, background: '#2a8f74' }
+      ? { ...pipBase, background: 'var(--pm4-green)', opacity: 0.7 }
       : { ...pipBase, background: 'var(--pm4-panel-hi)', boxShadow: '0 0 0 2px var(--pm4-line-strong)' };
+
+  // Il tap su una fase futura NON cambia fase: chiede conferma al parent
+  // (un tap accidentale con le mani infarinate non deve bruciare ore di puntata).
+  const activate = canTransition
+    ? () => onTransition!(phase.transitionTo, canonicalDisplayLabel(phase))
+    : (isLocked ? handleLockedTap : undefined);
 
   return (
     <div
       ref={markerRef}
-      onClick={canTransition ? () => onTransition!(phase.transitionTo) : (isLocked ? handleLockedTap : undefined)}
+      onClick={activate}
+      onKeyDown={activate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } } : undefined}
+      tabIndex={activate ? 0 : undefined}
       className={canTransition ? 'pm4-tap' : undefined}
       role={canTransition || isLocked ? 'button' : undefined}
-      aria-label={isLocked ? `${canonicalDisplayLabel(phase)} — fase bloccata, il tempo va solo avanti` : undefined}
+      aria-label={isLocked
+        ? `${canonicalDisplayLabel(phase)} — fase bloccata, il tempo va solo avanti`
+        : canTransition ? `Passa a ${canonicalDisplayLabel(phase)} ora (chiede conferma)` : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
         alignItems: 'center', gap: 5, minWidth: 56,
@@ -188,7 +198,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, onTransition }: {
         <div style={{
           position: 'absolute', top: 16, right: 6,
           width: 6, height: 6, borderRadius: '50%',
-          background: '#3ddc97', boxShadow: '0 0 6px #3ddc97',
+          background: 'var(--pm4-green)',
         }} />
       )}
       {showBadge ? (
@@ -227,7 +237,7 @@ export function FermentationTimeline({
   session, currentSemaforoState, onPhaseTransition,
 }: {
   session: Session; currentSemaforoState: SemaforoState;
-  onPhaseTransition?: (phaseType: string) => void;
+  onPhaseTransition?: (phaseType: string, label: string) => void;
 }) {
   // now è locale — non causa re-render del parent ogni secondo
   const [now, setNow] = useState(() => new Date());
@@ -257,6 +267,13 @@ export function FermentationTimeline({
 
   if (phases.length === 0) return null;
 
+  // Avanzamento reale lungo la strip: tempo trascorso sull'arco inizio → cottura.
+  const firstMs = phases[0].startMs;
+  const lastMs  = phases[phases.length - 1].startMs;
+  const progressPct = lastMs > firstMs
+    ? Math.max(0, Math.min(100, ((nowMs - firstMs) / (lastMs - firstMs)) * 100))
+    : 0;
+
   // R7: con molte fasi la timeline scrolla in orizzontale; mostra un fade a destra
   // come affordance di scroll (euristica: ≥6 marker superano il viewport ~430px).
   const scrollable = phases.length >= 6;
@@ -265,7 +282,7 @@ export function FermentationTimeline({
     <div style={{ position: 'relative' }}>
       <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
         <div style={{ position: 'absolute', top: 41, left: 24, right: 24, height: 2, borderRadius: 2,
-          background: 'linear-gradient(90deg, #2a8f74 0%, #2a8f74 42%, var(--pm4-line-strong) 42%, var(--pm4-line-strong) 100%)' }} />
+          background: `linear-gradient(90deg, var(--pm4-green) 0%, var(--pm4-green) ${progressPct}%, var(--pm4-line-strong) ${progressPct}%, var(--pm4-line-strong) 100%)` }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
           {phases.map((phase) => (
             <CanonicalMarker

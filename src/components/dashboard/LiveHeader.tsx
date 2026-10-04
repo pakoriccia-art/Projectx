@@ -22,6 +22,8 @@ interface LiveHeaderProps {
   // v2.4.21: advisory dedicato "impasto freddo a cottura" (cuore < 18°C). Ribbon
   // separato dagli alert strutturali — non entra in BANNER_STYLE/alertLevel.
   coldBakeWarning?:   string;
+  /** Azione suggerita sui ribbon strutturali (→ Aggiusta Rotta). */
+  onAdjust?:          () => void;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -35,11 +37,12 @@ const PHASE_LABELS: Record<string, string> = {
 
 const COLD_PHASES = new Set(['bulk_fridge', 'balled_fridge']);
 
-const BANNER_STYLE: Record<string, { from: string; border: string; color: string; icon: string }> = {
-  STRUCTURAL_COLLAPSED: { from: 'rgba(214,48,49,0.18)',  border: 'rgba(214,48,49,0.5)',  color: '#ffc9c7', icon: '⛔' },
-  STRUCTURAL_CRITICAL:  { from: 'rgba(255,118,117,0.16)', border: 'rgba(255,118,117,0.45)', color: '#ff9c9a', icon: '⚠' },
-  STRUCTURAL_WARNING:   { from: 'rgba(255,209,102,0.14)', border: 'rgba(255,209,102,0.4)', color: '#ffd166', icon: '⚠' },
-  SWEET_SPOT:           { from: 'rgba(61,220,151,0.14)',  border: 'rgba(61,220,151,0.4)', color: '#7df0c2', icon: '◇' },
+const BANNER_STYLE: Record<string, { from: string; border: string; color: string; icon: string; action?: boolean }> = {
+  STRUCTURAL_COLLAPSED: { from: 'rgba(214,48,49,0.18)',  border: 'rgba(214,48,49,0.5)',   color: 'var(--state-critical)', icon: '⛔' },
+  STRUCTURAL_CRITICAL:  { from: 'rgba(255,118,117,0.16)', border: 'rgba(255,118,117,0.45)', color: 'var(--state-critical)', icon: '⚠', action: true },
+  STRUCTURAL_WARNING:   { from: 'rgba(255,209,102,0.14)', border: 'rgba(255,209,102,0.4)',  color: 'var(--accent-warning)', icon: '⚠', action: true },
+  APPROACHING:          { from: 'rgba(255,140,50,0.14)',  border: 'rgba(255,140,50,0.4)',   color: 'var(--pm4-ember)',     icon: '◆' },
+  SWEET_SPOT:           { from: 'rgba(61,220,151,0.14)',  border: 'rgba(61,220,151,0.4)',   color: 'var(--pm4-green)',     icon: '◆' },
 };
 
 const HEADER_S: React.CSSProperties = {
@@ -52,7 +55,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, totalFlourGrams, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold, coldBakeWarning,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -63,7 +66,11 @@ export function LiveHeader({
   const elapsedH   = Math.max(0, (now.getTime() - startedAt.getTime()) / 3_600_000);
   const remainingH = Math.max(0, (targetBakeAt.getTime() - now.getTime()) / 3_600_000);
   const timeStr    = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const remainStr  = remainingH > 0.05 ? `${remainingH.toFixed(1)}h` : '🍕 ora';
+  // Orario assoluto della cottura pianificata (giorno se non è oggi): niente ore decimali.
+  const bakeClock  = targetBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const bakeDay    = targetBakeAt.toDateString() === now.toDateString()
+    ? '' : `${targetBakeAt.toLocaleDateString('it-IT', { weekday: 'short' })} `;
+  const remainStr  = remainingH > 0.05 ? `${bakeDay}${bakeClock}` : '🍕 ora';
   const banner     = BANNER_STYLE[alertLevel];
   // v2.4.20: env dalla fase canonica se fornita, altrimenti dal phaseType.
   const isCold     = currentPhaseCold ?? COLD_PHASES.has(currentPhase);
@@ -76,7 +83,7 @@ export function LiveHeader({
     <header style={HEADER_S}>
       {/* brand + segnale live */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '1.4rem', letterSpacing: '-0.02em', color: 'var(--pm4-flour)', textShadow: '0 0 22px rgba(255,140,50,0.26)' }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '1.4rem', letterSpacing: '-0.02em', color: 'var(--pm4-flour)' }}>
           Pizza<span style={{ color: 'var(--pm4-ember)' }}>Matrix</span>
           <span style={{ color: 'var(--pm4-ember)' }}>.</span>
         </span>
@@ -94,7 +101,7 @@ export function LiveHeader({
         <span style={{ width: 1, height: 22, background: 'var(--pm4-line-strong)' }} />
         <div><div style={K}>Farina</div><div style={V}>{totalFlourGrams}<span style={{ color: 'var(--pm4-ember)' }}>g</span></div></div>
         <div><div style={K}>Trascorso</div><div style={V}>+{elapsedH.toFixed(1)}h</div></div>
-        <div><div style={K}>Alla cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
+        <div><div style={K}>Cottura</div><div style={{ ...V, color: 'var(--pm4-ember-lo)' }}>{remainStr}</div></div>
         <span style={{
           marginLeft: 'auto', flexShrink: 0, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
           fontFamily: 'var(--font-mono)',
@@ -116,8 +123,17 @@ export function LiveHeader({
           border: `1px solid ${banner.border}`, color: banner.color,
           fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
         }}>
-          <span style={{ filter: 'drop-shadow(0 0 6px currentColor)' }}>{banner.icon}</span>
-          <span>{alertMessage}</span>
+          <span aria-hidden="true">{banner.icon}</span>
+          <span style={{ flex: 1 }}>{alertMessage}</span>
+          {banner.action && onAdjust && (
+            <button type="button" onClick={onAdjust} style={{
+              background: 'none', border: `1px solid ${banner.border}`, borderRadius: 6, color: banner.color,
+              fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, padding: '6px 9px', minHeight: 36,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              Aggiusta rotta →
+            </button>
+          )}
         </div>
       )}
 
@@ -127,10 +143,10 @@ export function LiveHeader({
           marginTop: 10, display: 'flex', alignItems: 'center', gap: 9,
           padding: '8px 12px', borderRadius: 8,
           background: 'linear-gradient(90deg, rgba(116,185,255,0.12), transparent)',
-          border: '1px solid rgba(116,185,255,0.4)', color: '#bcd9ff',
+          border: '1px solid rgba(116,185,255,0.4)', color: 'var(--state-cold)',
           fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
         }}>
-          <span style={{ filter: 'drop-shadow(0 0 6px currentColor)' }}>❄</span>
+          <span aria-hidden="true">❄</span>
           <span>{coldBakeWarning}</span>
         </div>
       )}

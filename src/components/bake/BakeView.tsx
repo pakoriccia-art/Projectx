@@ -206,7 +206,7 @@ export function BakeView() {
       }}>
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}
-          style={{ background: 'none', border: 'none', color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer', padding: 0 }}
+          style={{ background: 'none', border: 'none', color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer', padding: '0 8px 0 0', minHeight: 44 }}
         >
           ← Dashboard
         </button>
@@ -294,7 +294,7 @@ export function BakeView() {
             }}>
               {validation.recommendation.stoneNote}
             </p>
-            <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, opacity: 0.55 }}>
+            <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
               ⚠ Valori indicativi — validationStatus: hypothesis
             </div>
           </div>
@@ -395,7 +395,7 @@ export function BakeView() {
               aria-expanded={detailsOpen}
               style={{
                 width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer',
+                padding: '13px 14px', minHeight: 44, background: 'none', border: 'none', cursor: 'pointer',
               }}
             >
               <span style={LABEL_MONO}>DETTAGLI TECNICI · ARRESTI CINETICI</span>
@@ -416,7 +416,7 @@ export function BakeView() {
                       {W_proj != null ? Math.round(W_proj) : '—'}
                     </div>
                     {session.bakeTargetElapsedH != null && (
-                      <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 2, opacity: 0.7 }}>
+                      <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 2, color: 'var(--pm4-umber)' }}>
                         t = {session.bakeTargetElapsedH.toFixed(1)}h da inizio
                       </div>
                     )}
@@ -432,11 +432,11 @@ export function BakeView() {
                   <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--pm4-line)' }}>
                     <span style={{ ...LABEL_MONO }}>{row.label}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-flour)' }}>
-                      {row.tC}°C <span style={{ opacity: 0.5, fontSize: 10 }}>— {row.note}</span>
+                      {row.tC}°C <span style={{ color: 'var(--pm4-faint)', fontSize: 10 }}>— {row.note}</span>
                     </span>
                   </div>
                 ))}
-                <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, opacity: 0.55 }}>
+                <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
                   ⚠ Soglie indicative — validationStatus: hypothesis
                 </div>
               </div>

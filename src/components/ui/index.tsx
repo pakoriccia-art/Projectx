@@ -243,7 +243,8 @@ export function SnapButtons<T extends string>({
           >
             {opt.label}
             {opt.desc && (
-              <div style={{ fontSize: '0.69rem', fontWeight: 400, marginTop: '4px', opacity: 0.7 }}>
+              <div style={{ fontSize: '0.69rem', fontWeight: 400, marginTop: '4px',
+                color: value === opt.value ? 'rgba(10,8,6,0.78)' : 'var(--pm4-umber)' }}>
                 {opt.desc}
               </div>
             )}

@@ -235,11 +235,28 @@ Tattili, pieni e robusti, sempre alti almeno 44px.
 - **StepHeader:** progress a 8 segmenti alti 4px, brace quando il passo è completato.
 
 ### Signature: Semaforo
-Il cuore di BANCO.
-- In cima, l'etichetta del canale "01 · MATURAZIONE ENZIMATICA": l'indice è brace, il nome è crusca, seguiti da una linea che si disegna.
-- Al centro, il valore readout a 35px nel colore di stato con il suo glow, e un `StateBadge` (TOO_EARLY, OK, WARNING, CRITICAL, COLLAPSED).
-- Sotto, il meter a 10 LED. Si riempie in sequenza: 250ms di attesa, poi 45ms per segmento.
-- Chiude la griglia di celle secondarie: pH, lievitazione, W.
+Il cuore di BANCO, e la risposta a "quando inforno?".
+- Etichetta "PRONTO PER INFORNARE" e un `StateBadge` con l'etichetta lunga dello stato.
+- Il readout a 35px è un **orario**, non una percentuale: "~21:10", oppure "ORA" quando è pronto. Sotto, nel colore di stato, il tempo rimanente ("tra 4h 55m · target 22:52") o la finestra ("ancora ~2h prima della sbollatura").
+- Il meter a 10 LED mostra l'avanzamento verso la soglia. Si riempie in sequenza: 250ms di attesa, poi 45ms per segmento. Una nota in terra d'ombra riporta "maturazione X% → target Y%".
+- Chiude la griglia di celle secondarie: lievitazione, pH, W.
+
+**Stati della maturazione**, distinti da quelli della struttura W:
+
+| Stato | Colore | Significato |
+|---|---|---|
+| IN CORSO | Farina | Neutro, leggibile da lontano, nessun giudizio |
+| QUASI PRONTO | Brace | Lo stato ottimale si avvicina; avviso brace nell'header |
+| PRONTO DA INFORNARE | Verde | Pannello tinto di verde con un solo respiro all'ingresso; il footer propone "🍕 Ho infornato" |
+
+ATTENZIONE (giallo), CRITICO e COLLASSO (rossi) restano riservati ai problemi strutturali della W.
+
+**The Ready Is Green Rule.** Il verde pieno compare solo quando si può infornare. Lo stesso colore non indica mai "in corso".
+
+### Signature: Timeline delle fasi
+Marker per fase, con orari assoluti e avanzamento reale sulla linea verde. Toccare una fase futura **chiede conferma**: un pannello mostra quanto si accorcia la fase corrente e la nuova ora di cottura. Dopo la conferma, un "↶ Annulla" resta disponibile per 10 secondi. Le fasi passate sono bloccate.
+
+**The No Silent Jump Rule.** Nessuna azione che riscrive la timeline parte da un singolo tocco.
 
 ### Signature: Grafico Gompertz
 Recharts, alto 200px, scorrevole in orizzontale. Griglia tratteggiata al 5% di bianco. Tick in mono da 10px, color terra d'ombra.
@@ -272,3 +289,5 @@ Ci sono anche linee di riferimento per "ora", per il target di cottura e per le 
 - **Don't** usare barre laterali colorate (border-left > 1px) su card, avvisi o pannelli. Lo stato si esprime con un bordo pieno tinto.
 - **Don't** lasciare un bottone disabilitato senza spiegare cosa manca.
 - **Don't** scendere sotto 10px con il testo, nemmeno nelle etichette.
+- **Don't** mostrare ore decimali ("12.5h"): usa orari assoluti ("22:34") e durate leggibili ("tra 4h 55m").
+- **Don't** scrivere avvisi che contraddicono il comportamento (es. "i dati non saranno salvati" quando vengono salvati).

@@ -158,7 +158,7 @@ export function MiniHillCurve({
       {yLabels.map(({ w, label }) => (
         <g key={label}>
           <line x1={padL} x2={width - padR} y1={y(w)} y2={y(w)} stroke="#241a0e" strokeWidth={0.5} />
-          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={9} fill="#9a855a"
+          <text x={padL - 4} y={y(w) + 3} textAnchor="end" fontSize={10} fill="#9a855a"
             fontFamily="'JetBrains Mono', monospace">{label}</text>
         </g>
       ))}
@@ -176,7 +176,7 @@ export function MiniHillCurve({
 
       {/* Label asse X — passo dinamico */}
       {xLabels.map(({ t, label, px }) => (
-        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={9} fill="#9a855a"
+        <text key={t} x={px} y={labelY} textAnchor="middle" fontSize={10} fill="#9a855a"
           fontFamily="'JetBrains Mono', monospace">{label}</text>
       ))}
 
@@ -185,14 +185,14 @@ export function MiniHillCurve({
         <>
           <line x1={collapseX} x2={collapseX} y1={padT} y2={padT + plotH}
             stroke="#ff7675" strokeWidth={1} strokeDasharray="3 2" opacity={0.6} />
-          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={9} fill="#ff7675"
+          <text x={collapseX} y={labelY} textAnchor="middle" fontSize={10} fill="#ff7675"
             fontFamily="'JetBrains Mono', monospace">{Math.round(tCrit)}h</text>
         </>
       )}
 
       {/* t_crit fuori range: freccia → con valore a destra */}
       {!showTCritMarker && (
-        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={9} fill="#ff7675"
+        <text x={padL + plotW - 2} y={labelY} textAnchor="end" fontSize={10} fill="#ff7675"
           fontFamily="'JetBrains Mono', monospace">→{Math.round(tCrit)}h</text>
       )}
 

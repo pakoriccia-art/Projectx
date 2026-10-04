@@ -67,6 +67,37 @@ Il passaggio è stato fatto alla fonte, nei primitivi condivisi di `src/componen
 
 Punteggio stimato dopo il passaggio 2: **Theming 3→4**, **Integrità 3→4**. Totale **17/20**.
 
+## Passaggio 3: critique della dashboard live e correzioni
+
+**Critique** (doppio agente; snapshot in `.impeccable/critique/`): **19/40**, con 2 problemi P0, 2 P1 e 1 P2. L'utente ha scelto come priorità "sicurezza e verità", per il momento PRONTO una "celebrazione sobria", come scope "tutto", e come vincolo di non toccare il motore di calcolo.
+
+**Corretto**, solo nella presentazione e nelle interazioni (nessuna formula toccata; le funzioni del motore sono solo lette):
+
+- **[P0] Skip di fase:** toccare una fase futura ora apre una conferma con l'impatto ("PUNTATA accorciata di 8h · cottura 14:50 invece di 22:49"). Dopo la conferma, un "↶ Annulla" resta disponibile per 10 secondi (`snapshotPhase` / `restorePhase` in `useTickEngine`). I marker sono raggiungibili da tastiera.
+- **[P0] "Quando inforno?":** il protagonista è l'orario di pronto ("~23:07 · tra 1h 45m"), calcolato con `sweetSpotMaturation` e la stessa soglia del semaforo; in frigo segue il piano. A picco raggiunto mostra "ORA" e la finestra residua prima della sbollatura. Il pannello Sweet spot è stato fuso nel protagonista; l'header mostra l'orario di cottura al posto delle ore decimali.
+- **[P1] Semaforo:** nuovi stati di presentazione IN CORSO (farina), QUASI PRONTO (brace) e PRONTO DA INFORNARE (verde, con un solo respiro all'ingresso). C'è un avviso "quasi pronto" nell'header. Il giallo e il rosso restano riservati alla W. Un `aria-live` annuncia "Quasi pronto" e "Pronto per infornare".
+- **[P1] Fine sessione:** il testo falso "I dati NON saranno salvati" è sostituito da "Verrà salvata nello Storico", con Annulla a sinistra. A picco raggiunto il bottone principale è "🍕 Ho infornato", che registra l'esito (`outcomeRating`); lo Storico lo mostra.
+- **[P2]** Monitor come vista di default; toggle alto 44px; header e footer di nuovo fissi (`#root overflow-x: clip`); slider della T ambiente dietro "Modifica T ambiente"; wake lock in Monitor, così lo schermo resta acceso.
+- **Minori:**
+  - avanzamento reale sulla timeline (non più fisso al 42%);
+  - refuso APPRETTO;
+  - hook spostato prima del `return` anticipato;
+  - colori a token;
+  - `Collapsible` accessibile;
+  - nel Forno, testi non più resi tenui con l'opacità e target da 44px;
+  - etichette del grafico W a 10px;
+  - rimossi il glow decorativo su logo e valori e il componente `ProgressBar` inutilizzato;
+  - azione "Aggiusta rotta →" sugli avvisi strutturali.
+
+**Verificato nel browser:**
+- conferma, annullamento e ripristino della fase;
+- header e footer fissi dopo lo scroll;
+- testo della chiusura;
+- passaggio IN CORSO → QUASI → PRONTO avanzando l'orologio di 2 ore alla volta;
+- comparsa di "Ho infornato".
+
+**Rimane:** glossario e spiegazioni inline per "2-clock", t_crit e Newton τ (`/impeccable clarify`, testi di dominio da validare); `transition: width` nella `ProgressBar` di `ui/index.tsx` (`/impeccable optimize`).
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

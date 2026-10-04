@@ -1,11 +1,15 @@
 /**
  * PizzaMatrix — SemaforoCard (Dashboard v4 · skin "Banco")
  * Pannello strumento con meter a segmenti LED. Full-width (singola) o half (dual 50/50).
- * 5 stati: TOO_EARLY · OK · WARNING · CRITICAL · COLLAPSED (rosso, lampeggiante).
+ * Stati struttura W: TOO_EARLY · OK · WARNING · CRITICAL · COLLAPSED.
+ * Stati maturazione (presentazione): IN_CORSO · QUASI · PRONTO — distinti, così
+ * "pronto per infornare" non ha lo stesso colore di "a metà lievitazione".
  */
 import type React from 'react';
 
-export type SemaforoState = 'TOO_EARLY' | 'OK' | 'WARNING' | 'CRITICAL' | 'COLLAPSED';
+export type SemaforoState =
+  | 'TOO_EARLY' | 'OK' | 'WARNING' | 'CRITICAL' | 'COLLAPSED'
+  | 'IN_CORSO' | 'QUASI' | 'PRONTO';
 
 // Palette stati "Banco": calda, coerente coi token app (warning/critical/collapsed = token reali).
 export const SEMAFORO_COLORS: Record<SemaforoState, string> = {
@@ -14,6 +18,9 @@ export const SEMAFORO_COLORS: Record<SemaforoState, string> = {
   WARNING:   '#ffd166',
   CRITICAL:  '#ff7675',
   COLLAPSED: '#d63031',
+  IN_CORSO:  '#e8d5b0',   // farina: leggibile da lontano, nessun giudizio
+  QUASI:     '#ff8c32',   // brace: lo stato ottimale si avvicina
+  PRONTO:    '#3ddc97',   // verde pieno: si inforna
 };
 
 const STATE_LABELS: Record<SemaforoState, string> = {
@@ -22,6 +29,9 @@ const STATE_LABELS: Record<SemaforoState, string> = {
   WARNING:   'ATTENZIONE',
   CRITICAL:  'CRITICO',
   COLLAPSED: 'COLLASSO',
+  IN_CORSO:  'IN CORSO',
+  QUASI:     'QUASI',
+  PRONTO:    'PRONTO',
 };
 
 export const STATE_LABELS_FULL: Record<SemaforoState, string> = {
@@ -30,10 +40,13 @@ export const STATE_LABELS_FULL: Record<SemaforoState, string> = {
   WARNING:   'ATTENZIONE',
   CRITICAL:  'CRITICO',
   COLLAPSED: 'COLLASSO STRUTTURALE',
+  IN_CORSO:  'IN CORSO',
+  QUASI:     'QUASI PRONTO',
+  PRONTO:    'PRONTO DA INFORNARE',
 };
 
-export function StateBadge({ state, color, pulsing = false }: {
-  state: SemaforoState; color: string; pulsing?: boolean;
+export function StateBadge({ state, color, pulsing = false, full = false }: {
+  state: SemaforoState; color: string; pulsing?: boolean; full?: boolean;
 }) {
   return (
     <span
@@ -45,7 +58,7 @@ export function StateBadge({ state, color, pulsing = false }: {
         fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
       }}
     >
-      {STATE_LABELS[state]}
+      {full ? STATE_LABELS_FULL[state] : STATE_LABELS[state]}
     </span>
   );
 }
@@ -65,34 +78,26 @@ export function SegMeter({ progress, color, segments = 10 }: {
   );
 }
 
-/** Mantenuta per retro-compat (alcuni call-site potrebbero importarla). */
-export function ProgressBar({ value, target, color }: { value: number; target?: number; color: string }) {
-  const pct = Math.max(0, Math.min(100, value));
-  return (
-    <div style={{ position: 'relative', height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, marginTop: 10 }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, background: color, borderRadius: 3, transition: 'width 0.4s ease' }} />
-      {target != null && target > 0 && target <= 100 && (
-        <div style={{ position: 'absolute', top: -2, bottom: -2, left: `${target}%`, width: 2, background: 'var(--pm4-umber)', borderRadius: 1 }} />
-      )}
-    </div>
-  );
-}
-
 export function SemaforoCard({
-  label, value, state, color, progress, target, half = false, caption,
+  label, value, state, color, progress, target, half = false, caption, sub, footnote,
 }: {
   label: string; value: string; state: SemaforoState; color: string;
   progress: number; target?: number; half?: boolean;
   /** R6: nomina esplicitamente COSA misura il numero grande (varia per stile). */
   caption?: string;
+  /** Riga sotto il valore protagonista (es. "tra 11h 20m"), nel colore di stato. */
+  sub?: string;
+  /** Riga di supporto sotto il meter (sostituisce "target N%"). */
+  footnote?: string;
 }) {
   const isCollapsed = state === 'COLLAPSED';
+  const isReady     = state === 'PRONTO';
   return (
-    <div className={`pm4-panel${isCollapsed ? ' pm4-crit' : ''}`}
+    <div className={`pm4-panel${isCollapsed ? ' pm4-crit' : ''}${isReady ? ' pm4-ready' : ''}`}
       style={{ flex: half ? 1 : undefined, padding: '13px 14px 15px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 11 }}>
         <span style={{ color: 'var(--pm4-tan)', fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{label}</span>
-        <StateBadge state={state} color={color} pulsing={isCollapsed} />
+        <StateBadge state={state} color={color} pulsing={isCollapsed} full={!half} />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: caption ? 4 : 11 }}>
@@ -106,6 +111,11 @@ export function SemaforoCard({
           {value}
         </span>
       </div>
+      {sub && (
+        <div style={{ color, fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', margin: '8px 0 10px' }}>
+          {sub}
+        </div>
+      )}
       {caption && (
         <div style={{ color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 7 }}>
           {caption}
@@ -114,7 +124,11 @@ export function SemaforoCard({
 
       <SegMeter progress={progress} color={color} />
 
-      {target != null && target > 0 && (
+      {footnote ? (
+        <div style={{ marginTop: 9, color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+          {footnote}
+        </div>
+      ) : target != null && target > 0 && (
         <div style={{ marginTop: 9, display: 'flex', justifyContent: 'flex-end' }}>
           <span style={{ color: 'var(--pm4-umber)', fontSize: 10, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
             target {Math.round(target)}%
@@ -123,7 +137,7 @@ export function SemaforoCard({
       )}
 
       {isCollapsed && (
-        <div style={{ marginTop: 9, color: '#ff7675', fontSize: 10, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
+        <div style={{ marginTop: 9, color: 'var(--state-critical)', fontSize: 10, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
           ⚠ Struttura non recuperabile — inforna immediatamente
         </div>
       )}

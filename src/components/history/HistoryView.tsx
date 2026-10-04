@@ -64,6 +64,15 @@ function SessionCard({
           }}>
             {STATUS_LABEL[session.status] ?? session.status}
           </span>
+          {session.outcomeRating && (
+            <span style={{
+              marginLeft: 6, fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+              color: session.outcomeRating === 'poor' ? 'var(--pm4-ember-lo)' : 'var(--pm4-green)',
+              border: '1px solid var(--pm4-line-strong)', padding: '2px 6px', borderRadius: 4,
+            }}>
+              🍕 {OUTCOME_LABEL[session.outcomeRating]}
+            </span>
+          )}
         </div>
         <button
           onClick={() => session.id != null && onDelete(session.id)}
@@ -134,6 +143,10 @@ function SessionCard({
     </Card>
   );
 }
+
+const OUTCOME_LABEL: Record<string, string> = {
+  excellent: 'ottima', good: 'buona', ok: 'ok', poor: 'da rivedere',
+};
 
 const STATUS_LABEL: Record<string, string> = {
   planning: 'pianificata', active: 'in corso', completed: 'completata', aborted: 'interrotta',

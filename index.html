@@ -285,7 +285,7 @@
         min-height: 100%;
         max-width: 430px;
         margin: 0 auto;
-        overflow-x: hidden;
+        overflow-x: clip;  /* clip, non hidden: hidden crea un contenitore di scroll e rompe position:sticky */
         padding:
           env(safe-area-inset-top)
           env(safe-area-inset-right)
@@ -342,6 +342,12 @@
         box-shadow:0 1px 0 rgba(255,220,170,0.05) inset, 0 -1px 0 rgba(0,0,0,0.5) inset, 0 10px 26px -16px rgba(0,0,0,0.9);
         animation:pm4-rise .5s cubic-bezier(.22,1,.36,1) both;
       }
+      /* PRONTO: celebrazione sobria — bordo e fondo tinti, un solo respiro all'ingresso */
+      .pm4-panel.pm4-ready { border-color:rgba(61,220,151,0.45);
+        background:linear-gradient(180deg, rgba(61,220,151,0.10), rgba(61,220,151,0.02)), linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo));
+        animation:pm4-rise .5s cubic-bezier(.22,1,.36,1) both, pm4-ready 1.2s cubic-bezier(.22,1,.36,1) .3s 1 both;
+      }
+      @keyframes pm4-ready { 0%{box-shadow:0 0 0 0 rgba(61,220,151,0.45)} 100%{box-shadow:0 0 0 14px rgba(61,220,151,0)} }
       .pm4-panel.pm4-crit { border-color:rgba(255,118,117,0.32);
         box-shadow:0 1px 0 rgba(255,220,170,0.05) inset, 0 0 0 1px rgba(255,118,117,0.10), 0 12px 30px -14px rgba(214,48,49,0.4);
       }

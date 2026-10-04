@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useCallback } from 'react';
 import { useApp, type TickState } from '../context/AppContext';
-import { db, buildInitialTimeline, applyPhaseTransition } from '../db/db';
+import { db, buildInitialTimeline, applyPhaseTransition, type Session } from '../db/db';
 import { logProcessEntry, PROCESS_LOG_INTERVAL_MIN } from '../services/processLog';
 import { ddtForStyle } from '../data/styleConstraints';
 import {
@@ -360,5 +360,36 @@ export function useTickEngine() {
     dispatch({ type: 'TICK', patch: { phase: p, tempAmbient: ambientTempC } as any });
   }, [dispatch]);
 
-  return { setTempAmbient, setPhase };
+  /**
+   * Fotografia dello stato di fase prima di una transizione: serve all'"Annulla"
+   * della dashboard. È uno stato di presentazione, nessuna formula coinvolta.
+   */
+  const snapshotPhase = useCallback((): PhaseSnapshot | null => {
+    const session = sessionRef.current;
+    if (!session) return null;
+    return {
+      thermalTimeline: session.thermalTimeline ?? buildInitialTimeline(session),
+      phase:           tsRef.current?.phase ?? 'bulk_room',
+      tempAmbient:     tsRef.current?.tempAmbient ?? session.tLaboratorio ?? 22,
+    };
+  }, []);
+
+  /** Ripristina una fotografia presa con snapshotPhase() (annulla cambio fase). */
+  const restorePhase = useCallback((snap: PhaseSnapshot) => {
+    const session = sessionRef.current;
+    if (!session) return;
+    dispatch({ type: 'SESSION_UPDATE', patch: { thermalTimeline: snap.thermalTimeline } } as any);
+    if (session.id) {
+      db.sessions.update(session.id, { thermalTimeline: snap.thermalTimeline }).catch(console.error);
+    }
+    dispatch({ type: 'TICK', patch: { phase: snap.phase, tempAmbient: snap.tempAmbient } as any });
+  }, [dispatch]);
+
+  return { setTempAmbient, setPhase, snapshotPhase, restorePhase };
+}
+
+export interface PhaseSnapshot {
+  thermalTimeline: NonNullable<Session['thermalTimeline']>;
+  phase: string;
+  tempAmbient: number;
 }

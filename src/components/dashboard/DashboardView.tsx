@@ -1224,7 +1224,7 @@ export function DashboardView() {
               borderRadius: 'var(--radius-sm)', padding: '10px 14px',
               fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--state-critical)',
             }}>
-              ⚠ Vuoi davvero terminare? I dati NON saranno salvati.
+              Terminare la sessione? Verrà salvata nello Storico.
             </div>
             <Btn variant="danger" onClick={() => dispatch({ type: 'SESSION_END' })}>
               ■ Conferma Termina
