@@ -8,6 +8,7 @@
  * Moving the T_amb slider no longer rewrites the historical temperature curve.
  * buildPiecewiseData nasce come copia di buildMultiSegmentData (vecchia DashboardView, rimossa).
  */
+import { resolveThreshold } from '../../lib/bakeReadiness';
 import { useState, useEffect, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
@@ -569,7 +570,7 @@ export function GompertzChartV4({ session, ts, horizonH = null, bakeForecastH = 
               label={{ value: '🍕', position: 'top', fill: 'var(--state-optimal-hi)', fontSize: 11 }} />
           )}
           {/* stessa soglia del semaforo (profilo di stile), così "target N%" e la linea coincidono */}
-          <ReferenceLine yAxisId="left" y={getStyleProfile(session.style).alertThreshold ?? 85} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
+          <ReferenceLine yAxisId="left" y={resolveThreshold(session.alertThreshold, getStyleProfile(session.style).alertThreshold)} stroke="var(--state-optimal-hi)" strokeDasharray="4 4" />
           <ReferenceLine yAxisId="left" y={65} stroke="var(--state-optimal-lo)" strokeDasharray="3 3" />
           {transitions.map(t => (
             // senza testo: le fasi sono già nominate nella timeline sotto, e le

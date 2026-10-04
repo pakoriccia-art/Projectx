@@ -90,15 +90,20 @@ export function buildTimelinePhases(
   return phases;
 }
 
-function formatAbsoluteTime(d: Date): string {
-  return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+/** Orario del marker, col giorno quando non è oggi: 24h di frigo non sembrano 15 minuti. */
+function formatAbsoluteTime(d: Date, nowMs = Date.now()): string {
+  const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date(nowMs).toDateString()
+    ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short' })} ${t}`;
 }
 
 function formatCountdown(h: number): string {
   if (h <= 0) return 'ora';
-  if (h < 1) return `${Math.round(h * 60)}min`;
-  const hh = Math.floor(h);
-  const mm = Math.round((h - hh) * 60);
+  // minuti totali prima di dividere: niente più "3h60"
+  const tot = Math.round(h * 60);
+  if (tot < 60) return `${tot}min`;
+  const hh = Math.floor(tot / 60);
+  const mm = tot % 60;
   return mm > 0 ? `${hh}h${mm.toString().padStart(2, '0')}` : `${hh}h`;
 }
 
@@ -231,7 +236,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
         color: isCompleted ? 'var(--pm4-umber)' : 'var(--pm4-tan)',
         fontSize: 11, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
       }}>
-        {formatAbsoluteTime(new Date(displayMs))}
+        {formatAbsoluteTime(new Date(displayMs), nowMs)}
       </div>
       {subline && (
         <div style={{ color: 'var(--pm4-umber)', fontSize: 11, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
@@ -296,14 +301,15 @@ export function FermentationTimeline({
   // ripianifica, e la strip deve mostrare gli stessi orari della banda.
   const tlNow = (session.thermalTimeline && session.thermalTimeline.length > 0)
     ? session.thermalTimeline : buildInitialTimeline(session as any);
-  // Inizio reale del segmento in cui si entra (pianificato o già in corso).
+  // Inizio reale del segmento in cui si entra (fatto, in corso o pianificato):
+  // dopo un "Fatto ora" l'appretto in frigo mostra quando è entrato in frigo.
   const plannedStart = new Map<string, number>();
-  for (const sg of [...tlNow].filter(x => x && x.status !== 'completed').sort((a, b) => a.startElapsedH - b.startElapsedH)) {
+  for (const sg of [...tlNow].filter(x => !!x).sort((a, b) => a.startElapsedH - b.startElapsedH)) {
     if (!plannedStart.has(sg.phaseType)) plannedStart.set(sg.phaseType, startedAtMs + sg.startElapsedH * 3_600_000);
   }
   const displayFor = (p: CanonicalPhase): number => {
     if (p.isBake) return bakedAtMs ?? bakeForecastMs ?? p.startMs;
-    if (p.state !== 'past' && plannedStart.has(p.transitionTo)) return plannedStart.get(p.transitionTo)!;
+    if (p.key !== 'puntata' && plannedStart.has(p.transitionTo)) return plannedStart.get(p.transitionTo)!;
     return p.startMs;
   };
 

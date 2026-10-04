@@ -272,6 +272,35 @@ Primo giro sul planner e sul passaggio planner → wizard → dashboard.
 - **P1:** il piano si deforma nel passaggio (riscaldo 2.4 → 5.9h, "modificato manualmente", modale fuori protocollo su un piano col frigo). Nel planner il risultato sta in fondo, ci sono 4 CTA uguali e lo stato si perde tornando dal wizard.
 - **P2/P3:** testi incoerenti ("3/-1", "90%" scritto nel codice, poolish chiamato biga), slider senza nome accessibile, token Classic.
 
+## Passaggio 14: correzioni del ramo Pianifica (P0 + P1 + riordino)
+
+Scelte dell'utente: soglia della sessione, "pronto = infornabile", nessun modale fuori protocollo per i piani del planner, P0 + P1 + riordino.
+- **P0-1, Servizio.**
+  - `temperingH` è ammesso nello schema; gli errori di avvio sono in italiano.
+  - La timeline precomputata viene normalizzata all'avvio: prima arrivava tutta "planned", la puntata in corso veniva proposta all'infinito e le fasi non avanzavano più.
+  - Verificato nel browser: target 89% → PRONTO alle 21:06 con il piano alle 21:00.
+- **P0-2, soglia e "pronto = infornabile".**
+  - `resolveThreshold`: vale la soglia della sessione; il semaforo calcola la maturazione con questa e gli allarmi strutturali restano quelli del motore.
+  - `canBakeNow`: mai pronto in frigo né col cuore sotto 18° dopo il frigo. Nuovo stato FREDDO.
+  - Con un frigo in programma, in frigo o in riscaldo comanda il piano.
+  - Stessa soglia nel grafico e nelle notifiche; il wizard di default usa la soglia dello stile.
+- **P1-3, passaggio fedele.**
+  - Il wizard usa riscaldo e puntata del planner, con il badge "dal Planner".
+  - Niente modale fuori protocollo per i piani del planner con il frigo.
+  - Timeline con il giorno e con gli orari reali dei segmenti; niente appretto aggiunto in Qualità.
+- **Riordino del planner.**
+  - Stato conservato tornando dal wizard.
+  - "Quando vuoi infornare?" e "Il tuo piano" (orari assoluti, esito, un solo CTA) in cima.
+  - Alternative con CTA ghost e badge di esito (Al target / Sotto / Oltre) al posto di "OK".
+  - Acqua di impasto e dettagli tecnici in una sezione comprimibile.
+  - Ore leggibili, testi corretti ("TC Appretto", target reali, "3/-1", poolish).
+  - Slider e campi con nome accessibile, h1 unico, verdi Classic rimossi.
+- **Altro:** countdown "3h60" corretto.
+
+**Verifica:** typecheck e test verdi, con nuovi test di schema, soglia, `canBakeNow` e timeline normalizzata. Nel browser le tre modalità del planner arrivano fino a "Ho infornato", senza errori in console. Rilevatore su `src/components/tools`: 87 → 71 segnalazioni, tutte solo informative (in prevalenza dimensioni del testo fuori dalla scala tipografica).
+
+**Aperto (motore/planner):** nella modalità Orario il riscaldo del planner (2h 22m) non considera il contenitore. La dashboard, che lo considera, porta il pronto alcune ore dopo il piano e avvisa "inforni a ~12°".
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

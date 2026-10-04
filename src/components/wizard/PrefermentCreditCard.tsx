@@ -26,6 +26,11 @@ export interface PrefermentCreditCardProps {
 
 export function PrefermentCreditCard({ prefLabel, enzymatic, thermal }: PrefermentCreditCardProps) {
   if (!enzymatic && !thermal) return null;
+  // Nome del prefermento reale (poolish, riporto…), non sempre "biga".
+  // prefLabel è tipo "Biga 50% · 18h": serve solo il nome.
+  const prefName = ((prefLabel || 'prefermento').split(/\s/)[0] || 'prefermento').toLowerCase();
+  const feminine = prefName === 'biga';
+  const article = feminine ? 'la ' : /^[aeiou]/.test(prefName) ? "l'" : 'il ';
 
   const preMat = enzymatic ? Math.max(0.1, enzymatic.aduTarget - enzymatic.aduFridge) : 1;
   const coverage = enzymatic ? enzymatic.prefEnzAdu / preMat : 0;
@@ -70,11 +75,11 @@ export function PrefermentCreditCard({ prefLabel, enzymatic, thermal }: Preferme
           {/* Sottrazione esplicita */}
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.64rem', color: 'var(--text-secondary)' }}>
             ADU: {enzymatic.aduTarget.toFixed(1)} − {enzymatic.aduFridge.toFixed(1)} (freddo)
-            − {enzymatic.prefEnzAdu.toFixed(1)} (biga) = {enzymatic.aduNeeded.toFixed(1)} da fare a TA
+            − {enzymatic.prefEnzAdu.toFixed(1)} ({prefName}) = {enzymatic.aduNeeded.toFixed(1)} da fare a TA
           </div>
-          <CoverageBar fraction={coverage} tone="enzymatic" label="quota maturazione coperta dalla biga" />
+          <CoverageBar fraction={coverage} tone="enzymatic" label={`quota maturazione coperta da${article === 'la ' ? 'lla ' : article === "l'" ? "ll'" : 'l '}${prefName}`} />
           <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-            La biga è già matura: il tuo impasto parte avanti.
+            {article.charAt(0).toUpperCase() + article.slice(1)}{prefName} è già {feminine ? 'matura' : 'maturo'}: il tuo impasto parte avanti.
           </div>
         </div>
       )}

@@ -30,7 +30,7 @@ export function useReducedMotion(): boolean {
 // ─── Badge ──────────────────────────────────────────────────────────────────
 // Pill con `tone`. Manual/advanced/base + stati semaforo (§7.9).
 type BadgeTone =
-  | 'manual' | 'advanced' | 'base' | 'derived'
+  | 'manual' | 'advanced' | 'base' | 'derived' | 'source'
   | 'too_early' | 'ok' | 'warning' | 'critical' | 'collapsed';
 
 const BADGE_TONES: Record<BadgeTone, { bg: string; fg: string; bd: string }> = {
@@ -38,6 +38,8 @@ const BADGE_TONES: Record<BadgeTone, { bg: string; fg: string; bd: string }> = {
   advanced:  { bg: 'rgba(61,220,151,0.14)',  fg: '#3ddc97', bd: 'rgba(61,220,151,0.35)' },
   base:      { bg: 'rgba(255,255,255,0.06)', fg: 'var(--text-muted)', bd: 'rgba(255,255,255,0.12)' },
   derived:   { bg: 'rgba(116,185,255,0.14)', fg: '#74b9ff', bd: 'rgba(116,185,255,0.35)' },
+  // provenienza del valore (es. "dal Planner"): farina, nessun giudizio
+  source:    { bg: 'rgba(232,213,176,0.08)', fg: 'var(--pm4-flour)', bd: 'var(--pm4-line-strong)' },
   too_early: { bg: 'rgba(169,154,118,0.14)', fg: '#a99a76', bd: 'rgba(169,154,118,0.4)' },
   ok:        { bg: 'rgba(61,220,151,0.14)',  fg: '#3ddc97', bd: 'rgba(61,220,151,0.35)' },
   warning:   { bg: 'rgba(255,209,102,0.14)', fg: '#ffd166', bd: 'rgba(255,209,102,0.35)' },

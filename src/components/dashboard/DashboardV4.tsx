@@ -32,6 +32,7 @@ import { SemaforoCard, SEMAFORO_COLORS, CollapseModal, type SemaforoState } from
 import { OutOfProtocolModal } from './OutOfProtocolModal';
 import { LiveHeader } from './LiveHeader';
 import { nextPlannedSegment, phaseActionText, planDeltaText } from '../../lib/phaseDue';
+import { canBakeNow, isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
 import { scheduleAt, cancelNotification, NOTIF_ID } from '../../hooks/useCapacitorNotifications';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -67,7 +68,7 @@ function wStateFromRatio(tRatio: number): SemaforoState {
 }
 
 const SEVERITY: Record<SemaforoState, number> = {
-  TOO_EARLY: 0, IN_CORSO: 0, OK: 1, QUASI: 1, PRONTO: 1, WARNING: 2, CRITICAL: 3, COLLAPSED: 4,
+  TOO_EARLY: 0, IN_CORSO: 0, FREDDO: 0, OK: 1, QUASI: 1, PRONTO: 1, WARNING: 2, CRITICAL: 3, COLLAPSED: 4,
 };
 
 // ─── Tempo leggibile da lontano: orari assoluti, non ore decimali ──────────────
@@ -450,7 +451,9 @@ export function DashboardV4() {
 
   const { styleProfile, enzymaticMatPct, leaveningPct, ambientTempC, T_dough, pH, wRes, alertRes } = derived;
   const { W_current, W_initial, decayPct, tRatio, tCritHours } = wRes;
-  const threshold = styleProfile.alertThreshold ?? 85;
+  // Soglia della sessione (scelta nel planner o nel wizard), altrimenti dello stile.
+  const threshold = resolveThreshold(session.alertThreshold, styleProfile.alertThreshold);
+  const thresholdFromPlan = session.alertThreshold != null && session.alertThreshold !== styleProfile.alertThreshold;
   const primarySignal: string = styleProfile.primarySignal ?? 'maturation';
 
   // elapsedH computato da Date.now() — aggiornato ad ogni re-render (triggerd da tickState)
@@ -467,7 +470,17 @@ export function DashboardV4() {
   const phase = ts?.phase ?? 'bulk_room';
 
   // Stati semaforo
-  const matState = matSemaforoFromLevel(alertRes.level, enzymaticMatPct, threshold);
+  // Allarmi strutturali dal motore; maturazione con la soglia della sessione (il
+  // motore usa sempre quella dello stile, e il motore non si tocca).
+  const matByThreshold = String(alertRes.level).startsWith('STRUCTURAL')
+    ? matSemaforoFromLevel(alertRes.level, enzymaticMatPct, threshold)
+    : matStateIndependent(enzymaticMatPct, threshold);
+  // "Pronto" = infornabile: in frigo, o freddo dopo il frigo, la maturazione può
+  // essere al target ma non si inforna.
+  const hadFridge = (session.thermalTimeline ?? []).some((sg: any) => isFridgePhase(sg?.phaseType) && sg.status !== 'planned');
+  const bakeable  = canBakeNow({ phase, tDoughC: T_dough, hadFridge });
+  const matState: SemaforoState = !bakeable && (matByThreshold === 'PRONTO' || matByThreshold === 'QUASI')
+    ? 'FREDDO' : matByThreshold;
   const wState   = wStateFromRatio(tRatio);
   const matIndep = matStateIndependent(enzymaticMatPct, threshold);
   const currentSemaforoState: SemaforoState =
@@ -528,8 +541,11 @@ export function DashboardV4() {
     etaH = spot ? (spot.status === 'past_peak' ? 0 : Math.max(0, spot.hoursUntilPeak)) : null;
   } catch { etaH = null; }
   const nowDate   = new Date();
-  const isReady   = matState === 'PRONTO' || (etaH === 0 && enzymaticMatPct >= threshold);
-  const usePlan   = isColdPhase || etaH == null || etaH > 240;
+  const isReady   = bakeable && (matState === 'PRONTO' || (etaH === 0 && enzymaticMatPct >= threshold));
+  // In frigo, in riscaldo o con un frigo ancora in programma la proiezione a T
+  // costante non vale (presume tutto a temperatura ambiente): comanda il piano.
+  const fridgeAhead = (effectiveTimeline ?? []).some((sg: any) => isFridgePhase(sg?.phaseType) && sg.status === 'planned');
+  const usePlan   = isColdPhase || !bakeable || fridgeAhead || etaH == null || etaH > 240;
   const readyAt   = usePlan ? planBake : new Date(nowDate.getTime() + (etaH ?? 0) * 3_600_000);
   const readyInH  = Math.max(0, (readyAt.getTime() - nowDate.getTime()) / 3_600_000);
   // Finestra residua = istante di sbollatura (ore trascorse, stessa base della sim) − adesso.
@@ -549,13 +565,14 @@ export function DashboardV4() {
   const etaSub    = isReady
     ? windowStr
     : usePlan
-      ? `in frigo · secondo il piano · tra ${fmtDuration(readyInH)}`
+      ? `${isColdPhase ? 'in frigo' : fridgeAhead ? 'frigo in programma' : 'in riscaldo'} · secondo il piano · tra ${fmtDuration(readyInH)}`
       : `tra ${fmtDuration(readyInH)}${holdUntil ? ` · regge fino a ~${fmtClock(holdUntil, nowDate)}` : ''}`;
   // Header e blocco centrale leggono lo stesso orario.
   const bakeForecast = isReady ? 'ORA' : `~${etaParts.time}`;
-  const matFootnote = `maturazione ${enzymaticMatPct.toFixed(1)}% → target ${threshold}%`;
+  const matFootnote = `maturazione ${enzymaticMatPct.toFixed(1)}% → target ${threshold}%${thresholdFromPlan ? ' (dal piano)' : ''}`;
   const statusAnnouncementBase = session.bakedAt ? 'Infornata registrata'
     : matState === 'PRONTO' ? 'Pronto per infornare'
+    : matState === 'FREDDO' ? (isColdPhase ? 'Maturo in frigo: si inforna dopo il riscaldo' : 'In riscaldo: non ancora da infornare')
     : matState === 'QUASI' ? 'Quasi pronto' : '';
   isReadyRef.current = isReady;
 
@@ -623,6 +640,8 @@ export function DashboardV4() {
   // a temperatura ambiente lo decide la maturazione e non si sposta.
   const previewText = (pv: NonNullable<ReturnType<typeof previewFor>>) => pv.isCold
     ? `In frigo: cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}`
+    : isColdPhase || !bakeable
+      ? `Riscaldo a temperatura ambiente · cottura prevista ${fmtClock(pv.bakeAfter, nowDate)}`
     : `L'orario di cottura non cambia: ${isReady ? 'si può infornare ora' : `~${fmtClock(readyAt, nowDate)}`}`;
   const preview    = previewFor(pendingPhase?.phaseType ?? null);
   const duePreview = showDue ? previewFor(dueSeg!.phaseType) : null;
@@ -813,7 +832,7 @@ export function DashboardV4() {
         )}
         {!bakedAt && primarySignal === 'maturation' && (
           <>
-            <SemaforoCard label={isReady ? 'Inforna' : 'Inforni alle'} value={etaValue} valueSuffix={etaSuffix}
+            <SemaforoCard label={isReady ? 'Inforna' : matState === 'FREDDO' ? (isColdPhase ? 'Matura in frigo · inforni alle' : 'In riscaldo · inforni alle') : 'Inforni alle'} value={etaValue} valueSuffix={etaSuffix}
               big={dashMode === 'monitor'} sub={etaSub}
               help={dashMode === 'monitor' ? HELP_STATO : undefined}
               note={planDelta && (

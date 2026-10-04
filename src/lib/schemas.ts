@@ -146,6 +146,8 @@ export const WizardInputSchema = z.object({
   thermalTimeline:  z.array(z.object({}).passthrough()).optional(),
   bubbleThresholdPct: z.number().min(50).max(99).optional(),
   alertThreshold:   z.number().min(50).max(100).optional(),
+  // Riscaldo TA dopo il frigo calcolato dal Planner (marker USCITA FRIGO)
+  temperingH:       z.number().min(0).max(24).optional(),
   // Navigazione: traccia l'origine del percorso verso il riepilogo
   navigationSource: z.enum(['planner']).optional(),
 }).strict();

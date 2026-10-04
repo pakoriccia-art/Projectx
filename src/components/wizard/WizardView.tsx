@@ -5,7 +5,23 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
-import { buildInitialTimeline } from '../../db/db';
+import { buildInitialTimeline, type PhaseSegment } from '../../db/db';
+
+/**
+ * Una timeline precomputata (Planner/Servizio) può arrivare tutta "planned":
+ * all'avvio il primo segmento è già in corso. Stati dal tempo trascorso (zero),
+ * altrimenti la dashboard chiederebbe di "entrare" nella fase già in corso.
+ */
+export function normalizeTimelineStatus(tl: PhaseSegment[], nowElapsedH = 0): PhaseSegment[] {
+  return [...tl].sort((a, b) => a.startElapsedH - b.startElapsedH).map(sg => {
+    const end = sg.endElapsedH ?? sg.startElapsedH;
+    const status: PhaseSegment['status'] =
+      end <= nowElapsedH && end > sg.startElapsedH ? 'completed'
+      : sg.startElapsedH <= nowElapsedH && end > nowElapsedH ? 'current'
+      : 'planned';
+    return { ...sg, status };
+  });
+}
 import {
   Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2, Metric,
   Badge, ExpandableReward, Advisory,
@@ -305,19 +321,25 @@ function buildSession(draft: WizardDraft): Session {
   // Se è presente una timeline precomputata (Service-Window planner), lo schedule
   // del solver è autoritativo: salta il ricalcolo tc_appreto di warmup/puntata.
   const hasPrecomputedTimeline = !!(draft.thermalTimeline && draft.thermalTimeline.length > 0);
+  // Un piano arrivato dal Planner è autoritativo anche senza timeline precomputata:
+  // riscaldo e puntata restano quelli mostrati nel planner, niente ricalcolo qui.
+  const fromPlanner = draft.navigationSource === 'planner';
+  const plannerAuthoritative = hasPrecomputedTimeline || fromPlanner;
 
-  const _warmup = (_proto === 'tc_appreto' && !hasPrecomputedTimeline) ? (() => {
+  const _warmup = (_proto === 'tc_appreto' && !plannerAuthoritative) ? (() => {
     const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
     const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
     const tauMult = cPreset?.tauMultiplier ?? 1.0;
     return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22, tauMult);
   })() : 0;
-  const _a = _proto === 'tc_appreto' ? _warmup : (draft.apprettoH ?? 4);
+  const _a = _proto === 'tc_appreto'
+    ? (fromPlanner && !hasPrecomputedTimeline ? (draft.temperingH ?? draft.apprettoH ?? 0) : _warmup)
+    : (draft.apprettoH ?? 4);
 
   // Per tc_appreto: puntataH viene back-calcolata automaticamente oppure usa l'override
   // manuale dell'utente (draft.puntataH != null dopo che l'utente ha spostato il cursore).
-  const _p = (_proto === 'tc_appreto' && !hasPrecomputedTimeline) ? (() => {
+  const _p = (_proto === 'tc_appreto' && !plannerAuthoritative) ? (() => {
     if (draft.puntataH != null) return draft.puntataH;  // override manuale
     const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
@@ -366,7 +388,10 @@ function buildSession(draft: WizardDraft): Session {
     hydration:              draft.hydration ?? 65,
     salt:                   draft.salt ?? 2.0,
     totalFlourGrams:        draft.totalFlourGrams ?? 1000,
-    alertThreshold:         draft.alertThreshold ?? 85,
+    // Soglia della sessione: quella scelta (planner) o, di default, quella dello stile.
+    alertThreshold:         draft.alertThreshold ?? (getStyleProfile as Function)(draft.style ?? 'napoletana').alertThreshold ?? 85,
+    // Piano del Planner con il frigo: la scelta è già fatta, niente modale fuori protocollo.
+    outOfProtocolPhaseConfirmed: fromPlanner && _proto !== 'ta' ? true : undefined,
     containerPreset:        draft.containerPreset ?? 'closed_box',
     apprettoProtocol:       draft.apprettoProtocol ?? 'ta',
     puntataH:               _p,   // tc_appreto → back-calcolato; altri → slider utente
@@ -1424,8 +1449,10 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
   const cPresetStep8   = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
   const tauMultStep8   = cPresetStep8?.tauMultiplier ?? 1.0;
+  const fromPlannerStep8 = draft.navigationSource === 'planner';
   const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto'
-    ? computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMultStep8)
+    ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0)
+      : computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMultStep8))
     : 0;
   // Puntata ottimale per step 8: muMax semplificato (senza prefermento, per anteprima)
   const puntataHStep8  = draft.apprettoProtocol === 'tc_appreto' ? (() => {
@@ -1524,7 +1551,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             // valore attivo (draft.puntataH) diverge dal teorico (puntataHStep8) oltre
             // 0.05h, marca "modificato manualmente" + riferimento ghost ripristinabile.
             const isAppreto = draft.apprettoProtocol === 'tc_appreto';
-            const overridden = isAppreto && draft.puntataH != null
+            const overridden = isAppreto && !fromPlannerStep8 && draft.puntataH != null
               && Math.abs(draft.puntataH - puntataHStep8) > 0.05;
             const shown = isAppreto
               ? (draft.puntataH != null ? draft.puntataH.toFixed(1) : puntataHStep8.toFixed(1))
@@ -1539,6 +1566,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
                   <Metric label="Puntata TA" value={shown} unit="h"
                     color={isAppreto ? 'var(--accent-brand)' : undefined} />
                 </div>
+                {fromPlannerStep8 && <Badge tone="source">dal Planner</Badge>}
                 {overridden && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <Badge tone="manual">modificato manualmente</Badge>
@@ -1674,7 +1702,7 @@ export function WizardView() {
         const session: Session = {
           ...built,
           thermalTimeline: built.thermalTimeline && built.thermalTimeline.length > 0
-            ? built.thermalTimeline
+            ? normalizeTimelineStatus(built.thermalTimeline)
             : buildInitialTimeline(built as any),
         };
         dispatch({ type: 'SESSION_START', session });
@@ -1685,8 +1713,11 @@ export function WizardView() {
           .then(id => dispatch({ type: 'SESSION_UPDATE', patch: { id } }))
           .catch(err => console.error('[startSession]', err));
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setBuildError(msg);
+        // L'utente legge una frase, il dettaglio tecnico (Zod) resta in console.
+        const raw = e instanceof Error ? e.message : String(e);
+        setBuildError(/Unrecognized key|Expected|Invalid|Number must/i.test(raw)
+          ? 'Non riesco ad avviare questo piano: alcuni valori non sono validi.'
+          : `Non riesco ad avviare la sessione: ${raw}`);
         console.error('[WizardView] buildSession error:', e);
       }
     }
@@ -1762,13 +1793,16 @@ export function WizardView() {
         background: 'var(--bg-base)',
       }}>
         {buildError && (
-          <div style={{
+          <div role="alert" style={{
             padding: '10px 14px',
             background: 'rgba(214,48,49,0.15)', border: '1px solid rgba(214,48,49,0.4)',
             borderRadius: 'var(--radius-sm)', fontSize: '0.8rem',
             color: 'var(--state-critical)', fontFamily: 'var(--font-mono)',
           }}>
             ⚠ {buildError}
+            {draft.navigationSource === 'planner' && (
+              <div style={{ marginTop: 6, color: 'var(--pm4-tan)' }}>Torna al Planner con "← Planner" e riprova, o correggi i valori qui.</div>
+            )}
           </div>
         )}
         {!canProceed() && (

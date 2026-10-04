@@ -10,6 +10,7 @@ import { useApp } from '../context/AppContext';
 import { getStyleProfile } from '../engine';
 import { buildEffectiveTimeline } from '../engine/outOfProtocol';
 import { nextPlannedSegment, phaseActionText } from '../lib/phaseDue';
+import { canBakeNow, isFridgePhase, resolveThreshold } from '../lib/bakeReadiness';
 
 export const NOTIF_ID = {
   ready:   100,
@@ -83,10 +84,12 @@ export function useCapacitorNotifications() {
     const W0      = session.effectiveW_initial ?? 280;
     const wDecay  = W0 > 0 ? ((W0 - ts.W_current) / W0) * 100 : 0;
     // Stessa soglia del semaforo in dashboard (profilo di stile).
-    const threshold = getStyleProfile(session.style)?.alertThreshold ?? session.alertThreshold ?? 85;
+    const threshold = resolveThreshold(session.alertThreshold, getStyleProfile(session.style)?.alertThreshold);
+    const hadFridge = (session.thermalTimeline ?? []).some(sg => isFridgePhase(sg?.phaseType) && sg.status !== 'planned');
+    const bakeable  = canBakeNow({ phase: ts.phase, tDoughC: ts.tempDough, hadFridge });
 
     // Pronto per infornare
-    if (!sentRef.current.peak && !session.bakedAt && matPct >= threshold) {
+    if (!sentRef.current.peak && !session.bakedAt && bakeable && matPct >= threshold) {
       sentRef.current.peak = true;
       LocalNotifications.schedule({
         notifications: [{

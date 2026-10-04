@@ -11,7 +11,7 @@ import { useDialogFocus } from './useDialogFocus';
 
 export type SemaforoState =
   | 'TOO_EARLY' | 'OK' | 'WARNING' | 'CRITICAL' | 'COLLAPSED'
-  | 'IN_CORSO' | 'QUASI' | 'PRONTO';
+  | 'IN_CORSO' | 'QUASI' | 'PRONTO' | 'FREDDO';
 
 // Palette stati "Banco": calda, coerente coi token app (warning/critical/collapsed = token reali).
 export const SEMAFORO_COLORS: Record<SemaforoState, string> = {
@@ -23,6 +23,7 @@ export const SEMAFORO_COLORS: Record<SemaforoState, string> = {
   IN_CORSO:  '#e8d5b0',   // farina: leggibile da lontano, nessun giudizio
   QUASI:     '#ff8c32',   // brace: lo stato ottimale si avvicina
   PRONTO:    '#3ddc97',   // verde pieno: si inforna
+  FREDDO:    '#74b9ff',   // maturo ma freddo (frigo/riscaldo): non si inforna ancora
 };
 
 const STATE_LABELS: Record<SemaforoState, string> = {
@@ -34,6 +35,7 @@ const STATE_LABELS: Record<SemaforoState, string> = {
   IN_CORSO:  'IN CORSO',
   QUASI:     'QUASI',
   PRONTO:    'PRONTO',
+  FREDDO:    'FREDDO',
 };
 
 export const STATE_LABELS_FULL: Record<SemaforoState, string> = {
@@ -45,6 +47,7 @@ export const STATE_LABELS_FULL: Record<SemaforoState, string> = {
   IN_CORSO:  'IN CORSO',
   QUASI:     'QUASI PRONTO',
   PRONTO:    'PRONTO DA INFORNARE',
+  FREDDO:    'MATURO · FREDDO',
 };
 
 export function StateBadge({ state, color, pulsing = false, full = false }: {

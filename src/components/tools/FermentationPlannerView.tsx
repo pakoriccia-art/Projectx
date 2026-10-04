@@ -15,7 +15,7 @@
  *          dove remainingH = targetTotalH − staglioH
  *   4. Valuta la viabilità in base al W della farina
  */
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useId } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, SnapButtons, S, Badge, useReducedMotion, pulseElement } from '../ui';
 import {
@@ -238,7 +238,7 @@ function computeAllProtocols(params: {
       viability, viabilityNote: note,
       matAtTarget: matAtTargetTA,
       label: 'Tutto TA',
-      desc:  `Puntata ${puntataH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto ${apprettoH.toFixed(1)}h`,
+      desc:  `Puntata ${fmtHours(puntataH)} · staglio ${fmtHours(staglioH)} · appretto ${fmtHours(apprettoH)}`,
       stars: W >= 280 ? 2 : 3,
     });
   }
@@ -260,7 +260,7 @@ function computeAllProtocols(params: {
       viability, viabilityNote: note,
       matAtTarget: matAtTargetTC,
       label: 'TC totale',
-      desc:  `Freddo ${coldH.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h`,
+      desc:  `In frigo ${fmtHours(coldH)} · staglio ${fmtHours(staglioH)}`,
       stars: coldH > 8 ? (viability === 'ok' ? 4 : 2) : 2,
     });
   }
@@ -313,7 +313,7 @@ function computeAllProtocols(params: {
       matAtTarget: matAtTarget_puntata,
       viability, viabilityNote: note,
       label: 'TC Puntata',
-      desc: `Puntata fredda ${coldH_mixed.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto TA ${warmH_mixed.toFixed(1)}h`,
+      desc: `Puntata in frigo ${fmtHours(coldH_mixed)} · staglio ${fmtHours(staglioH)} · appretto ${fmtHours(warmH_mixed)}`,
       stars: viability === 'ok' ? 4 : 2,
     });
   }
@@ -321,7 +321,7 @@ function computeAllProtocols(params: {
   // ── TC Appreto ───────────────────────────────────────────────────────────────
   if (coldH_appreto !== null && warmH_appreto !== null && coldH_appreto > 0.5 && warmH_appreto > 0.5) {
     const { viability, note } = assessW(W, warmH_appreto, coldH_appreto);
-    const warmupSuffix = wH > 0.05 ? ` + Riscaldo TA ${wH.toFixed(1)}h` : '';
+    const warmupSuffix = wH > 0.05 ? ` · riscaldo ${fmtHours(wH)}` : '';
     // matAtTarget: ADU_totale @ targetBake = aduNeeded_appreto + rampAdu = aduNeeded → 85% per costruzione
     const matAtTarget_appreto: number | undefined = params.targetTotalH !== undefined
       ? (() => {
@@ -336,8 +336,8 @@ function computeAllProtocols(params: {
       warmupH: wH > 0.05 ? wH : undefined,
       matAtTarget: matAtTarget_appreto,
       viability, viabilityNote: note,
-      label: 'TC Appreto',
-      desc: `Puntata TA ${warmH_appreto.toFixed(1)}h + Staglio ${staglioH.toFixed(1)}h + Appretto freddo ${coldH_appreto.toFixed(1)}h${warmupSuffix}`,
+      label: 'TC Appretto',
+      desc: `Puntata ${fmtHours(warmH_appreto)} · staglio ${fmtHours(staglioH)} · appretto in frigo ${fmtHours(coldH_appreto)}${warmupSuffix}`,
       stars: viability === 'ok' ? 3 : 2,
     });
   }
@@ -443,7 +443,7 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
     <svg width={W_SVG} height={H_SVG} style={{ display: 'block', flexShrink: 0 }}>
       {/* 85% line */}
       <line x1={0} y1={y85} x2={W_SVG} y2={y85}
-        stroke="rgba(0,184,148,0.4)" strokeWidth={1} strokeDasharray="3 2" />
+        stroke="rgba(232,213,176,0.4)" strokeWidth={1} strokeDasharray="3 2" />
       {/* End of protocol */}
       <line x1={xEnd} y1={0} x2={xEnd} y2={H_SVG}
         stroke="rgba(255,140,50,0.5)" strokeWidth={1} strokeDasharray="3 2" />
@@ -454,108 +454,185 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
 }
 
 // ─── Card singolo protocollo ──────────────────────────────────────────────────
-function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse, plannerErrors }: {
+/** Ore leggibili: "34h 05m" invece di "34.1h". */
+function fmtHours(h: number): string {
+  const tot = Math.max(0, Math.round(h * 60));
+  const hh = Math.floor(tot / 60), mm = tot % 60;
+  return hh === 0 ? `${mm} min` : `${hh}h ${String(mm).padStart(2, '0')}m`;
+}
+
+/** Target di maturazione della modalità Orario (costruzione analitica dei protocolli). */
+const BAKE_TARGET_PCT = 85;
+
+/** Esito rispetto al target: è la cosa che l'utente deve leggere, non la sola W. */
+function outcomeOf(r: PlanResult): { label: string; color: string } | null {
+  if (r.matAtTarget === undefined) return null;
+  const d = r.matAtTarget - BAKE_TARGET_PCT;
+  if (Math.abs(d) <= 7) return { label: 'Al target', color: 'var(--pm4-flour)' };
+  return d < 0 ? { label: 'Sotto il target', color: 'var(--state-cold)' }
+               : { label: 'Oltre il target', color: 'var(--pm4-ember)' };
+}
+
+/** Il protocollo consigliato: fattibile, più vicino al target, poi per stelle. */
+function pickRecommended(results: PlanResult[]): PlanResult | null {
+  const usable = results.filter(r => r.viability !== 'no');
+  if (usable.length === 0) return null;
+  return [...usable].sort((a, b) => {
+    const da = a.matAtTarget === undefined ? 99 : Math.abs(a.matAtTarget - BAKE_TARGET_PCT);
+    const db = b.matAtTarget === undefined ? 99 : Math.abs(b.matAtTarget - BAKE_TARGET_PCT);
+    if (da !== db) return da - db;
+    if (a.viability !== b.viability) return a.viability === 'ok' ? -1 : 1;
+    return b.stars - a.stars;
+  })[0];
+}
+
+/** Orologio del piano: orari assoluti a partire da adesso. */
+function planClock(r: PlanResult, startMs: number): Array<{ label: string; at: Date }> {
+  const at = (h: number) => new Date(startMs + h * 3_600_000);
+  const p = r.puntataH ?? 0, s = r.staglioH, tc = r.tcHours ?? 0;
+  switch (r.protocol) {
+    case 'ta':         return [{ label: 'Impasta', at: at(0) }, { label: 'Staglio', at: at(p) }, { label: 'Appretto', at: at(p + s) }, { label: 'Forno', at: at(r.totalH) }];
+    case 'tc':         return [{ label: 'Impasta · in frigo', at: at(0) }, { label: 'Staglio', at: at(tc) }, { label: 'Forno', at: at(r.totalH) }];
+    case 'tc_puntata': return [{ label: 'Impasta · in frigo', at: at(0) }, { label: 'Staglio', at: at(tc) }, { label: 'Appretto', at: at(tc + s) }, { label: 'Forno', at: at(r.totalH) }];
+    default:           return [{ label: 'Impasta', at: at(0) }, { label: 'Staglio', at: at(p) }, { label: 'In frigo', at: at(p + s) }, { label: 'Fuori dal frigo', at: at(p + s + tc) }, { label: 'Forno', at: at(r.totalH) }];
+  }
+}
+function fmtWhen(d: Date, nowMs: number): string {
+  const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date(nowMs).toDateString() ? t
+    : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
+}
+
+/** "Il tuo piano": la risposta in alto, con orari assoluti e un solo comando. */
+function PlanSummaryCard({ result, nowMs, onUse, disabled, disabledReason }: {
+  result: PlanResult; nowMs: number; onUse: () => void; disabled?: boolean; disabledReason?: string;
+}) {
+  const steps = planClock(result, nowMs);
+  const outcome = outcomeOf(result);
+  return (
+    <section className="pm4-panel" aria-labelledby="pm-plan-title" style={{ padding: '13px 14px 14px', borderColor: 'rgba(255,140,50,0.45)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+        <h2 id="pm-plan-title" style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--pm4-tan)', fontWeight: 400 }}>
+          Il tuo piano · {result.label}
+        </h2>
+        {outcome && (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: outcome.color }}>
+            {outcome.label} · {result.matAtTarget!.toFixed(0)}%
+          </span>
+        )}
+      </div>
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {steps.map((st, i) => (
+          <li key={st.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+            <span style={{ color: i === steps.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>{st.label}</span>
+            <span style={{ color: i === steps.length - 1 ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtWhen(st.at, nowMs)}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {result.warmupH !== undefined && result.warmupH > 0.05 && (
+        <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--state-cold)' }}>
+          Fuori dal frigo serve un riscaldo di {fmtHours(result.warmupH)} prima del forno.
+        </div>
+      )}
+      {result.viability !== 'ok' && result.viabilityNote && (
+        <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-ember-lo)' }}>⚠ {result.viabilityNote}</div>
+      )}
+      <button type="button" onClick={onUse} disabled={disabled} className="pm-btn-primary" style={{
+        marginTop: 12, width: '100%', minHeight: 48, background: 'var(--accent-brand)', color: 'var(--bg-primary)',
+        border: 'none', borderRadius: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14,
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+      }}>
+        Usa questo piano →
+      </button>
+      {disabled && disabledReason && (
+        <div role="status" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-ember-lo)' }}>{disabledReason}</div>
+      )}
+    </section>
+  );
+}
+
+function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse, plannerErrors, recommended, disabled }: {
   result: PlanResult; aParams: { Ea: number; muMax: number; lambda: number };
   agentType: string; tAmb: number; fridgeT: number; initialAdu: number; muMax: number;
   onUse: () => void; plannerErrors?: string[];
+  /** Il protocollo già proposto in "Il tuo piano": qui solo come riferimento. */
+  recommended?: boolean;
+  disabled?: boolean;
 }) {
-  const viabilityStyle: Record<Viability, { bg: string; color: string }> = {
-    ok:    { bg: 'rgba(0,184,148,0.1)',   color: 'var(--state-optimal-hi)' },
-    risky: { bg: 'rgba(255,140,50,0.1)',  color: 'var(--accent-warning)' },
-    no:    { bg: 'rgba(214,48,49,0.08)',  color: 'var(--state-critical)' },
-  };
-  const vs = viabilityStyle[result.viability];
   const stars = '★'.repeat(result.stars) + '☆'.repeat(Math.max(0, 5 - result.stars));
+  const outcome = outcomeOf(result);
+  const blocked = disabled || !!(plannerErrors && plannerErrors.length > 0);
+  // La W è un vincolo, non l'esito: compare solo quando è un problema.
+  const wNote = result.viability === 'risky' ? '⚠ W al limite' : result.viability === 'no' ? '✗ W troppo bassa' : null;
 
   return (
-    <div style={{
-      borderRadius: 'var(--radius-md)',
-      border: `1px solid ${result.viability === 'ok' ? 'rgba(255,140,50,0.2)' : 'rgba(255,255,255,0.08)'}`,
-      background: result.viability === 'ok' ? 'var(--bg-elevated)' : 'var(--bg-base)',
-      padding: '14px 16px', opacity: result.viability === 'no' ? 0.55 : 1,
+    <div className="pm4-panel" style={{
+      padding: '13px 14px 14px', opacity: result.viability === 'no' ? 0.6 : 1,
+      borderColor: recommended ? 'rgba(255,140,50,0.45)' : undefined,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 8 }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-            {result.label}
+          <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--pm4-flour)' }}>
+            {result.label}{recommended && <span style={{ color: 'var(--pm4-ember-lo)', fontSize: 11, marginLeft: 8 }}>consigliato</span>}
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-            {stars} · {result.totalH.toFixed(1)}h totali
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-umber)', marginTop: 2 }}>
+            <span aria-label={`${result.stars} su 5`}>{stars}</span> · {fmtHours(result.totalH)} in tutto
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <MiniCurve result={result} aParams={aParams} agentType={agentType}
             tAmb={tAmb} fridgeT={fridgeT} initialAdu={initialAdu} muMax={muMax} />
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700,
-            background: vs.bg, color: vs.color,
-            borderRadius: 4, padding: '2px 7px',
-          }}>
-            {result.viability === 'ok' ? 'OK' : result.viability === 'risky' ? '⚠ RISCHIO W' : '✗ W basso'}
-          </span>
+          {outcome && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: outcome.color, border: '1px solid var(--pm4-line-strong)', borderRadius: 5, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+              {outcome.label}
+            </span>
+          )}
         </div>
       </div>
 
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-tan)', marginBottom: 8, lineHeight: 1.5 }}>
         {result.desc}
       </div>
 
-      {result.warmupH !== undefined && result.warmupH > 0.05 && (
-        <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 6,
-          padding: '4px 8px', background: 'rgba(253,203,110,0.1)',
-          borderRadius: 4, border: '1px solid rgba(253,203,110,0.2)',
-          color: 'var(--state-approaching)',
-        }}>
-          🌡 Riscaldo TA finale: <strong>{result.warmupH.toFixed(1)}h</strong> (frigo → 18°C)
-        </div>
-      )}
-
       {result.matAtTarget !== undefined && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 6 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Al tuo target: </span>
-          <strong style={{
-            color: result.matAtTarget > 95 ? 'var(--state-critical)'
-                 : result.matAtTarget > 75 ? 'var(--state-optimal-hi)'
-                 : 'var(--state-cold)',
-          }}>
-            {result.matAtTarget.toFixed(0)}%
-          </strong>
-          {result.matAtTarget > 95 && <span style={{ color: 'var(--state-critical)', marginLeft: 6 }}>· sovramaturato</span>}
-          {result.matAtTarget < 60 && <span style={{ color: 'var(--state-cold)', marginLeft: 6 }}>· sottomaturato</span>}
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, marginBottom: 6, color: 'var(--pm4-tan)' }}>
+          Maturazione all'orario scelto: <strong style={{ color: outcome?.color ?? 'var(--pm4-flour)' }}>{result.matAtTarget.toFixed(0)}%</strong>
+          <span style={{ color: 'var(--pm4-umber)' }}> (target {BAKE_TARGET_PCT}%)</span>
         </div>
       )}
 
-      {result.viabilityNote && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: vs.color, marginBottom: 8, opacity: 0.85 }}>
-          {result.viabilityNote}
+      {(wNote || result.viabilityNote) && result.viability !== 'ok' && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: result.viability === 'no' ? 'var(--state-critical)' : 'var(--pm4-ember-lo)', marginBottom: 8 }}>
+          {wNote}{result.viabilityNote ? ` · ${result.viabilityNote}` : ''}
         </div>
       )}
 
       {result.viability !== 'no' && (
         <>
           {plannerErrors && plannerErrors.length > 0 && (
-            <div style={{
-              background: 'rgba(255,118,117,0.15)', border: '1px solid #ff7675',
-              borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+            <div role="alert" style={{
+              border: '1px solid rgba(255,118,117,0.4)', borderRadius: 8, padding: '8px 12px', marginBottom: 8,
             }}>
               {plannerErrors.map((err, i) => (
-                <p key={i} style={{ color: '#ff7675', fontSize: 13, margin: '2px 0', fontFamily: 'var(--font-mono)' }}>
+                <p key={i} style={{ color: 'var(--state-critical)', fontSize: 12, margin: '2px 0', fontFamily: 'var(--font-mono)' }}>
                   ⚠ {err}
                 </p>
               ))}
             </div>
           )}
-          <button onClick={onUse} disabled={!!(plannerErrors && plannerErrors.length > 0)} style={{
-            background: 'var(--accent-brand)', color: '#0a0806',
-            border: 'none', borderRadius: 'var(--radius-sm)',
-            padding: '7px 14px', minHeight: 44, fontFamily: 'var(--font-mono)',
-            fontWeight: 700, fontSize: '0.78rem',
-            cursor: plannerErrors && plannerErrors.length > 0 ? 'not-allowed' : 'pointer',
-            opacity: plannerErrors && plannerErrors.length > 0 ? 0.4 : 1,
-          }}>
-            Usa questo schema →
-          </button>
+          {!recommended && (
+            <button type="button" onClick={onUse} disabled={blocked} className="pm4-btn pm4-btn-ghost" style={{
+              background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
+              border: '1px solid var(--pm4-line-strong)', borderRadius: 9,
+              padding: '9px 14px', minHeight: 44, fontFamily: 'var(--font-mono)',
+              fontWeight: 700, fontSize: 13,
+              cursor: blocked ? 'not-allowed' : 'pointer', opacity: blocked ? 0.45 : 1,
+            }}>
+              Usa questo
+            </button>
+          )}
         </>
       )}
     </div>
@@ -574,15 +651,17 @@ function PlannerSlider({ label, value, onChange, min, max, step, unit, color }: 
   label: string; value: number; onChange: (v: number) => void;
   min: number; max: number; step: number; unit?: string; color?: string;
 }) {
+  const id = useId();
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={S.label}>{label}</span>
+        <label htmlFor={id} style={S.label}>{label}</label>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: color ?? 'var(--text-secondary)' }}>
           {value}{unit ? ` ${unit}` : ''}
         </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value}
+      <input id={id} type="range" min={min} max={max} step={step} value={value}
+        aria-valuetext={`${value}${unit ? ` ${unit}` : ''}`}
         onChange={e => onChange(parseFloat(e.target.value))}
         style={{ width: '100%', accentColor: color ?? 'var(--accent-brand)' }} />
     </div>
@@ -594,7 +673,7 @@ function PlannerSlider({ label, value, onChange, min, max, step, unit, color }: 
 // tappabile, micro-pulse al variare del valore (rispetta reduced-motion).
 // È informazione viva derivata da un altro input, non un campo disabilitato.
 function DerivedField({
-  label, value, explanation, color = '#e5e7eb',
+  label, value, explanation, color = 'var(--pm4-flour)',
 }: {
   label: string; value: string; explanation: string; color?: string;
 }) {
@@ -650,14 +729,14 @@ function ConstraintChip({ ok, label, value }: { ok: boolean; label: string; valu
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '6px 10px', borderRadius: 6,
-      background: ok ? 'rgba(0,184,148,0.1)' : 'rgba(214,48,49,0.1)',
-      border: `1px solid ${ok ? 'rgba(0,184,148,0.25)' : 'rgba(214,48,49,0.25)'}`,
+      background: ok ? 'rgba(232,213,176,0.06)' : 'rgba(214,48,49,0.1)',
+      border: `1px solid ${ok ? 'var(--pm4-line-strong)' : 'rgba(214,48,49,0.25)'}`,
     }}>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
         {ok ? '✓' : '✗'} {label}
       </span>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', fontWeight: 700,
-        color: ok ? 'var(--state-optimal-hi)' : 'var(--state-critical)' }}>
+        color: ok ? 'var(--pm4-flour)' : 'var(--state-critical)' }}>
         {value}
       </span>
     </div>
@@ -719,7 +798,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
           {inf?.reason === 'cannot_temper' && 'A questa temperatura ambiente le palline non raggiungono 18°C.'}
           {inf?.reason === 'window_too_short' && 'Tempo insufficiente per puntata + appretto + tempering + servizio.'}
-          {inf?.reason === 'window_too_short_maturation' && `La maturazione a fine servizio sarebbe solo ${inf.maturationAtMax?.toFixed(0) ?? '—'}% (target 90%).`}
+          {inf?.reason === 'window_too_short_maturation' && `La maturazione a fine servizio sarebbe solo ${inf.maturationAtMax?.toFixed(0) ?? '—'}% (target ${result.resolvedTargetMaturationPct ?? 90}%).`}
           {inf?.reason === 'w_collapse' && 'La struttura del glutine collasserebbe prima della fine del servizio.'}
           {inf?.reason === 'bubble_threshold_lm_unscalable' && 'Lievito madre: la lievitazione supera la soglia bolle e la dose non è scalabile abbastanza.'}
         </div>
@@ -752,10 +831,10 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 12px', borderRadius: 8, marginBottom: 14,
-        background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.3)',
+        background: 'rgba(232,213,176,0.06)', border: '1px solid var(--pm4-line-strong)',
       }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--state-optimal-hi)' }}>✓</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: 'var(--state-optimal-hi)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--pm4-flour)' }}>✓</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.82rem', color: 'var(--pm4-flour)' }}>
           OK — Impasta ADESSO
         </span>
         {result.fridgeTempAdjusted && fridgeDisplay && (
@@ -777,7 +856,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
         </div>
       )}
 
-      <div style={{ ...S.label, marginBottom: 10 }}>Piano servizio · maturazione 90% a fine finestra</div>
+      <div style={{ ...S.label, marginBottom: 10 }}>Piano servizio · maturazione {result.resolvedTargetMaturationPct ?? 90}% a fine finestra</div>
 
       {/* Schedule — mixStart = ADESSO */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
@@ -786,11 +865,11 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
           <PlanRow label="Frigo consigliato" value={fridgeDisplay} />
         )}
         <PlanRow label="Dose lievito" value={`${result.dose?.toFixed(3)}%`} />
-        <PlanRow label="Puntata TA" value={`${s.puntataH.toFixed(1)}h`} />
-        <PlanRow label="Staglio" value={`${s.staglioH.toFixed(1)}h`} />
-        <PlanRow label="Appretto TC (frigo)" value={`${s.tcHours.toFixed(1)}h`} />
+        <PlanRow label="Puntata" value={fmtHours(s.puntataH)} />
+        <PlanRow label="Staglio" value={fmtHours(s.staglioH)} />
+        <PlanRow label="Appretto in frigo" value={fmtHours(s.tcHours)} />
         {pullFromFridge && <PlanRow label="Esci dal frigo" value={fmt(pullFromFridge)} />}
-        <PlanRow label="Tempering (frigo → 18°C)" value={`${s.temperingH.toFixed(1)}h`} />
+        <PlanRow label="Riscaldo (frigo → 18°C)" value={fmtHours(s.temperingH)} />
         {serviceStart && <PlanRow label="Servizio" value={`${fmt(serviceStart)} · ${serviceDurationH}h`} />}
       </div>
 
@@ -832,7 +911,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
       {/* Inizio vs fine */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <Metric label="Maturazione inizio" value={start.maturationPct.toFixed(0)} unit="%" color="var(--state-cold)" />
-        <Metric label="Maturazione fine" value={end.maturationPct.toFixed(0)} unit="%" color="var(--state-optimal-hi)" />
+        <Metric label="Maturazione fine" value={end.maturationPct.toFixed(0)} unit="%" color="var(--pm4-flour)" />
         <Metric label="Lievitazione inizio" value={start.leaveningPct.toFixed(0)} unit="%" />
         <Metric label="Lievitazione fine" value={end.leaveningPct.toFixed(0)} unit="%" color="var(--accent-brand)" />
       </div>
@@ -1082,18 +1161,19 @@ export function solveQualityProfile(
 function QualityDotRow({ label, target, predicted, color }: { label: string; target: number; predicted: number; color: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', width: 100 }}>{label}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-tan)', width: 100 }}>{label}</span>
       <div style={{ display: 'flex', gap: 3 }}>
         {Array.from({ length: 5 }, (_, i) => (
           <div key={i} style={{
             width: 10, height: 10, borderRadius: '50%',
             background: i < predicted ? color : 'rgba(255,255,255,0.1)',
-            border: i === target - 1 ? '2px solid rgba(255,255,255,0.5)' : 'none',
+            border: target > 0 && i === target - 1 ? '2px solid var(--pm4-flour)' : 'none',
           }} />
         ))}
       </div>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: predicted === target ? 'var(--state-optimal-hi)' : 'var(--accent-warning)', minWidth: 36, textAlign: 'right' }}>
-        {predicted === target ? `${predicted}/5` : `${predicted}/${target}`}
+      {/* target ≤ 0 = nessun obiettivo per questo indice: si mostra solo il previsto */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: target <= 0 || predicted === target ? 'var(--pm4-flour)' : 'var(--pm4-ember-lo)', minWidth: 36, textAlign: 'right' }}>
+        {target <= 0 || predicted === target ? `${predicted}/5` : `${predicted} su ${target}`}
       </span>
     </div>
   );
@@ -1176,7 +1256,7 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
         )}
         <PlanRow label="Staglio" value={`${result.staglioH.toFixed(1)}h`} />
         {result.tcHours > 0 && <PlanRow label="Appretto TC (frigo)" value={`${result.tcHours.toFixed(1)}h`} />}
-        <PlanRow label="Protocollo" value={result.apprettoProtocol === 'tc_appreto' ? 'TC Appreto' : 'Tutto TA'} />
+        <PlanRow label="Protocollo" value={result.apprettoProtocol === 'tc_appreto' ? 'TC Appretto' : 'Tutto a temperatura ambiente'} />
       </div>
 
       {/* Profilo previsto vs target */}
@@ -1184,7 +1264,7 @@ function QualityProfileResultCard({ result, onUse, plannerErrors }: { result: Qu
         <span style={{ ...S.label, fontSize: '0.65rem' }}>Profilo previsto (●) vs target (○)</span>
         <QualityDotRow label="Estensibilità"   target={Math.round(result.mFromExt * 3 + 1)} predicted={result.predictedExt}   color="var(--pref-autolisi, #74b9ff)" />
         <QualityDotRow label="Aromi"           target={-1} predicted={result.predictedAroma} color="var(--accent-warning)" />
-        <QualityDotRow label="Scioglievolezza" target={-1} predicted={result.predictedSci}   color="var(--state-approaching)" />
+        <QualityDotRow label="Scioglievolezza" target={-1} predicted={result.predictedSci}   color="var(--pm4-ember)" />
       </div>
 
       {plannerErrors && plannerErrors.length > 0 && (
@@ -1222,27 +1302,43 @@ function PlanRow({ label, value }: { label: string; value: string }) {
 }
 
 // ─── Vista principale ─────────────────────────────────────────────────────────
+// ─── Stato del planner conservato (sessionStorage) ───────────────────────────
+// Tornando dal wizard con "← Planner" il planner resta com'era. Solo comodità
+// per chi lo sta usando: se lo storage non c'è, si riparte dai default.
+function usePlannerState<T>(key: string, init: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = sessionStorage.getItem(`pm-planner:${key}`);
+      return raw != null ? (JSON.parse(raw) as T) : init;
+    } catch { return init; }
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(`pm-planner:${key}`, JSON.stringify(value)); } catch { /* storage non disponibile */ }
+  }, [key, value]);
+  return [value, setValue] as const;
+}
+
 export function FermentationPlannerView() {
   const { dispatch } = useApp();
 
   // Parametri farina + agente
-  const [W,           setW]           = useState(280);
-  const [flourPl,     setFlourPl]     = useState(0.55);
-  const [flourProtein,setFlourProtein]= useState(12.5);
-  const [selectedFlourId, setSelectedFlourId] = useState('');
-  const [agentType,   setAgentType]   = useState<'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat'>('fresh_yeast');
-  const [dosePct,     setDosePct]     = useState(0.3);
-  const [tAmb,          setTAmb]          = useState(22);
-  const [fridgeT,       setFridgeT]       = useState(4);
-  const [staglioH,      setStaglioH]      = useState(0.5);
-  const [salt,          setSalt]          = useState(2.0);
-  const [kneadingMethod, setKneadingMethod] = useState<KneadingMethod>('spiral');
+  const [W,           setW]           = usePlannerState('W', 280);
+  const [flourPl,     setFlourPl]     = usePlannerState('flourPl', 0.55);
+  const [flourProtein,setFlourProtein]= usePlannerState('flourProtein', 12.5);
+  const [selectedFlourId, setSelectedFlourId] = usePlannerState('selectedFlourId', '');
+  const [agentType,   setAgentType]   = usePlannerState<'fresh_yeast' | 'instant_dry_yeast' | 'sourdough_wheat'>('agentType', 'fresh_yeast');
+  const [dosePct,     setDosePct]     = usePlannerState('dosePct', 0.3);
+  const [tAmb,          setTAmb]          = usePlannerState('tAmb', 22);
+  const [fridgeT,       setFridgeT]       = usePlannerState('fridgeT', 4);
+  const [staglioH,      setStaglioH]      = usePlannerState('staglioH', 0.5);
+  const [salt,          setSalt]          = usePlannerState('salt', 2.0);
+  const [kneadingMethod, setKneadingMethod] = usePlannerState<KneadingMethod>('kneadingMethod', 'spiral');
 
   // Parametri impasto (per il wizard)
-  const [style,       setStyle]       = useState<'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle'>('napoletana');
-  const [totalFlourG, setTotalFlourG] = useState(500);
-  const [hydration,   setHydration]   = useState(65);
-  const [numPanetti,  setNumPanetti]  = useState(4);
+  const [style,       setStyle]       = usePlannerState<'napoletana' | 'contemporanea' | 'teglia' | 'pala' | 'nystyle'>('style', 'napoletana');
+  const [totalFlourG, setTotalFlourG] = usePlannerState('totalFlourG', 500);
+  const [hydration,   setHydration]   = usePlannerState('hydration', 65);
+  const [numPanetti,  setNumPanetti]  = usePlannerState('numPanetti', 4);
 
   // Handler reattivi numPanetti ↔ pesoPanetto → farina
   const handleNumPanettiChange = (val: number) => {
@@ -1267,21 +1363,21 @@ export function FermentationPlannerView() {
   };
 
   // Target cottura
-  const [targetDate,  setTargetDate]  = useState('');
-  const [targetTime,  setTargetTime]  = useState('12:00');
+  const [targetDate,  setTargetDate]  = usePlannerState('targetDate', '');
+  const [targetTime,  setTargetTime]  = usePlannerState('targetTime', '12:00');
 
   // ── Modalità pianificatore: 'bake' (ora di cottura) | 'service' (finestra servizio) ──
-  const [plannerMode, setPlannerMode] = useState<'bake' | 'service' | 'quality'>('bake');
+  const [plannerMode, setPlannerMode] = usePlannerState<'bake' | 'service' | 'quality'>('plannerMode', 'bake');
 
   // ── Modalità Profilo Qualità ───────────────────────────────────────────────
-  const [extTarget,   setExtTarget]   = useState(3);
-  const [aromaTarget, setAromaTarget] = useState(3);
-  const [sciTarget,   setSciTarget]   = useState(3);
-  const [serviceDate, setServiceDate] = useState('');
-  const [serviceTime, setServiceTime] = useState('19:00');
-  const [serviceDurationH, setServiceDurationH] = useState(2);
-  const [userBubbleThresholdPct, setUserBubbleThresholdPct] = useState<number | null>(null);
-  const [userTargetMatPct, setUserTargetMatPct] = useState<number | null>(null);
+  const [extTarget,   setExtTarget]   = usePlannerState('extTarget', 3);
+  const [aromaTarget, setAromaTarget] = usePlannerState('aromaTarget', 3);
+  const [sciTarget,   setSciTarget]   = usePlannerState('sciTarget', 3);
+  const [serviceDate, setServiceDate] = usePlannerState('serviceDate', '');
+  const [serviceTime, setServiceTime] = usePlannerState('serviceTime', '19:00');
+  const [serviceDurationH, setServiceDurationH] = usePlannerState('serviceDurationH', 2);
+  const [userBubbleThresholdPct, setUserBubbleThresholdPct] = usePlannerState<number | null>('userBubbleThresholdPct', null);
+  const [userTargetMatPct, setUserTargetMatPct] = usePlannerState<number | null>('userTargetMatPct', null);
 
   // Clock reattivo per countdown live (KB §11.3 — evita Date.now() in useMemo)
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -1299,8 +1395,8 @@ export function FermentationPlannerView() {
   }, [targetDate, targetTime, nowMs]);
 
   // Mix farine (blend builder)
-  const [useBlend,     setUseBlend]    = useState(false);
-  const [blendFlours,  setBlendFlours] = useState<{ W: number; pct: number }[]>([{ W: 300, pct: 100 }]);
+  const [useBlend,     setUseBlend]    = usePlannerState('useBlend', false);
+  const [blendFlours,  setBlendFlours] = usePlannerState<{ W: number; pct: number }[]>('blendFlours', [{ W: 300, pct: 100 }]);
 
   // W effettivo: da blend o da slider singolo
   const effectiveBlendW = useBlend && blendFlours.length > 0
@@ -1308,8 +1404,8 @@ export function FermentationPlannerView() {
     : null;
 
   // Peso panetto e flag override manuale farina (MODIFICA 2B)
-  const [pesoPanetto,   setPesoPanetto]   = useState(250);
-  const [farinaManuale, setFarinaManuale] = useState(false);
+  const [pesoPanetto,   setPesoPanetto]   = usePlannerState('pesoPanetto', 250);
+  const [farinaManuale, setFarinaManuale] = usePlannerState('farinaManuale', false);
 
   // Bug #65: ricalcola farina quando idratazione o sale cambiano (a meno di override manuale)
   useEffect(() => {
@@ -1363,6 +1459,13 @@ export function FermentationPlannerView() {
     } catch { return []; }
   }, [solverW, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner]);
 
+  // Un solo protocollo consigliato (CTA brace); gli altri sono alternative.
+  const recommendedPlan = useMemo(() => pickRecommended(results), [results]);
+  const dateInPast = !!targetDate && hoursUntilBake === undefined;
+  const bakeBlocked = dateInPast || plannerErrors.length > 0;
+  const bakeBlockedReason = dateInPast ? "L'orario di cottura scelto è già passato: scegline uno futuro."
+    : plannerErrors.length > 0 ? plannerErrors[0] : undefined;
+
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
     // FlourGroup sintetico dal W selezionato nel planner (blend o singolo)
@@ -1394,6 +1497,9 @@ export function FermentationPlannerView() {
       puntataH:         r.puntataH  ?? 8,
       staglioH:         r.staglioH,
       apprettoH:        r.protocol === 'tc_appreto' ? (r.warmupH ?? 0) : (r.apprettoH ?? 4),
+      temperingH:       r.protocol === 'tc_appreto' ? (r.warmupH ?? 0) : undefined,
+      // la soglia con cui il planner ha costruito i protocolli: la dashboard userà questa
+      alertThreshold:   BAKE_TARGET_PCT,
       tcHours:          r.tcHours,
       fridgeTempC:      fridgeT,
       targetBakeAt,
@@ -1479,7 +1585,7 @@ export function FermentationPlannerView() {
       thermalTimeline:  r.timeline,           // onorata da startSession (no rebuild)
       temperingH:       s.temperingH,         // → marker USCITA FRIGO sulla dashboard
       bubbleThresholdPct: r.resolvedBubbleThresholdPct ?? 92,
-      alertThreshold:   r.resolvedTargetMaturationPct ?? 90,
+      alertThreshold:   r.resolvedTargetMaturationPct ?? userTargetMatPct ?? getStyleProfile(style).alertThreshold,
       navigationSource: 'planner' as const,
     }});
     dispatch({ type: 'NAV', view: 'wizard' });
@@ -1523,7 +1629,7 @@ export function FermentationPlannerView() {
       apprettoProtocol: r.apprettoProtocol,
       puntataH: r.puntataH,
       staglioH: r.staglioH,
-      apprettoH: r.tcHours > 0 ? 0 : 4,
+      apprettoH: 0,   // il piano Qualità non ha appretto separato (totale = puntata + staglio + frigo)
       tcHours: r.tcHours,
       fridgeTempC: fridgeT,
       totalFlourGrams: totalFlourG,
@@ -1558,14 +1664,14 @@ export function FermentationPlannerView() {
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'home' })}
           aria-label="Torna alla schermata iniziale"
-          style={{ background: 'none', border: 'none', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer' }}
-        >←</button>
+          style={{ width: 44, height: 44, marginLeft: -12, background: 'none', border: 'none', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)', fontSize: 18, cursor: 'pointer' }}
+        ><span aria-hidden="true">←</span></button>
         <div>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            Pianifica Fermentazione
-          </h2>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
-            Calcolo analitico ottimale · Arrhenius × Gompertz
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, color: 'var(--pm4-flour)', margin: 0 }}>
+            Pianifica fermentazione
+          </h1>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)', marginTop: 2 }}>
+            Scegli quando infornare: ti propongo il piano con gli orari
           </div>
         </div>
       </div>
@@ -1574,13 +1680,72 @@ export function FermentationPlannerView() {
       <SnapButtons
         label="Modalità"
         options={[
-          { value: 'bake',    label: 'Orario',   desc: 'Centra l\'85% all\'orario scelto' },
-          { value: 'service', label: 'Servizio',  desc: 'Maturazione 90% per tutta la finestra' },
+          { value: 'bake',    label: 'Orario',   desc: 'Pronta all\'orario che scegli' },
+          { value: 'service', label: 'Servizio',  desc: 'Pronta per tutta la finestra di servizio' },
           { value: 'quality', label: 'Qualità',   desc: 'Raggiungi un profilo sensoriale target' },
         ]}
         value={plannerMode}
         onChange={v => setPlannerMode(v as 'bake' | 'service' | 'quality')}
       />
+
+      {/* ── Target cottura ── */}
+      {plannerMode === 'bake' && (
+      <Card>
+        <div style={{ ...S.label, marginBottom: 12 }}>Quando vuoi infornare?</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+          <input
+            type="date"
+            aria-label="Giorno della cottura"
+            value={targetDate}
+            onChange={e => setTargetDate(e.target.value)}
+            style={{
+              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
+              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', outline: 'none', width: '100%',
+            }}
+          />
+          <input
+            type="time"
+            aria-label="Ora della cottura"
+            value={targetTime}
+            onChange={e => setTargetTime(e.target.value)}
+            style={{
+              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
+              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', outline: 'none', width: 120,
+            }}
+          />
+        </div>
+        {targetDate && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
+            <span style={{ color: 'var(--accent-brand)' }}>
+              Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+            {hoursUntilBake !== undefined && (
+              <span style={{ color: 'var(--text-muted)', marginLeft: 10 }}>
+                → tra {fmtHours(hoursUntilBake)}
+              </span>
+            )}
+            {hoursUntilBake === undefined && (
+              <span style={{ color: 'var(--state-critical)', marginLeft: 10 }}>· data nel passato</span>
+            )}
+          </div>
+        )}
+        {hoursUntilBake !== undefined && hoursUntilBake < staglioH + 2 && (
+          <div style={{ color: 'var(--state-critical)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
+            ⚠ Meno di {(staglioH + 2).toFixed(0)}h al target — protocolli misti non disponibili
+          </div>
+        )}
+      </Card>
+      )}
+
+      {/* ── La risposta prima degli input: il piano consigliato con gli orari ── */}
+      {plannerMode === 'bake' && recommendedPlan && (
+        <PlanSummaryCard result={recommendedPlan} nowMs={nowMs} onUse={() => useResult(recommendedPlan)}
+          disabled={bakeBlocked} disabledReason={bakeBlockedReason} />
+      )}
 
       {/* ── Impasto ── */}
       <Card>
@@ -1704,7 +1869,7 @@ export function FermentationPlannerView() {
                 color: useBlend ? 'var(--accent-brand)' : 'var(--text-muted)',
                 background: useBlend ? 'rgba(253,186,116,0.1)' : 'none',
                 border: `1px solid ${useBlend ? 'rgba(253,186,116,0.3)' : 'rgba(255,255,255,0.12)'}`,
-                borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
+                borderRadius: 8, padding: '6px 12px', minHeight: 44, cursor: 'pointer',
               }}
             >
               {useBlend ? '▼ Mix' : '+ Mix farine'}
@@ -1812,7 +1977,7 @@ export function FermentationPlannerView() {
             fontFamily: 'var(--font-mono)', fontSize: '0.7rem', lineHeight: 1.45,
             color: 'var(--accent-warning)', marginTop: 6,
           }}>
-            Dose fuori dal dominio calibrato del modello: la previsione e' saturata
+            Dose fuori dal dominio calibrato del modello: la previsione è saturata
             al limite e sara' ottimistica. Riferimento {doseRef ?? '—'}%.
           </div>
           )}
@@ -1855,14 +2020,14 @@ export function FermentationPlannerView() {
         <Card>
           <div style={{ ...S.label, marginBottom: 12 }}>Finestra di servizio</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
-            <input type="date" value={serviceDate} onChange={e => setServiceDate(e.target.value)}
+            <input type="date" aria-label="Data del servizio" value={serviceDate} onChange={e => setServiceDate(e.target.value)}
               style={{ background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
                 borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
                 fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: '100%' }} />
-            <input type="time" value={serviceTime} onChange={e => setServiceTime(e.target.value)}
+            <input type="time" aria-label="Ora di inizio del servizio" value={serviceTime} onChange={e => setServiceTime(e.target.value)}
               style={{ background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
                 borderRadius: 'var(--radius-sm)', padding: '10px 12px', color: 'var(--text-primary)',
-                fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: 95 }} />
+                fontFamily: 'var(--font-mono)', fontSize: '0.9rem', outline: 'none', width: 120 }} />
           </div>
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <PlannerSlider label="Durata servizio" value={serviceDurationH} onChange={setServiceDurationH}
@@ -1871,18 +2036,18 @@ export function FermentationPlannerView() {
               label={`Soglia anti-bolle (lievitazione)${userBubbleThresholdPct == null ? ` · Profilo: ${getStyleProfile(style).bubbleThresholdPct}%` : ''}`}
               value={userBubbleThresholdPct ?? getStyleProfile(style).bubbleThresholdPct}
               onChange={(v) => setUserBubbleThresholdPct(v)}
-              min={60} max={95} step={1} unit="%" color="var(--state-approaching)" />
+              min={60} max={95} step={1} unit="%" color="var(--pm4-ember)" />
             {userBubbleThresholdPct != null && (
               <button
                 onClick={() => setUserBubbleThresholdPct(null)}
-                style={{ fontSize: 11, color: '#a09070', background: 'none', border: 'none', cursor: 'pointer', marginTop: 2, padding: 0 }}
+                style={{ fontSize: 12, color: 'var(--pm4-ember-lo)', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, padding: '0 4px', fontFamily: 'var(--font-mono)', alignSelf: 'flex-start' }}
               >
                 Reset soglia bolle
               </button>
             )}
           </div>
           <div style={{ marginTop: 12 }}>
-            <label style={{ fontSize: 13, color: '#a09070', display: 'block', marginBottom: 4 }}>
+            <label htmlFor="pm-plan-target-mat" style={{ ...S.label, display: 'block', marginBottom: 4 }}>
               Target maturazione (enzimatica)
               {userTargetMatPct == null && (
                 <span style={{ color: 'var(--pm4-umber)', marginLeft: 6 }}>
@@ -1892,8 +2057,10 @@ export function FermentationPlannerView() {
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
+                id="pm-plan-target-mat"
                 type="range" min={70} max={100} step={1}
                 value={userTargetMatPct ?? getStyleProfile(style).alertThreshold}
+                aria-valuetext={`${userTargetMatPct ?? getStyleProfile(style).alertThreshold}%`}
                 onChange={e => setUserTargetMatPct(Number(e.target.value))}
                 style={{ flex: 1 }}
               />
@@ -1903,7 +2070,7 @@ export function FermentationPlannerView() {
               {userTargetMatPct != null && (
                 <button
                   onClick={() => setUserTargetMatPct(null)}
-                  style={{ fontSize: 11, color: '#a09070', background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{ fontSize: 12, color: 'var(--pm4-ember-lo)', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, padding: '0 4px', fontFamily: 'var(--font-mono)' }}
                 >
                   Reset
                 </button>
@@ -1962,12 +2129,12 @@ export function FermentationPlannerView() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={S.label}>Scioglievolezza</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--state-approaching)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--pm4-ember)' }}>
                   {'●'.repeat(sciTarget)}{'○'.repeat(5 - sciTarget)}
                 </span>
               </div>
               <input type="range" min={1} max={5} step={1} value={sciTarget} onChange={e => setSciTarget(+e.target.value)}
-                style={{ width: '100%', accentColor: 'var(--state-approaching)' }} />
+                style={{ width: '100%', accentColor: 'var(--pm4-ember)' }} />
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 3 }}>
                 Picco a 87% maturazione · idratazione + stile · non monotona
               </div>
@@ -1980,57 +2147,45 @@ export function FermentationPlannerView() {
         <QualityProfileResultCard result={qualityResult} onUse={() => useQualityResult(qualityResult)} plannerErrors={plannerErrors} />
       )}
 
-      {/* ── Target cottura ── */}
+      {/* ── Risultati ── */}
       {plannerMode === 'bake' && (
-      <Card>
-        <div style={{ ...S.label, marginBottom: 12 }}>Target cottura (opzionale)</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
-          <input
-            type="date"
-            value={targetDate}
-            onChange={e => setTargetDate(e.target.value)}
-            style={{
-              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
-              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
-              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
-              fontSize: '0.9rem', outline: 'none', width: '100%',
-            }}
-          />
-          <input
-            type="time"
-            value={targetTime}
-            onChange={e => setTargetTime(e.target.value)}
-            style={{
-              background: 'var(--bg-elevated)', border: '1px solid var(--pm4-line-strong)',
-              borderRadius: 'var(--radius-sm)', padding: '10px 12px',
-              color: 'var(--text-primary)', fontFamily: 'var(--font-mono)',
-              fontSize: '0.9rem', outline: 'none', width: 95,
-            }}
-          />
-        </div>
-        {targetDate && (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
-            <span style={{ color: 'var(--accent-brand)' }}>
-              Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-            </span>
-            {hoursUntilBake !== undefined && (
-              <span style={{ color: 'var(--text-muted)', marginLeft: 10 }}>
-                → tra {hoursUntilBake.toFixed(1)}h
-              </span>
-            )}
-            {hoursUntilBake === undefined && (
-              <span style={{ color: 'var(--state-critical)', marginLeft: 10 }}>· data nel passato</span>
-            )}
+      <div>
+        <h2 style={{ ...S.label, margin: '0 0 12px', fontWeight: 400 }}>
+          {recommendedPlan ? 'Alternative' : 'Protocolli'} a {tAmb}°C ambiente / {fridgeT}°C frigo
+        </h2>
+        {results.length === 0 ? (
+          <Card style={{ textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+            Inserisci i parametri sopra per vedere i suggerimenti
+          </Card>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {results.map(r => (
+              <ProtocolCard
+                key={r.protocol}
+                recommended={r === recommendedPlan}
+                disabled={bakeBlocked}
+                result={r}
+                aParams={aParams}
+                agentType={agentType}
+                tAmb={tAmb}
+                fridgeT={fridgeT}
+                initialAdu={initialAdu}
+                muMax={muMax}
+                onUse={() => useResult(r)}
+                plannerErrors={plannerErrors}
+              />
+            ))}
           </div>
         )}
-        {hoursUntilBake !== undefined && hoursUntilBake < staglioH + 2 && (
-          <div style={{ color: 'var(--state-critical)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
-            ⚠ Meno di {(staglioH + 2).toFixed(0)}h al target — protocolli misti non disponibili
-          </div>
-        )}
-      </Card>
+      </div>
       )}
 
+      {/* ── Opzioni avanzate: acqua di impasto e dettagli tecnici, chiuse di default ── */}
+      <details className="pm4-panel" style={{ padding: 0 }}>
+        <summary style={{ minHeight: 44, padding: '13px 14px', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--pm4-tan)' }}>
+          Dettagli: acqua di impasto e velocità del lievito
+        </summary>
+        <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* ── Acqua di impastamento (DDT live) ── */}
       {(plannerMode === 'quality' ? qualityResult !== null : results.length > 0) && (() => {
         const waterG      = Math.round(totalFlourG * (hydration / 100));
@@ -2061,39 +2216,10 @@ export function FermentationPlannerView() {
         );
       })()}
 
-      {/* ── Risultati ── */}
-      {plannerMode === 'bake' && (
-      <div>
-        <div style={{ ...S.label, marginBottom: 12 }}>
-          Protocolli ottimali a {tAmb}°C TA / {fridgeT}°C TC
+      {/* ── Dettaglio tecnico, secondario ── */}
+      <Metric label="Velocità del lievito rispetto a 25°C (ambiente / frigo)" value={`${((kEffective as Function)(tAmb, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(3)} / ${((kEffective as Function)(fridgeT, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(4)}`} />
         </div>
-        {results.length === 0 ? (
-          <Card style={{ textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-            Inserisci i parametri sopra per vedere i suggerimenti
-          </Card>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {results.map(r => (
-              <ProtocolCard
-                key={r.protocol}
-                result={r}
-                aParams={aParams}
-                agentType={agentType}
-                tAmb={tAmb}
-                fridgeT={fridgeT}
-                initialAdu={initialAdu}
-                muMax={muMax}
-                onUse={() => useResult(r)}
-                plannerErrors={plannerErrors}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-      )}
-
-      {/* ── Footer ── */}
-      <Metric label="kRatio (TA / TC)" value={`${((kEffective as Function)(tAmb, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(3)} / ${((kEffective as Function)(fridgeT, aParams.Ea, agentType) as number / (kEffective as Function)(25, aParams.Ea, agentType) as number).toFixed(4)}`} />
+      </details>
     </div>
   );
 }

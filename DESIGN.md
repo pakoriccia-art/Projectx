@@ -259,7 +259,7 @@ Il cuore di BANCO, e la risposta a "quando inforno?".
 
 ATTENZIONE (giallo), CRITICO e COLLASSO (rossi) restano riservati ai problemi strutturali della W.
 
-**The Ready Is Green Rule.** Il verde pieno compare solo quando si può infornare. Lo stesso colore non indica mai "in corso". Nemmeno le fasi fatte della timeline, la linea di avanzamento, il pallino "live" o i valori secondari: quelli sono in farina, terra d'ombra o brace.
+**The Ready Is Green Rule.** Il verde pieno compare solo quando si può infornare. "Pronto" significa infornabile: in frigo, o con il cuore ancora freddo dopo il frigo, la maturazione al target dà lo stato **FREDDO** (azzurro freddo, "Matura in frigo · inforni alle" / "In riscaldo · inforni alle", orario del piano), mai verde né "ORA". La soglia è quella della sessione (scelta nel planner o nel wizard), altrimenti quella dello stile; la nota la marca "(dal piano)". Lo stesso colore non indica mai "in corso". Nemmeno le fasi fatte della timeline, la linea di avanzamento, il pallino "live" o i valori secondari: quelli sono in farina, terra d'ombra o brace.
 
 ### Signature: Timeline delle fasi
 Marker per fase, con orari assoluti e avanzamento reale sulla linea verde. Toccare una fase futura **chiede conferma**: un pannello mostra quanto si accorcia la fase corrente e la nuova ora di cottura. Dopo la conferma, un "↶ Annulla" resta disponibile per 10 secondi. Le fasi passate sono bloccate.
