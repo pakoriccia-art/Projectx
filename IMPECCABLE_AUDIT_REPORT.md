@@ -359,6 +359,10 @@ Critique (dual-agent): 25/40, 0 P0, 4 P1 — ricetta incoerente avviabile (acqua
 - Servizio fisso o spostato: lo sceglie chi impasta quando c'è un orario di cottura.
 - Durata non più reinterpretata in silenzio; orari del Planner coerenti con la fase; pulsante "danger" a contrasto AA.
 
+## Passaggio 20: seconda critique del flusso prefermento (27/40, prima 25/40)
+
+Risolti: ricetta impossibile, fase persa con un impasto attivo, dosi nella fase, conferma anticipata, autolisi, orari planner/fase. Restano 3 P1: due prefermenti seguiti con il nome e le soglie di quello sbagliato, ritardo che non scala col rischio, doppio clic su "Sostituisci" che crea due fasi. P2: due calcoli diversi dell'acqua finale, fasi salvate dalla build precedente, correzione dell'idratazione fuori range di stile, gerarchia dei pulsanti all'inizio, focus perso dopo le conferme. Detector: 0 sul nuovo componente (ma non vede i font numerici), 5 advisory sul codice nuovo del wizard.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
