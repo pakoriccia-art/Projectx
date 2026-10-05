@@ -4,6 +4,7 @@
  * Si aggiorna automaticamente quando Aggiusta Rotta rigenera la timeline.
  */
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { fmtClockDay } from '../../lib/fmtTime';
 import type React from 'react';
 import type { PhaseSegment, Session } from '../../db/db';
 import { buildInitialTimeline } from '../../db/db';
@@ -92,9 +93,7 @@ export function buildTimelinePhases(
 
 /** Orario del marker, col giorno quando non è oggi: 24h di frigo non sembrano 15 minuti. */
 function formatAbsoluteTime(d: Date, nowMs = Date.now()): string {
-  const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === new Date(nowMs).toDateString()
-    ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short' })} ${t}`;
+  return fmtClockDay(d, nowMs);
 }
 
 function formatCountdown(h: number): string {
@@ -180,7 +179,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
 
   return (
     <div
-      ref={markerRef}
+      ref={markerRef} data-phase-key={phase.key}
       onClick={activate}
       onKeyDown={activate ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } } : undefined}
       tabIndex={activate ? 0 : undefined}
@@ -193,7 +192,7 @@ function CanonicalMarker({ phase, nowMs, currentSemaforoState, isCurrent, overdu
           : undefined}
       style={{
         position: 'relative', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 5, minWidth: 56,
+        alignItems: 'center', gap: 5, minWidth: 52,
         cursor: canTransition ? 'pointer' : (isLocked ? 'not-allowed' : 'default'),
         borderRadius: 8,
         outline: flash ? '1px solid var(--pm4-ember-lo)' : 'none',
@@ -337,16 +336,37 @@ export function FermentationTimeline({
     ? Math.max(0, Math.min(100, ((nowMs - firstMs) / (lastMs - firstMs)) * 100))
     : 0;
 
-  // R7: con molte fasi la timeline scrolla in orizzontale; mostra un fade a destra
-  // come affordance di scroll (euristica: ≥6 marker superano il viewport ~430px).
-  const scrollable = phases.length >= 6;
+  // La strip scorre in orizzontale quando i marker non entrano (5 fasi TC a 360px):
+  // il fade a destra segue l'overflow misurato, non il numero di fasi, e la fase
+  // corrente viene portata in vista, così "COTTURA" non resta mezzo tagliato.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [scrollable, setScrollable] = useState(false);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const measure = () => setScrollable(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [phases.length]);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el || !scrollable) return;
+    const target = el.querySelector<HTMLElement>(currentKey ? `[data-phase-key="${currentKey}"]` : '[data-phase-key]:last-child');
+    if (!target) return;
+    // si scorre solo quanto basta: l'inizio della strip resta intero finché si può
+    const overflowRight = target.offsetLeft + target.offsetWidth - el.clientWidth;
+    if (overflowRight > 0) el.scrollTo({ left: overflowRight + 8 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollable, currentKey]);
 
   return (
     <div style={{ position: 'relative' }}>
-      <div style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
+      <div ref={stripRef} style={{ position: 'relative', paddingTop: 16, paddingBottom: 8, overflowX: 'auto' }}>
         <div style={{ position: 'absolute', top: 42, left: 24, right: 24, height: 2, borderRadius: 2,
           background: `linear-gradient(90deg, var(--pm4-tan) 0%, var(--pm4-tan) ${progressPct}%, var(--pm4-line-strong) ${progressPct}%, var(--pm4-line-strong) 100%)` }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 10, minWidth: 'min-content' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', gap: 8, minWidth: 'min-content' }}>
           {phases.map((phase) => (
             <CanonicalMarker
               key={phase.key}
@@ -356,7 +376,8 @@ export function FermentationTimeline({
               isCurrent={phase.key === currentKey}
               overdue={phase.key === overdueKey}
               enterable={phase.key !== currentKey && !phase.isBake && phase.key !== 'puntata' && plannedTypes.has(phase.transitionTo)}
-              onTransition={onPhaseTransition}
+              // dopo l'infornata la timeline è tutta fatta: i marker non sono più comandi
+              onTransition={baked ? undefined : onPhaseTransition}
               onLockedTap={showLocked}
               displayMs={displayFor(phase)}
               done={baked}

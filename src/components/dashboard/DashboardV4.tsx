@@ -34,6 +34,7 @@ import { OutOfProtocolModal } from './OutOfProtocolModal';
 import { LiveHeader } from './LiveHeader';
 import { nextPlannedSegment, phaseActionText, planDeltaText } from '../../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
+import { fmtDay, fmtHM } from '../../lib/fmtTime';
 import { scheduleAt, cancelNotification, NOTIF_ID } from '../../hooks/useCapacitorNotifications';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -79,13 +80,7 @@ function fmtClock(d: Date, now = new Date()): string {
 }
 /** Orario prima, giorno come contesto: "00:57" + "domani" (o il giorno della settimana). */
 function clockParts(d: Date, now = new Date()): { time: string; day: string } {
-  const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  if (d.toDateString() === now.toDateString()) return { time, day: '' };
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-  if (d.toDateString() === tomorrow.toDateString()) return { time, day: 'domani' };
-  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return { time, day: 'ieri' };
-  return { time, day: d.toLocaleDateString('it-IT', { weekday: 'long' }) };
+  return { time: fmtHM(d), day: fmtDay(d, now) };
 }
 function fmtDuration(h: number): string {
   if (h < 1 / 60) return 'ora';
@@ -1115,7 +1110,8 @@ export function DashboardV4() {
         borderTop: '1px solid var(--pm4-line)', padding: '13px 16px',
         paddingBottom: 'max(13px, env(safe-area-inset-bottom))',
       }}>
-        {undo && (
+        {/* solo nel footer normale: con Termina, la conferma o l'infornata aperti ci sarebbero due "Annulla" impilati */}
+        {undo && !bakedAt && !confirmEnd && !confirmEarlyBake && (
           <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-tan)' }}>
             <span style={{ flex: 1 }}>Fase cambiata: {undo.label}</span>
             <button ref={undoPhaseRef} onClick={undoPhase} className="pm4-btn pm4-btn-ghost" style={{ ...BTN_GHOST, flex: 'none', minHeight: 44, padding: '10px 14px', color: 'var(--pm4-ember-lo)' }}>
@@ -1147,11 +1143,14 @@ export function DashboardV4() {
               {/* senza infornata la sessione non è "completata": nello Storico resta interrotta */}
               <span style={{ color: 'var(--pm4-tan)' }}>Non l'hai segnata come infornata: finirà nello Storico come interrotta.</span>
             </div>
-            {/* SESSION_END in un render a parte: il salvataggio legge la sessione già infornata */}
-            <button onClick={() => { markBaked(); setTimeout(() => dispatch({ type: 'SESSION_END' }), 0); }}
-              className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
-              🍕 Ho infornato, chiudi
-            </button>
+            {/* In frigo o con il cuore freddo non si inforna: l'opzione non si offre.
+                SESSION_END in un render a parte: il salvataggio legge la sessione già infornata */}
+            {bakeable && (
+              <button onClick={() => { markBaked(); setTimeout(() => dispatch({ type: 'SESSION_END' }), 0); }}
+                className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+                🍕 Ho infornato, chiudi
+              </button>
+            )}
             <div style={{ display: 'flex', gap: 9 }}>
               <button onClick={() => { focusNext.current = 'endBtn'; setConfirmEnd(false); }}
                 className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
@@ -1169,12 +1168,13 @@ export function DashboardV4() {
             <div id="pm-early-bake-title" ref={footerTitleRef} tabIndex={-1} style={{ color: 'var(--pm4-flour)', fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5, outline: 'none' }}>
               Non è ancora al punto (maturazione {enzymaticMatPct.toFixed(0)}%, pronto {etaValue}{etaSuffix ? ` ${etaSuffix}` : ''}). Infornata lo stesso?
             </div>
+            {/* La brace va al consiglio dell'app (aspettare); infornare prima resta possibile, in ghost */}
             <div style={{ display: 'flex', gap: 9 }}>
               <button onClick={() => { focusNext.current = 'bakeBtn'; setConfirmEarlyBake(false); }}
-                className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+                className="pm-btn-primary" style={BTN_PRIMARY}>
                 Aspetto
               </button>
-              <button onClick={markBaked} className="pm-btn-primary" style={BTN_PRIMARY}>
+              <button onClick={markBaked} className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
                 Sì, infornata
               </button>
             </div>
@@ -1234,7 +1234,7 @@ const BTN_PRIMARY: React.CSSProperties = {
   fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', cursor: 'pointer',
 };
 const BTN_DANGER: React.CSSProperties = {
-  flex: 1, background: 'linear-gradient(180deg, #e0463f, #b3231d)', color: '#fff',
+  flex: 1, background: 'linear-gradient(180deg, var(--pm4-danger-hi), var(--pm4-danger-lo))', color: '#ffffff',
   border: 'none', borderRadius: 9, padding: 13,
   fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em', cursor: 'pointer',
   boxShadow: '0 6px 18px -8px rgba(214,48,49,0.6)',

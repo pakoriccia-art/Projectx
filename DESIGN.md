@@ -8,6 +8,8 @@ colors:
   ok: "#3ddc97"
   critical: "#ff7675"
   collapsed: "#d63031"
+  danger-hi: "#e0463f"
+  danger-lo: "#b3231d"
   maturation-gold: "#e6c84a"
   char: "#0a0806"
   surface: "#141008"
@@ -215,7 +217,7 @@ Tattili, pieni e robusti, sempre alti almeno 44px.
 - **Hover / Focus:** sale di 2px e prende il bagliore brace. `:focus-visible` mostra un anello visibile.
 - **Ghost (BANCO):** fondo bianco al 4%, bordo `line-strong`, testo crusca, 13px/700.
 - **Danger quieto:** contorno rosato e testo `--state-critical` su fondo ghost. Si usa per azioni distruttive che non sono l'azione del momento, come "Termina sessione".
-- **Danger pieno:** fondo con gradiente caldo #e0463f → #b3231d e ombra rossa. È riservato alla conferma di un'azione distruttiva.
+- **Danger pieno:** fondo con gradiente caldo `--pm4-danger-hi` → `--pm4-danger-lo` (#e0463f → #b3231d) e ombra rossa. È riservato alla conferma di un'azione distruttiva.
 - **Disabled:** opacità 0.38.
 
 ### Chips

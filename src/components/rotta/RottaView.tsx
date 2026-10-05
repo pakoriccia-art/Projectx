@@ -146,7 +146,7 @@ function RottaContent() {
         <span style={valueStyle('var(--text-primary)')}>{localT}°C</span>
       </div>
       <input
-        id="rotta-tamb" type="range" min={-2} max={40} step={0.5}
+        id="rotta-tamb" type="range" min={10} max={38} step={0.5}
         value={localT} aria-valuetext={`${localT}°C`}
         onChange={e => setLocalT(parseFloat(e.target.value))}
         style={{ width: '100%', accentColor: 'var(--accent-brand)', marginBottom: 10 }}

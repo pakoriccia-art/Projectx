@@ -3,6 +3,7 @@
  * §7.2 KB: stile→protocollo→farine+prefermenti→idratazione→lievito→contenitore→tempistiche
  */
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { fmtClockDay } from '../../lib/fmtTime';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import type { Session, FlourGroup, FlourComponent, PrefermentoComponent } from '../../db/db';
 import { buildInitialTimeline, type PhaseSegment } from '../../db/db';
@@ -1918,10 +1919,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         if (prepPref) rows.unshift([`Impasta ${prefWithArticle(prepPref.type)}`, new Date()]);
         if (draft.targetBakeAt) rows.push([draft.serviceWindowH ? 'Servizio' : 'Forno', new Date(draft.targetBakeAt)]);
         const hl = (label: string) => label === 'Forno' || label === 'Servizio';
-        const fmtAt = (d: Date) => {
-          const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-          return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
-        };
+        const fmtAt = (d: Date) => fmtClockDay(d);
         return (
           <Card>
             <div style={{ marginBottom: 10, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--pm4-tan)', fontFamily: 'var(--font-mono)' }}>
@@ -2316,8 +2314,7 @@ export function WizardView() {
           const cur = mainPreparable((state.prefermentStage.draft as WizardDraft).prefermenti);
           const t = cur?.type ?? 'biga';
           const at = new Date(state.prefermentStage.readyAt);
-          const hm = at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-          const when = at.toDateString() === new Date().toDateString() ? `alle ${hm}` : `${at.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
+          const when = `alle ${fmtClockDay(at)}`;
           return (
             <div ref={replaceRef} tabIndex={-1} role="group" aria-label="Preparazione già in corso" style={{
               outline: 'none',

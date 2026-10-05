@@ -10,6 +10,7 @@
  * la sessione dell'impasto.
  */
 import { useEffect, useRef, useState } from 'react';
+import { fmtClockDay } from '../../lib/fmtTime';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import { Btn, Card, SnapButtons } from '../ui';
 import { launchSession } from '../wizard/WizardView';
@@ -30,10 +31,7 @@ const PLACE_LABEL: Record<PrefPlace, string> = { fresco: 'Fresco', stanza: 'Stan
 const SHIFT_ASK_MS = 15 * 60_000;
 
 function fmtClock(d: Date | number, now: number): string {
-  const x = new Date(d);
-  const t = x.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  return x.toDateString() === new Date(now).toDateString()
-    ? t : `${x.toLocaleDateString('it-IT', { weekday: 'short' })} ${t}`;
+  return fmtClockDay(d, now);
 }
 
 const cap = (t: string) => t.replace(/^./, c => c.toUpperCase());

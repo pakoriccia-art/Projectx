@@ -18,7 +18,9 @@ describe('fmtBakeClock', () => {
     const now = new Date('2026-10-05T10:00:00').getTime();
     expect(fmtBakeClock(new Date('2026-10-05T20:30:00').getTime(), now)).toBe('~20:30');
     expect(fmtBakeClock(new Date('2026-10-06T09:46:00').getTime(), now)).toBe('~09:46 domani');
-    expect(fmtBakeClock(new Date('2026-10-07T09:46:00').getTime(), now)).toMatch(/^~09:46 \S+/);
+    expect(fmtBakeClock(new Date('2026-10-07T09:46:00').getTime(), now)).toBe('~09:46 mer');
+    expect(fmtBakeClock(new Date('2026-10-04T09:46:00').getTime(), now)).toBe('~09:46 ieri');
+    expect(fmtBakeClock(new Date('2026-10-20T09:46:00').getTime(), now)).toBe('~09:46 20 ott');
   });
 });
 

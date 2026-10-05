@@ -477,8 +477,24 @@ Punti di forza: il focus non finisce mai sul body; le conferme dicono le consegu
   - "Annulla / Applica" in una barra fissa in basso; "Nessuna modifica" disattivato finché non cambia nulla. "←" da 44 px con nome; titolo "Aggiusta rotta".
 - Dopo l'infornata il confronto è con l'orario che la dashboard mostrava ("prima del pronto: previsto 08:49 domani (−13h 50m)"), non con la fine delle fasi.
 
+## Passaggio 34: P2 e P3 della critique Dashboard, Aggiusta rotta, Storico
+
+P2:
+- Un solo modo di dire il giorno, in tutta l'app: orario prima, giorno come suffisso solo se non è oggi ("20:30", "09:46 domani", "09:46 ieri", "09:46 mer" entro sei giorni, "09:46 12 ott" oltre). `fmtDay` / `fmtClockDay` in `src/lib/fmtTime.ts`, usati da dashboard, timeline, Rotta e Wizard (`fmtBakeClock`), prefermento (`fmtWhen`, `fmtClock`) e Planner. Nello Storico l'infornata e il "pronta dalle" prendono la data quando cadono in un giorno diverso dall'inizio ("03 ott · 18:44 → infornata 19:44 5 ott · 49h 00m"). L'header ("COTTURA ~11:28") resta senza giorno: è il readout compatto, il giorno sta nell'hero.
+- Timeline a 360 px con 5 fasi TC: marker da 52 px e gap 8, così entrano senza scorrere; se la strip comunque trabocca (6+ fasi) il fade a destra segue l'overflow misurato e la fase corrente viene portata in vista, senza tagliare l'inizio.
+- Pannello Termina: "🍕 Ho infornato, chiudi" solo quando si può infornare (`canBakeNow`); in frigo o con il cuore freddo restano "← Annulla" e "■ Termina". La riga "Fase cambiata · ↶ Annulla" si mostra solo nel footer normale: niente più due "Annulla" impilati con Termina, la conferma o l'infornata aperti.
+- Conferma dell'infornata anticipata: "Aspetto" in brace, "Sì, infornata" ghost, come già nel prefermento.
+
+P3:
+- Storico: "✓ COMPLETATA" in farina, "■ INTERROTTA" in terra d'ombra (segno e colore); "1 avviso" / "N avvisi"; Esc chiude il cambio del voto (torna su "· cambia") e la conferma di eliminazione (torna sul cestino); unità delle celle da 10.2 px a 11 px (`.pm4-cell-v small`).
+- Dopo l'infornata i marker della timeline non sono più comandi: niente `tabindex`, niente `role="button"`.
+- Rotta: temperatura ambiente da 10 a 38 °C, come il Planner (prima da −2 a 40). I rilievi su testi a 10.88 px, font di sistema e "←" riguardavano la Rotta precedente alla riscrittura del passaggio 33: verificato, non ci sono più.
+- Danger pieno con i token `--pm4-danger-hi` / `--pm4-danger-lo` (in `index.html` e nella palette di DESIGN.md), aspetto invariato. Il testo resta `#ffffff`, valore documentato per `button-danger`.
+- Via l'easing a rimbalzo (`--ease-spring`, overshoot) dal pulsante primario e dal pollice dello slider: `--ease-out`. Il glow (brace sul brand, pulsazione dell'alert critico) è una firma dichiarata del design system e resta: eccezione intenzionale.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
-- `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
-- Nuovo giro di screenshot su tutte le viste, mobile e desktop: nessun errore in console imputabile all'app.
-- Rilevatore sui file modificati: restano solo le eccezioni intenzionali e le transizioni di `width` descritte sopra.
+- `npm test`: 256 test vitest (4 nuovi su `fmtTime`), 242 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
+- Controllo nel browser a 390 e 360 px, 25 controlli su 25: formati dei giorni in dashboard, timeline, Planner, Wizard e Storico; "Aspetto" in brace; un solo "Annulla"; "Ho infornato, chiudi" assente in frigo; marker senza ruolo dopo l'infornata; badge, plurale ed Esc nello Storico; nessun testo sotto 11 px in Rotta e Storico; timeline TC intera a 360 px; gradiente del danger dai token.
+- Rilevatore sui file toccati: spariti i colori fuori palette del danger, l'easing a rimbalzo e il font a 10.2 px. Restano il glow (intenzionale) e le dimensioni di font fuori scala già note.
+- Finto telefono, scenario `tutti`: 74/74.

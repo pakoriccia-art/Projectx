@@ -106,7 +106,7 @@ async function shot(page, device, name) {
 async function timelineTimes(page) {
   const panel = page.locator('.pm4-stack').last().locator('.pm4-panel').filter({ hasText: 'COTTURA' }).last();
   const t = clean(await panel.innerText());
-  // l'orario può avere il giorno davanti ("lun 01:25") quando non è oggi
+  // l'orario può avere il giorno come suffisso ("01:25 domani", "01:25 mer") quando non è oggi
   const get = label => (t.match(new RegExp(`${label}\\s+(?:TA|TC)?\\s*(?:[a-zà]{2,4}\\.?\\s+)?(\\d{2}:\\d{2})`)) || [])[1] ?? null;
   return { text: t, staglio: get('STAGLIO'), appretto: get('APPRETTO') };
 }

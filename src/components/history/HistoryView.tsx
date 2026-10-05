@@ -6,6 +6,7 @@
  * Eliminazione con conferma e annulla: il dato si cancella davvero solo dopo 10s.
  */
 import { useState, useEffect, useRef } from 'react';
+import { calendarDayDiff } from '../../lib/fmtTime';
 import { useApp } from '../../context/AppContext';
 import { loadSessionHistory, deleteSession, rateSession } from '../../services/sessionService';
 import type { Session } from '../../db/db';
@@ -90,6 +91,9 @@ function Calibration({ sessions }: { sessions: Session[] }) {
 }
 
 const hhmm = (d: Date) => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+/** Orario con la data quando cade in un giorno diverso dall'inizio: 50 h di frigo non sembrano due ore. */
+const clockFrom = (d: Date, start: Date) =>
+  calendarDayDiff(d, start) === 0 ? hhmm(d) : `${hhmm(d)} ${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}`;
 function fmtDuration(h: number): string {
   const totalMin = Math.max(0, Math.round(h * 60));
   return `${Math.floor(totalMin / 60)}h ${String(totalMin % 60).padStart(2, '0')}m`;
@@ -158,7 +162,10 @@ function SessionCard({
         <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--pm4-flour)' }}>
           {styleName}
         </h2>
-        <span style={{ ...MONO, fontSize: 11, color: 'var(--pm4-umber)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        {/* completata e interrotta si distinguono per segno e colore, non solo per colore */}
+        <span style={{ ...MONO, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: session.status === 'completed' ? 'var(--pm4-flour)' : 'var(--pm4-umber)' }}>
+          {session.status === 'completed' ? '✓ ' : session.status === 'aborted' ? '■ ' : ''}
           {STATUS_LABEL[session.status] ?? session.status}
         </span>
         {session.outcomeRating && !editRating && (
@@ -177,6 +184,7 @@ function SessionCard({
 
       {confirmDelete && (
         <div role="alertdialog" aria-label="Conferma eliminazione"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusAfter.current = 'delete'; setConfirmDelete(false); } }}
           style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
           <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
           <button ref={cancelDeleteRef} type="button" onClick={() => { focusAfter.current = 'delete'; setConfirmDelete(false); }} style={{ ...BTN, flex: 1 }}>Annulla</button>
@@ -191,8 +199,8 @@ function SessionCard({
       {/* Racconto: inizio → infornata · pronta dalle · durata */}
       <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
         {dateStr} · {hhmm(start)}
-        {baked && <> → infornata {hhmm(baked)}</>}
-        {baked && readySince && <> · pronta dalle {hhmm(readySince)} ({fmtDelay(bakeDelayMin(session)!)})</>}
+        {baked && <> → infornata {clockFrom(baked, start)}</>}
+        {baked && readySince && <> · pronta dalle {clockFrom(readySince, start)} ({fmtDelay(bakeDelayMin(session)!)})</>}
         {durationH != null && <> · {fmtDuration(durationH)}</>}
       </div>
 
@@ -207,7 +215,7 @@ function SessionCard({
         <span>Idratazione {session.hydration}%</span>
         <span>Sale {session.salt}%</span>
         {session.alertsCount != null && session.alertsCount > 0 && (
-          <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} avvisi</span>
+          <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} {session.alertsCount === 1 ? 'avviso' : 'avvisi'}</span>
         )}
         {session.userNotes && <span style={{ color: 'var(--pm4-tan)', fontStyle: 'italic' }}>{session.userNotes}</span>}
       </div>
@@ -216,7 +224,10 @@ function SessionCard({
       {showRating && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', fontWeight: 700 }}>Com'è venuta?</div>
-          <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+          <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && editRating) { e.preventDefault(); focusAfter.current = 'change'; setEditRating(false); }
+            }}>
             {OUTCOMES.map((o, i) => (
               <button key={o.value} ref={i === 0 ? firstRatingRef : undefined} type="button" aria-pressed={session.outcomeRating === o.value}
                 onClick={() => { focusAfter.current = 'change'; onRate(session.id!, o.value); setEditRating(false); }}

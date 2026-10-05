@@ -7,6 +7,7 @@
  * usa solo fArrhenius del motore (chiamata, non modificata).
  */
 import type { PrefermentoComponent, PrefermentStage } from '../db/db';
+import { fmtClockDay } from './fmtTime';
 import {
   fArrhenius, computeWaterTempDDT, computeEffectiveMixHydration, type KneadingMethod, type WaterTempResult,
 } from '../engine';
@@ -556,10 +557,9 @@ export function readyWord(fem: boolean, plural = false): string {
   return plural ? (fem ? 'pronte' : 'pronti') : (fem ? 'pronta' : 'pronto');
 }
 
+/** "alle 10:27", "alle 10:27 domani", "alle 10:27 mer". */
 export function fmtWhen(ms: number, now = Date.now()): string {
-  const d = new Date(ms);
-  const hm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === new Date(now).toDateString() ? `alle ${hm}` : `${d.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
+  return `alle ${fmtClockDay(ms, now)}`;
 }
 
 /** Testo breve per banner in home e riga in dashboard, col nome giusto. */

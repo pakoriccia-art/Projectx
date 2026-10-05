@@ -9,6 +9,7 @@
  * piano delle fasi: quella è già la previsione e non serve altro.
  */
 import { sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS, getStyleProfile } from '../engine';
+import { fmtClockDay } from './fmtTime';
 import { resolveThreshold } from './bakeReadiness';
 import type { Session } from '../db/db';
 
@@ -42,11 +43,7 @@ export function apprettoCorrectionH(planH: number, readyH: number | null, appret
   return next === apprettoH ? null : next - apprettoH;
 }
 
-/** "~09:46" oggi, "~09:46 domani", "~09:46 mer". */
+/** "~09:46" oggi, "~09:46 domani", "~09:46 mer", "~09:46 12 ott". */
 export function fmtBakeClock(ms: number, now = Date.now()): string {
-  const d = new Date(ms);
-  const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
-  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - day0.getTime()) / 86_400_000);
-  return days === 0 ? `~${t}` : days === 1 ? `~${t} domani` : `~${t} ${d.toLocaleDateString('it-IT', { weekday: 'short' })}`;
+  return `~${fmtClockDay(ms, now)}`;
 }

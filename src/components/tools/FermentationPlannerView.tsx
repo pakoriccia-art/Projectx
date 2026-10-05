@@ -16,6 +16,7 @@
  *   4. Valuta la viabilità in base al W della farina
  */
 import { useState, useMemo, useEffect, useRef, useId } from 'react';
+import { fmtClockDay } from '../../lib/fmtTime';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, SnapButtons, S, Badge, useReducedMotion, pulseElement } from '../ui';
 import {
@@ -510,9 +511,7 @@ function planClock(r: PlanResult, startMs: number): Array<{ label: string; at: D
   }
 }
 function fmtWhen(d: Date, nowMs: number): string {
-  const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === new Date(nowMs).toDateString() ? t
-    : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
+  return fmtClockDay(d, nowMs);
 }
 
 /** "Il tuo piano": la risposta in alto, con orari assoluti e un solo comando. */
@@ -840,11 +839,8 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
   const tightMargin = result.maxSafeServiceWindowH != null && result.maxSafeServiceWindowH < serviceDurationH;
   const atLimit = tightMargin || result.matWarning === 'NEAR_CEILING' || !!result.bubbleCapped;
   const mixAt = result.mixStart ?? result.now ?? new Date();
-  const clock = (d: Date) => {
-    const t = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    return d.toDateString() === new Date(mixAt).toDateString() ? t
-      : `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric' })} ${t}`;
-  };
+  // il giorno è relativo a oggi, come in dashboard: "domani", non "mar 6"
+  const clock = (d: Date) => fmtClockDay(d);
   const plus = (h: number) => new Date(new Date(mixAt).getTime() + h * 3_600_000);
   const steps: Array<{ label: string; at: Date }> = [
     { label: 'Impasta', at: new Date(mixAt) },
@@ -1703,7 +1699,7 @@ export function FermentationPlannerView() {
         {targetDate && (
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginTop: 8 }}>
             <span style={{ color: 'var(--accent-brand)' }}>
-              Cottura: {new Date(`${targetDate}T${targetTime}`).toLocaleString('it-IT', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              Cottura: {fmtClockDay(new Date(`${targetDate}T${targetTime}`))}
             </span>
             {hoursUntilBake !== undefined && (
               <span style={{ color: 'var(--text-muted)', marginLeft: 10 }}>
