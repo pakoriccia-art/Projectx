@@ -119,8 +119,19 @@ function SessionCard({
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  const deleteBtnRef    = useRef<HTMLButtonElement>(null);
+  const changeRatingRef = useRef<HTMLButtonElement>(null);
+  const firstRatingRef  = useRef<HTMLButtonElement>(null);
+  // dove va il focus dopo che il comando premuto si è smontato
+  const focusAfter = useRef<'delete' | 'change' | 'rating' | null>(null);
   useEffect(() => { if (confirmDelete) cancelDeleteRef.current?.focus(); }, [confirmDelete]);
   const [editRating, setEditRating] = useState(false);
+  useEffect(() => {
+    const t = focusAfter.current;
+    if (!t) return;
+    const el = t === 'delete' ? deleteBtnRef.current : t === 'change' ? changeRatingRef.current : firstRatingRef.current;
+    if (el) { el.focus(); focusAfter.current = null; }
+  });
 
   const start = session.startedAt instanceof Date
     ? session.startedAt : new Date(session.startedAt ?? Date.now());
@@ -140,7 +151,7 @@ function SessionCard({
   const showRating = session.status === 'completed' && session.id != null && (!session.outcomeRating || editRating);
 
   return (
-    <article className="pm4-panel" style={{ padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}
+    <article className="pm4-panel" data-session-id={session.id} tabIndex={-1} style={{ outline: 'none', padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}
       aria-label={`${styleName}, ${dateStr}`}>
       {/* Titolo: stile · stato · esito · elimina */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -151,13 +162,13 @@ function SessionCard({
           {STATUS_LABEL[session.status] ?? session.status}
         </span>
         {session.outcomeRating && !editRating && (
-          <button type="button" onClick={() => setEditRating(true)}
+          <button ref={changeRatingRef} type="button" onClick={() => { focusAfter.current = 'rating'; setEditRating(true); }}
             aria-label={`Esito: ${OUTCOME_LABEL[session.outcomeRating]}. Cambia voto`}
             style={{ ...BTN, padding: '6px 10px', fontSize: 12, color: 'var(--pm4-flour)' }}>
             🍕 {OUTCOME_LABEL[session.outcomeRating]} · cambia
           </button>
         )}
-        <button type="button" onClick={() => setConfirmDelete(true)}
+        <button ref={deleteBtnRef} type="button" onClick={() => setConfirmDelete(true)}
           aria-label={`Elimina la sessione ${styleName} del ${dateStr}`}
           style={{ marginLeft: 'auto', width: 44, height: 44, margin: '-8px -10px -8px auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pm4-umber)', fontSize: 16 }}>
           <span aria-hidden="true">🗑</span>
@@ -168,7 +179,7 @@ function SessionCard({
         <div role="alertdialog" aria-label="Conferma eliminazione"
           style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
           <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
-          <button ref={cancelDeleteRef} type="button" onClick={() => setConfirmDelete(false)} style={{ ...BTN, flex: 1 }}>Annulla</button>
+          <button ref={cancelDeleteRef} type="button" onClick={() => { focusAfter.current = 'delete'; setConfirmDelete(false); }} style={{ ...BTN, flex: 1 }}>Annulla</button>
           <button type="button" onClick={() => { setConfirmDelete(false); onDelete(session); }}
             className="pm4-btn-danger-quiet"
             style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
@@ -206,9 +217,9 @@ function SessionCard({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', fontWeight: 700 }}>Com'è venuta?</div>
           <div role="group" aria-label="Esito della cottura" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
-            {OUTCOMES.map(o => (
-              <button key={o.value} type="button" aria-pressed={session.outcomeRating === o.value}
-                onClick={() => { onRate(session.id!, o.value); setEditRating(false); }}
+            {OUTCOMES.map((o, i) => (
+              <button key={o.value} ref={i === 0 ? firstRatingRef : undefined} type="button" aria-pressed={session.outcomeRating === o.value}
+                onClick={() => { focusAfter.current = 'change'; onRate(session.id!, o.value); setEditRating(false); }}
                 className="pm4-btn pm4-btn-ghost"
                 style={{ ...BTN, padding: '10px 4px', color: session.outcomeRating === o.value ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>
                 {o.label}
@@ -281,6 +292,8 @@ export function HistoryView() {
     setPendingDelete(null);
     setSessions(prev => [...prev, s].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    // il focus va sulla sessione ripristinata, non sul body
+    setTimeout(() => document.querySelector<HTMLElement>(`[data-session-id="${s.id}"]`)?.focus(), 0);
   };
 
   const handleRate = async (id: number, rating: NonNullable<Session['outcomeRating']>) => {

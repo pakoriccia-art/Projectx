@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   splitRecipe, prefTempAtMix, placeOf, placeTempC, durationOptions, defaultDuration,
-  elapsedPrefHours, fmtGrams, isPreparable,
+  elapsedPrefHours, fmtGrams, isPreparable, mixedAtFromClock,
 } from '../lib/preferment';
 
 const biga = { id: 'b', type: 'biga', flourFraction: 50, hydration: 48, yeastPct: 0.1, tempC: 16, durationH: 16 } as any;
@@ -333,5 +333,23 @@ describe('fridgePlan', () => {
     const fp = fridgePlan({ ...biga, plannedH: 16 }, { ...pool, plannedH: 2 }, now, 4);
     expect(fp.window).not.toBeNull();
     expect(fp.window!.from).toBeLessThanOrEqual(fp.window!.to);
+  });
+});
+
+describe('mixedAtFromClock', () => {
+  const now = new Date(2026, 9, 5, 18, 30).getTime();
+  it('un orario di oggi già passato', () => {
+    expect(mixedAtFromClock('15:00', now)).toBe(new Date(2026, 9, 5, 15, 0).getTime());
+  });
+  it('un orario più avanti di adesso è di ieri', () => {
+    expect(mixedAtFromClock('22:00', now, 24)).toBe(new Date(2026, 9, 4, 22, 0).getTime());
+  });
+  it('oltre 12 ore fa non vale', () => {
+    expect(mixedAtFromClock('22:00', now)).toBeNull();
+    expect(mixedAtFromClock('06:00', now)).toBeNull();
+  });
+  it('formati sbagliati', () => {
+    expect(mixedAtFromClock('25:00', now)).toBeNull();
+    expect(mixedAtFromClock('abc', now)).toBeNull();
   });
 });

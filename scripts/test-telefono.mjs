@@ -275,6 +275,8 @@ async function scenarioNuovo() {
   if (!KEEP) {
     console.log('\n4 · Termina e Storico');
     await page.getByRole('button', { name: /^Termina$/ }).click();
+    const endTxt = clean(await page.locator('#pm-end-title').innerText().catch(() => ''));
+    check('Termina senza infornare: avvisa che sarà "interrotta"', /interrotta/.test(endTxt), endTxt);
     await page.getByRole('button', { name: /■ Termina/ }).click();
     await sleep(1500);
     await page.getByRole('button', { name: /Storico/ }).first().click();
@@ -282,6 +284,8 @@ async function scenarioNuovo() {
     await shot(page, device, 'nuovo-04-storico');
     const body = clean(await page.locator('body').innerText());
     check('Nessuna sessione "in corso" nello Storico', !/in corso/i.test(body));
+    const first = clean(await page.locator('article').first().innerText().catch(() => ''));
+    check('Nello Storico: "interrotta" e senza voto', /interrotta/i.test(first) && !/Com'è venuta/.test(first), first.slice(0, 80));
     const db3 = await readDb(page);
     check('Nessuna sessione attiva nel DB dopo Termina', !(db3 ?? []).some(s => s.status === 'active' && s.hasSnapshot));
     await device.shell(`am force-stop ${PKG}`);
@@ -399,6 +403,23 @@ async function scenarioPianifica() {
   const bakeAfter = (hdrR.match(/COTTURA\s*(~?\d{2}:\d{2})/i) || [])[1] ?? null;
   check('Riprende con lo stesso orario di cottura', !!bakeBefore && bakeBefore === bakeAfter, `prima ${bakeBefore}, dopo ${bakeAfter}`);
   check('Nessun avviso "impasto freddo a cottura" sul piano', !/inforni a ~\d+°/.test(hdrR), hdrR.slice(-80));
+
+  console.log('\nP5b · Aggiusta rotta: cottura +2 h');
+  await page.locator('footer').getByRole('button', { name: /Aggiusta rotta/ }).click(); await sleep(1000);
+  const shiftSl = page.locator('#rotta-shift');
+  check('Rotta: con il frigo si sposta la cottura', await shiftSl.count() > 0);
+  if (await shiftSl.count()) {
+    await shiftSl.focus();
+    for (let i = 0; i < 4; i++) { await page.keyboard.press('ArrowRight'); await sleep(150); }
+    await page.getByRole('button', { name: /Applica modifiche/ }).click(); await sleep(1500);
+    const shifted = (await headerText()).match(/COTTURA\s*~?(\d{2}:\d{2})/i)?.[1] ?? null;
+    const exp = bakeAfter ? ((toMin(bakeAfter.replace('~', '')) + 120) % 1440) : NaN;
+    check('Rotta: la dashboard mostra la nuova cottura (+2 h)', shifted != null && toMin(shifted) === exp, `prima ${bakeAfter}, dopo ${shifted}`);
+    await device.shell(`am force-stop ${PKG}`);
+    page = await openApp();
+    const kept = (await headerText()).match(/COTTURA\s*~?(\d{2}:\d{2})/i)?.[1] ?? null;
+    check('Rotta: la nuova cottura resta dopo la riapertura', kept != null && kept === shifted, `dopo la riapertura ${kept}`);
+  }
   await endSession();
 
   console.log('\nP6 · Modalità Servizio');

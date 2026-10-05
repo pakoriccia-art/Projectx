@@ -60,7 +60,8 @@ export async function persistSession(
 ): Promise<void> {
   const record: Session = {
     ...session,
-    status: 'completed',
+    // Terminata senza infornare: interrotta, non "completata" (e niente voto).
+    status: session.bakedAt ? 'completed' : 'aborted',
     // La sessione finisce quando si inforna; il riepilogo può restare aperto dopo.
     endedAt: session.bakedAt ? new Date(session.bakedAt) : new Date(),
     peakMaturation: ts?.maturationPct ?? session.peakMaturation,

@@ -433,6 +433,15 @@ Prefermento:
 - Il frigo per il ritardo del poolish è consigliato solo se porta a una finestra vera (fridgePlan: simula biga in frigo e poolish impastato adesso).
 - Oltre e troppo oltre: l'impasto finale è il primario, il frigo il piano B ("Non puoi impastare adesso?").
 
+## Passaggio 31: P2 delle critique Nuovo impasto e Prefermento
+
+- Aggiusta rotta salva subito (IndexedDB) e ritemporizza la timeline (`retimeTimeline`): con il frigo "Sposta la cottura" allunga o accorcia il frigo e la dashboard mostra il nuovo orario, anche dopo la riapertura; tutto TA dice che l'orario lo decide la maturazione. Slider etichettati, soglia iniziale = quella della dashboard.
+- "Ho infornato" sempre disponibile: primario al pronto, secondario prima, con conferma (maturazione e orario del pronto).
+- Termina senza infornare = "interrotta" nello Storico (niente voto); la conferma lo dice e offre "Ho infornato, chiudi".
+- Focus: paracadute globale (se il comando con il focus si smonta, il focus va sul titolo della vista) più destinazioni precise per Termina, Ho infornato, annulla fase, annulla infornata, eliminazione e voto nello Storico.
+- Prefermento: "L'ho impastata prima…" registra l'ora reale (fino a 12 h fa) per la biga e per il poolish; il piano si sposta di conseguenza.
+- Notifica 136: il poolish non impastato un'ora dopo l'orario previsto.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

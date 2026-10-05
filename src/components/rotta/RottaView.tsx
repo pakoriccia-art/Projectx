@@ -6,7 +6,11 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, S, SliderInput } from '../ui';
-import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS } from '../../engine';
+import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS, getStyleProfile } from '../../engine';
+import { resolveThreshold } from '../../lib/bakeReadiness';
+import { buildInitialTimeline, db } from '../../db/db';
+import { retimeTimeline, timelineEndH, type DurationKey } from '../../lib/timeline';
+import { fmtBakeClock } from '../../lib/bakeForecast';
 
 const AGENT_SHORT: Record<string, string> = {
   fresh_yeast:       'LBF',
@@ -24,7 +28,9 @@ function RottaContent() {
   const [localT, setLocalT]               = useState(ts?.tempAmbient ?? 22);
   const [localTcH, setLocalTcH]           = useState(session.tcHours ?? 0);
   const [localFridgeT, setLocalFridgeT]   = useState(session.fridgeTempC ?? 4);
-  const [localThreshold, setThreshold]    = useState(session.alertThreshold ?? 85);
+  // la stessa soglia della dashboard: quella della sessione, altrimenti dello stile
+  const sessionThreshold = resolveThreshold(session.alertThreshold, (getStyleProfile as Function)(session.style)?.alertThreshold);
+  const [localThreshold, setThreshold]    = useState(sessionThreshold);
   const [bakeShiftH, setBakeShiftH]       = useState(0);
   const [localPuntataH,  setLocalPuntataH]  = useState(session.puntataH  ?? 8);
   const [localStaglioH,  setLocalStaglioH]  = useState(session.staglioH  ?? 0.5);
@@ -33,11 +39,27 @@ function RottaContent() {
   const proto = session.apprettoProtocol ?? 'ta';
   const isTcProto = proto !== 'ta';
 
-  const targetBake = session.targetBakeAt instanceof Date
-    ? session.targetBakeAt
-    : new Date(session.targetBakeAt ?? Date.now() + 86_400_000);
-
-  const newBakeAt = new Date(targetBake.getTime() + bakeShiftH * 3_600_000);
+  // La cottura del piano è la fine della timeline (meno la finestra di servizio):
+  // le durate e lo spostamento la ritemporizzano, la dashboard legge quella.
+  const startMs = new Date(session.startedAt ?? Date.now()).getTime();
+  const nowElapsedH = Math.max(0, (Date.now() - startMs) / 3_600_000);
+  const serviceH = session.serviceWindowH ?? 0;
+  const changes = useMemo(() => {
+    const c: Partial<Record<DurationKey, number>> = {};
+    if (localPuntataH  !== (session.puntataH  ?? 8))   c.puntataH  = localPuntataH;
+    if (localStaglioH  !== (session.staglioH  ?? 0.5)) c.staglioH  = localStaglioH;
+    if (localApprettoH !== (session.apprettoH ?? 4))   c.apprettoH = localApprettoH;
+    if (isTcProto && localTcH !== (session.tcHours ?? 0)) c.tcHours = localTcH;
+    return c;
+  }, [localPuntataH, localStaglioH, localApprettoH, localTcH, isTcProto, session]);
+  const baseTimeline = session.thermalTimeline ?? buildInitialTimeline(session as any);
+  const newTimeline = useMemo(
+    () => retimeTimeline(baseTimeline, changes, nowElapsedH, isTcProto ? bakeShiftH : 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [baseTimeline, changes, bakeShiftH, isTcProto]);
+  const planBakeMs = (tl: typeof baseTimeline) => startMs + (timelineEndH(tl) - serviceH) * 3_600_000;
+  const oldBakeMs = planBakeMs(baseTimeline);
+  const newBakeAt = new Date(planBakeMs(newTimeline));
 
   // Preview kRatio (velocità relativa a 25°C ref)
   const kRef     = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
@@ -59,25 +81,37 @@ function RottaContent() {
       : 0;
   })();
   const spotCurr = useMemo(() => {
-    try { return (sweetSpotMaturation as Function)(session, enzAdu, ts?.tempAmbient ?? 22) as any; }
+    try { return (sweetSpotMaturation as Function)({ ...session, alertThreshold: localThreshold }, enzAdu, ts?.tempAmbient ?? 22) as any; }
     catch { return null; }
-  }, [session, enzAdu, ts?.tempAmbient]);
+  }, [session, enzAdu, ts?.tempAmbient, localThreshold]);
   const spotNew = useMemo(() => {
-    try { return (sweetSpotMaturation as Function)(session, enzAdu, localT) as any; }
+    try { return (sweetSpotMaturation as Function)({ ...session, alertThreshold: localThreshold }, enzAdu, localT) as any; }
     catch { return null; }
-  }, [session, enzAdu, localT]);
+  }, [session, enzAdu, localT, localThreshold]);
+
+  // Ora del pronto a temperatura ambiente: la decide la maturazione, non le durate.
+  const taReadyMs = spotNew && Number.isFinite(spotNew.hoursUntilPeak)
+    ? Date.now() + Math.max(0, spotNew.hoursUntilPeak) * 3_600_000 : null;
 
   const apply = () => {
-    dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
-    dispatch({ type: 'SESSION_UPDATE', patch: {
+    const thresholdChanged = localThreshold !== sessionThreshold;
+    const patch = {
       tcHours:        isTcProto ? localTcH : undefined,
       fridgeTempC:    isTcProto ? localFridgeT : undefined,
       puntataH:       localPuntataH,
       staglioH:       localStaglioH,
       apprettoH:      localApprettoH,
-      alertThreshold: localThreshold,
-      targetBakeAt:   newBakeAt,
-    }});
+      alertThreshold: thresholdChanged ? localThreshold : session.alertThreshold,
+      ...(thresholdChanged ? { alertThresholdFromPlan: false } : {}),
+      thermalTimeline: newTimeline,
+      bakeTargetElapsedH: timelineEndH(newTimeline),
+      // il nuovo obiettivo è il piano ritemporizzato: niente "obiettivo −2h" fantasma
+      ...(isTcProto ? { targetBakeAt: newBakeAt } : {}),
+    };
+    dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
+    dispatch({ type: 'SESSION_UPDATE', patch });
+    // subito nel DB: chiudendo l'app la rotta non si perde
+    if (session.id != null) db.sessions.update(session.id, patch as any).catch(console.error);
     dispatch({ type: 'NAV', view: 'dashboard' });
   };
 
@@ -96,14 +130,14 @@ function RottaContent() {
       {/* ── T Ambiente ── */}
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <span style={S.label}>Temperatura ambiente</span>
+          <label htmlFor="rotta-tamb" style={S.label}>Temperatura ambiente</label>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--accent-brand)' }}>
             {localT}°C
           </span>
         </div>
         <input
-          type="range" min={-2} max={40} step={0.5}
-          value={localT}
+          id="rotta-tamb" type="range" min={-2} max={40} step={0.5}
+          value={localT} aria-valuetext={`${localT}°C`}
           onChange={e => setLocalT(parseFloat(e.target.value))}
           style={{ width: '100%', accentColor: 'var(--accent-brand)', marginBottom: 12 }}
         />
@@ -192,28 +226,39 @@ function RottaContent() {
         </Card>
       )}
 
-      {/* ── Slittamento cottura ── */}
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <span style={S.label}>Slittamento target cottura</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: bakeShiftH !== 0 ? 'var(--accent-warning)' : 'var(--text-muted)' }}>
-            {bakeShiftH > 0 ? '+' : ''}{bakeShiftH}h
-          </span>
-        </div>
-        <input
-          type="range" min={-6} max={24} step={0.5}
-          value={bakeShiftH}
-          onChange={e => setBakeShiftH(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: 'var(--accent-warning)', marginBottom: 10 }}
-        />
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-          Nuova cottura: <strong style={{ color: 'var(--text-primary)' }}>
-            {newBakeAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
-            {' '}
-            {newBakeAt.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}
-          </strong>
-        </div>
-      </Card>
+      {/* ── Cottura ── */}
+      {isTcProto ? (
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <label htmlFor="rotta-shift" style={S.label}>Sposta la cottura</label>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: bakeShiftH !== 0 ? 'var(--accent-warning)' : 'var(--text-muted)' }}>
+              {bakeShiftH > 0 ? '+' : ''}{bakeShiftH}h
+            </span>
+          </div>
+          <input
+            id="rotta-shift" type="range" min={-6} max={24} step={0.5}
+            value={bakeShiftH} aria-valuetext={`${bakeShiftH > 0 ? 'più ' : bakeShiftH < 0 ? 'meno ' : ''}${Math.abs(bakeShiftH)} ore`}
+            onChange={e => setBakeShiftH(parseFloat(e.target.value))}
+            style={{ width: '100%', accentColor: 'var(--accent-warning)', marginBottom: 10 }}
+          />
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)' }} aria-live="polite">
+            Cottura: <strong style={{ color: 'var(--text-primary)' }}>{fmtBakeClock(newBakeAt.getTime())}</strong>
+            {Math.abs(newBakeAt.getTime() - oldBakeMs) >= 60_000 && <> · prima {fmtBakeClock(oldBakeMs)}</>}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
+            Allunga o accorcia il frigo (o l'ultima fase): così si sposta l'infornata.
+          </div>
+        </Card>
+      ) : (
+        <Card>
+          <div style={{ ...S.label, marginBottom: 8 }}>Cottura</div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }} aria-live="polite">
+            A temperatura ambiente l'orario lo decide la maturazione
+            {taReadyMs != null ? <>: <strong style={{ color: 'var(--text-primary)' }}>{fmtBakeClock(taReadyMs)}</strong> con {localT}°C.</> : '.'}
+            {' '}Per anticipare o ritardare cambia la temperatura.
+          </div>
+        </Card>
+      )}
 
       {/* ── Freddo in corsa (solo protocolli TC) ── */}
       {isTcProto && (
@@ -226,7 +271,7 @@ function RottaContent() {
           </div>
           <input
             type="range" min={0} max={72} step={1}
-            value={localTcH}
+            value={localTcH} aria-label="Freddo in corsa (ore)" aria-valuetext={localTcH > 0 ? `${localTcH} ore` : 'disattivo'}
             onChange={e => setLocalTcH(parseFloat(e.target.value))}
             style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
           />
@@ -273,14 +318,14 @@ function RottaContent() {
       {isTcProto && (
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <span style={S.label}>Temperatura frigo</span>
+            <label htmlFor="rotta-tfrigo" style={S.label}>Temperatura frigo</label>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
               {localFridgeT}°C
             </span>
           </div>
           <input
-            type="range" min={1} max={8} step={0.5}
-            value={localFridgeT}
+            id="rotta-tfrigo" type="range" min={1} max={8} step={0.5}
+            value={localFridgeT} aria-valuetext={`${localFridgeT}°C`}
             onChange={e => setLocalFridgeT(parseFloat(e.target.value))}
             style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
           />
@@ -293,14 +338,14 @@ function RottaContent() {
       {/* ── Soglia alert ── */}
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <span style={S.label}>Soglia alert maturazione</span>
+          <label htmlFor="rotta-soglia" style={S.label}>Soglia alert maturazione</label>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-optimal-hi)' }}>
             {localThreshold}%
           </span>
         </div>
         <input
-          type="range" min={60} max={98} step={1}
-          value={localThreshold}
+          id="rotta-soglia" type="range" min={60} max={98} step={1}
+          value={localThreshold} aria-valuetext={`${localThreshold}%`}
           onChange={e => setThreshold(parseFloat(e.target.value))}
           style={{ width: '100%', accentColor: 'var(--state-optimal-hi)' }}
         />

@@ -241,6 +241,11 @@ export function DashboardV4() {
   const { state, dispatch } = useApp();
   const { setTempAmbient, setPhase, snapshotPhase, restorePhase } = useTickEngine();
   const [confirmEnd, setConfirmEnd] = useState(false);
+  // "Ho infornato" prima del pronto: si chiede conferma.
+  const [confirmEarlyBake, setConfirmEarlyBake] = useState(false);
+  const footerTitleRef = useRef<HTMLDivElement>(null);
+  const endBtnRef      = useRef<HTMLButtonElement>(null);
+  const earlyBakeRef   = useRef<HTMLButtonElement>(null);
   // "Ho infornato": annullabile per 10s, poi resta il riepilogo fino a "Fine".
   const [bakeUndoOpen, setBakeUndoOpen] = useState(false);
   const bakeUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -433,7 +438,7 @@ export function DashboardV4() {
 
   // Focus dopo le azioni che smontano il pulsante premuto (Fatto ora, Ho infornato,
   // Annulla): lo si porta sul comando o sul titolo che lo sostituisce, mai sul body.
-  const focusNext     = useRef<'undoPhase' | 'baked' | 'bakeBtn' | null>(null);
+  const focusNext     = useRef<'undoPhase' | 'baked' | 'bakeBtn' | 'footerTitle' | 'endBtn' | null>(null);
   const undoPhaseRef  = useRef<HTMLButtonElement>(null);
   const bakedTitleRef = useRef<HTMLDivElement>(null);
   const bakeBtnRef    = useRef<HTMLButtonElement>(null);
@@ -441,7 +446,11 @@ export function DashboardV4() {
     const target = focusNext.current;
     if (!target) return;
     const el = target === 'undoPhase' ? undoPhaseRef.current
-      : target === 'baked' ? bakedTitleRef.current : bakeBtnRef.current;
+      : target === 'baked' ? bakedTitleRef.current
+      : target === 'footerTitle' ? footerTitleRef.current
+      : target === 'endBtn' ? endBtnRef.current
+      // "Ho infornato" è primario a PRONTO, secondario prima
+      : (bakeBtnRef.current ?? earlyBakeRef.current);
     if (el) { el.focus(); focusNext.current = null; }
   });
 
@@ -708,6 +717,11 @@ export function DashboardV4() {
     restorePhase(undo.snap);
     setUndo(null);
     if (undoTimer.current) clearTimeout(undoTimer.current);
+    // il focus torna sul marcatore della fase annullata, di nuovo toccabile
+    setTimeout(() => {
+      const m = document.querySelector<HTMLElement>(`[aria-label*="passa a ${undo.label}"]`);
+      if (m) m.focus();
+    }, 50);
   };
 
   // ── "Ho infornato": registra l'ora reale, mostra il riepilogo, il voto dopo ──
@@ -721,6 +735,7 @@ export function DashboardV4() {
     return `pronta dalle ${fmtClock(readySince, nowDate)} · ${diffMin <= 1 ? 'subito' : `+${fmtDuration(diffMin / 60)}`}`;
   })();
   const markBaked = () => {
+    setConfirmEarlyBake(false);
     const at = new Date();
     const bakedPatch = { bakedAt: at, predictedBakeAt: planBake, bakedMaturationPct: enzymaticMatPct };
     dispatch({ type: 'SESSION_UPDATE', patch: bakedPatch as Partial<Session> });
@@ -1123,12 +1138,20 @@ export function DashboardV4() {
             </div>
           </div>
         ) : confirmEnd ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            <div style={{ color: 'var(--pm4-flour)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-              Terminare la sessione? Verrà salvata nello Storico.
+          <div role="group" aria-labelledby="pm-end-title" style={{ display: 'flex', flexDirection: 'column', gap: 9 }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusNext.current = 'endBtn'; setConfirmEnd(false); } }}>
+            <div id="pm-end-title" ref={footerTitleRef} tabIndex={-1} style={{ color: 'var(--pm4-flour)', fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5, outline: 'none' }}>
+              Terminare la sessione?{' '}
+              {/* senza infornata la sessione non è "completata": nello Storico resta interrotta */}
+              <span style={{ color: 'var(--pm4-tan)' }}>Non l'hai segnata come infornata: finirà nello Storico come interrotta.</span>
             </div>
+            {/* SESSION_END in un render a parte: il salvataggio legge la sessione già infornata */}
+            <button onClick={() => { markBaked(); setTimeout(() => dispatch({ type: 'SESSION_END' }), 0); }}
+              className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+              🍕 Ho infornato, chiudi
+            </button>
             <div style={{ display: 'flex', gap: 9 }}>
-              <button onClick={() => setConfirmEnd(false)}
+              <button onClick={() => { focusNext.current = 'endBtn'; setConfirmEnd(false); }}
                 className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
                 ← Annulla
               </button>
@@ -1138,11 +1161,34 @@ export function DashboardV4() {
               </button>
             </div>
           </div>
+        ) : confirmEarlyBake ? (
+          <div role="group" aria-labelledby="pm-early-bake-title" style={{ display: 'flex', flexDirection: 'column', gap: 9 }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusNext.current = 'bakeBtn'; setConfirmEarlyBake(false); } }}>
+            <div id="pm-early-bake-title" ref={footerTitleRef} tabIndex={-1} style={{ color: 'var(--pm4-flour)', fontSize: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5, outline: 'none' }}>
+              Non è ancora al punto (maturazione {enzymaticMatPct.toFixed(0)}%, pronto {etaValue}{etaSuffix ? ` ${etaSuffix}` : ''}). Infornata lo stesso?
+            </div>
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button onClick={() => { focusNext.current = 'bakeBtn'; setConfirmEarlyBake(false); }}
+                className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+                Aspetto
+              </button>
+              <button onClick={markBaked} className="pm-btn-primary" style={BTN_PRIMARY}>
+                Sì, infornata
+              </button>
+            </div>
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {isReady && (
+            {isReady ? (
               <button ref={bakeBtnRef} onClick={markBaked} className="pm-btn-primary" style={{ ...BTN_PRIMARY, minHeight: 52, fontSize: 15 }}>
                 🍕 Ho infornato
+              </button>
+            ) : (
+              // prima del pronto si può infornare lo stesso (servizio anticipato, forno libero):
+              // secondario, con conferma
+              <button ref={earlyBakeRef} onClick={() => { focusNext.current = 'footerTitle'; setConfirmEarlyBake(true); }}
+                className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
+                Ho infornato
               </button>
             )}
             {/* Aggiusta rotta resta anche a PRONTO: serve per rallentare fino al servizio. */}
@@ -1155,7 +1201,7 @@ export function DashboardV4() {
                 className="pm4-btn pm4-btn-ghost" style={BTN_FOOT}>
                 Forno
               </button>
-              <button onClick={() => setConfirmEnd(true)}
+              <button ref={endBtnRef} onClick={() => { focusNext.current = 'footerTitle'; setConfirmEnd(true); }}
                 className="pm4-btn pm4-btn-danger-quiet" style={{ ...BTN_FOOT, ...BTN_DANGER_QUIET_COLORS }}>
                 Termina
               </button>

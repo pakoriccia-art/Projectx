@@ -51,8 +51,8 @@ beforeEach(() => {
 });
 
 describe('persistSession', () => {
-  it('chiama db.sessions.put con status=completed', async () => {
-    await persistSession(mockSession, mockTickState, 3);
+  it('infornata: db.sessions.put con status=completed', async () => {
+    await persistSession({ ...mockSession, bakedAt: new Date() }, mockTickState, 3);
     expect(db.sessions.put).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'completed',
@@ -72,8 +72,12 @@ describe('persistSession', () => {
 
   it('funziona con tickState null (sessione senza tick)', async () => {
     await expect(persistSession(mockSession, null, 0)).resolves.not.toThrow();
+  });
+
+  it('terminata senza infornare: status=aborted', async () => {
+    await persistSession(mockSession, mockTickState, 0);
     const call = (db.sessions.put as ReturnType<typeof vi.fn>).mock.calls[0][0] as Session;
-    expect(call.status).toBe('completed');
+    expect(call.status).toBe('aborted');
   });
 });
 

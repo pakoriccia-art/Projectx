@@ -25,6 +25,7 @@ export const NOTIF_ID = {
   prefermentFridge: 133,
   prefermentLate2: 134,
   prefermentLate3: 135,
+  prefermentOverdue: 136,
 } as const;
 
 /** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
@@ -61,7 +62,7 @@ export function useCapacitorNotifications() {
   //  130 pronto · 131 oltre la soglia · 132 ora di impastare il secondo · 133 frigo in anticipo.
   const stage = state.prefermentStage;
   useEffect(() => {
-    const ids = [NOTIF_ID.preferment, NOTIF_ID.prefermentLate, NOTIF_ID.prefermentLate2, NOTIF_ID.prefermentLate3, NOTIF_ID.prefermentNext, NOTIF_ID.prefermentFridge];
+    const ids = [NOTIF_ID.preferment, NOTIF_ID.prefermentLate, NOTIF_ID.prefermentLate2, NOTIF_ID.prefermentLate3, NOTIF_ID.prefermentNext, NOTIF_ID.prefermentFridge, NOTIF_ID.prefermentOverdue];
     if (!stage) { ids.forEach(cancelNotification); return; }
     const st = normalizeStage(stage);
     const items = st.items ?? [];
@@ -99,6 +100,12 @@ export function useCapacitorNotifications() {
         ? `Così è ${readyWord(nFem)} insieme ${prefAl(items[0].type)}. Le dosi sono in PizzaMatrix.`
         : `Sarà ${readyWord(nFem)} ${hm(nReady)}. Le dosi sono in PizzaMatrix.`,
       next ? new Date(next.startAt).getTime() : null);
+    // 136: un'ora dopo, se non è ancora impastato (ad app chiusa la vista non lo dice).
+    const mainIt = items.find(it => it.mixedAt);
+    const mainEta = mainIt ? status.all.find(x => x.it.id === mainIt.id)?.etaMs : undefined;
+    at(NOTIF_ID.prefermentOverdue, `⏰ ${Cap(prefWithArticle(nType))} non è ancora ${nFem ? 'impastata' : 'impastato'}`,
+      `Impast${nFem ? 'ala' : 'alo'} adesso o procedi senza${mainIt && mainEta ? `: ${prefWithArticle(mainIt.type)} è ${readyWord(prefIsFeminine(mainIt.type))} ${hm(mainEta)}` : ''}. Apri PizzaMatrix.`,
+      next ? new Date(next.startAt).getTime() + 3_600_000 : null);
     // 133: frigo in anticipo, un'ora prima del pronto del primo impastato che non è in frigo.
     const fridgeT = (stage.draft as { fridgeTempC?: number }).fridgeTempC ?? 4;
     const cand = status.all

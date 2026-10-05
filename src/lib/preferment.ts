@@ -474,6 +474,21 @@ export interface ItemState {
 /** Oltre questo ritardo sull'orario di avvio, il secondo prefermento è "da impastare". */
 export const START_GRACE_MS = 15 * 60_000;
 
+/**
+ * "L'ho impastata alle HH:MM": l'orario detto a voce diventa una data. Un orario
+ * più avanti di adesso è di ieri; oltre `maxAgeH` ore fa non vale (null).
+ */
+export function mixedAtFromClock(hhmm: string, now = Date.now(), maxAgeH = 12): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]), min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  const d = new Date(now); d.setHours(h, min, 0, 0);
+  let t = d.getTime();
+  if (t > now + 60_000) t -= 86_400_000;
+  return now - t > maxAgeH * 3_600_000 ? null : Math.min(t, now);
+}
+
 export function itemState(it: StageItem, now = Date.now()): ItemState {
   const p = itemProgress(it, now);
   const th = lateThresholdPct(it.type);

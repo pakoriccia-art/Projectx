@@ -3,7 +3,8 @@
  * Routing basato su AppContext (view state machine, no react-router)
  * Hooks globali: persistenza DB, notifiche Capacitor
  */
-import { Component, Suspense, lazy, useLayoutEffect, type ComponentType, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, useLayoutEffect, type ComponentType, type ReactNode } from 'react';
+import { installFocusRescue } from './lib/focusRescue';
 import { AppProvider, useApp } from './context/AppContext';
 
 // issue #32 — le viste erano importate staticamente e finivano tutte nel bundle
@@ -294,6 +295,9 @@ function AppRouter() {
   // window/body, che altrimenti erediterebbe la posizione di scroll precedente.
   // Lo scroller interno del wizard è gestito in WizardView (su cambio step).
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [state.view]);
+  // Un comando che si smonta (Annulla che scade, conferma chiusa, cambio vista)
+  // non lascia il focus sul body.
+  useEffect(() => installFocusRescue(), []);
 
   const view = (() => {
     switch (state.view) {

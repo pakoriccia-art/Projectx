@@ -19,7 +19,7 @@ import {
   EARLY_PCT, FRIDGE_HINT_PCT, currentSpot, elapsedPrefHours, equivalentTempC, finalWaterAdvice,
   fmtGrams, fmtSpanH, fridgeGain, isPreparable, itemClock, itemState, normalizeStage,
   overSign, placeOf, placeTempC, prefAl, prefDdtC, prefIsFeminine, prefName, prefTempAtMix,
-  prefWithArticle, readySigns, readyWord, splitRecipe, stageReadyAt, stageStatus, waterAdvice, fridgePlan,
+  prefWithArticle, readySigns, readyWord, splitRecipe, stageReadyAt, stageStatus, waterAdvice, fridgePlan, mixedAtFromClock,
   type ItemState, type LateLevel, type PrefPlace, type StageItem,
 } from '../../lib/preferment';
 
@@ -44,6 +44,51 @@ const LEVEL_COLOR: Record<LateLevel, string> = {
 const BAR_COLOR: Record<LateLevel, string> = { ...LEVEL_COLOR, growing: 'var(--pm4-tan)', veryLate: 'var(--state-collapsed, #d63031)' };
 
 type Confirm = null | 'early' | 'veryLate' | 'service' | 'skip';
+
+/**
+ * "L'ho impastata alle…": l'ora vera dell'impasto, quando non è adesso. La
+ * maturazione parte da lì, non dal tocco sul pulsante.
+ */
+function MixedAtPicker({ trigger, fem, onPick }: { trigger: string; fem: boolean; onPick: (ms: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const reopen = useRef(false);
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+    else if (reopen.current) { triggerRef.current?.focus(); reopen.current = false; }
+  }, [open]);
+  const id = useRef(`pm-mixed-${Math.random().toString(36).slice(2, 7)}`).current;
+  const ms = val ? mixedAtFromClock(val) : null;
+  if (!open) return (
+    <button ref={triggerRef} type="button" onClick={() => {
+      const d = new Date(Date.now() - 3_600_000);
+      setVal(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+      setOpen(true);
+    }} style={{
+      alignSelf: 'flex-start', minHeight: 44, background: 'none', border: 'none', cursor: 'pointer',
+      ...MONO, fontSize: '0.9rem', color: 'var(--pm4-tan)', textDecoration: 'underline', padding: 0,
+    }}>{trigger}</button>
+  );
+  return (
+    <div role="group" aria-label="Orario dell'impasto" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <label id={`${id}-l`} htmlFor={id} style={{ ...MONO, fontSize: '0.9rem', color: 'var(--pm4-flour)' }}>
+        {fem ? 'Impastata' : 'Impastato'} alle
+      </label>
+      <input ref={inputRef} id={id} type="time" value={val} onChange={e => setVal(e.target.value)}
+        aria-describedby={`${id}-h`}
+        style={{ ...MONO, fontSize: '1rem', minHeight: 44, padding: '6px 10px', background: 'var(--bg-elevated)', color: 'var(--pm4-flour)', border: '1px solid var(--pm4-line-strong)', borderRadius: 8 }} />
+      <div id={`${id}-h`} role={val && ms == null ? 'alert' : undefined} style={{ ...MONO, fontSize: 11, color: val && ms == null ? 'var(--state-critical)' : 'var(--pm4-umber)' }}>
+        {val && ms == null ? 'Al massimo 12 ore fa: per un orario più vecchio annulla e ricomincia.' : 'Un orario più avanti di adesso vale per ieri.'}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => { reopen.current = true; setOpen(false); }}>Annulla</Btn></div>
+        <div style={{ flex: 1 }}><Btn disabled={ms == null} onClick={() => { if (ms != null) { setOpen(false); onPick(ms); } }}>Salva l'orario</Btn></div>
+      </div>
+    </div>
+  );
+}
 
 export function PrefermentStageView() {
   const { state, dispatch } = useApp();
@@ -391,6 +436,20 @@ export function PrefermentStageView() {
           <div style={{ marginTop: 10 }}>
             <Btn onClick={() => { setShowDoses(false); save({ mixedAck: true }); }}>Fatto ✓</Btn>
           </div>
+          {!stage.mixedAck && (
+            <div style={{ marginTop: 6 }}>
+              <MixedAtPicker trigger={`L'ho ${prefIsFeminine(main.type) ? 'impastata' : 'impastato'} prima…`} fem={prefIsFeminine(main.type)}
+                onPick={t => {
+                  // la biga matura da quando è stata impastata: si sposta tutto il piano
+                  const d = t - new Date(main.startAt).getTime();
+                  setShowDoses(false);
+                  saveItems(items.map(x => x.id === main.id
+                    ? { ...x, startAt: new Date(t), mixedAt: new Date(t) }
+                    : x.mixedAt ? x : { ...x, startAt: new Date(new Date(x.startAt).getTime() + d) }),
+                  { startedAt: new Date(t), mixedAck: true });
+                }} />
+            </div>
+          )}
         </Card>
       ) : (
         <button type="button" onClick={() => setShowDoses(true)} style={{
@@ -482,9 +541,14 @@ export function PrefermentStageView() {
                 {overdue && waitingHurts && !fridgeHelps && (
                   confirm === 'skip' ? null : <div className="pm-skip"><Btn onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn></div>
                 )}
-                <Btn variant={due && !(overdue && waitingHurts) ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
-                  {due ? (overdue ? `L${f ? 'a' : 'o'} impasto adesso ✓` : 'Fatto ✓') : `L'ho già impastat${f ? 'a' : 'o'}`}
-                </Btn>
+                {due ? (
+                  <Btn variant={!(overdue && waitingHurts) ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
+                    {overdue ? `L${f ? 'a' : 'o'} impasto adesso ✓` : 'Fatto ✓'}
+                  </Btn>
+                ) : null}
+                {/* impastato prima (o già fatto): l'ora vera, non quella del tocco */}
+                <MixedAtPicker trigger={due ? `L'ho impastat${f ? 'a' : 'o'} prima…` : `L'ho già impastat${f ? 'a' : 'o'}…`} fem={f}
+                  onPick={t => updateItem(it.id, { mixedAt: new Date(t) })} />
                 {overdue && (
                   confirm === 'skip' ? (
                     <div ref={confirmRef} tabIndex={-1} role="group" aria-label={`Procedi senza ${nm}`} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
