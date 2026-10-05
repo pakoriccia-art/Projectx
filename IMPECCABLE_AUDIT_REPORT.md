@@ -415,6 +415,10 @@ Risolti i P1 della terza (attribuzione, vicolo cieco del secondo, gerarchia sul 
 
 Risolti i P1/P2/P3 della quarta (CTA in vista, avvisi per ogni prefermento, slider nello schema, contrasto, segni per ogni prefermento, focus). Nuovi P1: il frigo consigliato per il ritardo del poolish porta a "Non sono pronti insieme" (controlla che la biga non vada oltre, non che sia pronta in tempo); quando un prefermento è oltre il primario è il frigo e non l'impasto finale (in troppo oltre nessun primario). P2: "Fatto" non registra l'ora reale, poolish in ritardo senza notifica, impasto finale primario all'81% senza conferma, focus dopo "Fatto".
 
+## Passaggio 29: critique del ramo Nuovo impasto, dall'inizio alla fine (24/40)
+
+Prima critique sull'intero ramo Diretto (wizard → dashboard → Rotta → Forno → Storico); le precedenti valutavano solo la dashboard (27). Il monitor migliora; emergono incoerenze tra le viste: tre orari di cottura diversi, acqua 21 °C al passo 4 e 3,9 °C al passo 8 (durata d'impastamento 0 contro 12 min), TC su Napoletana sospeso da un modale e non salvato (dopo il reload torna TA), infornata non salvata fino a "Fine · salva", Aggiusta rotta senza effetto sull'orario.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
