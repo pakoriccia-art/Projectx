@@ -1,11 +1,11 @@
 /**
  * PizzaMatrix — RottaView (Aggiusta Rotta)
- * Modifica in corsa: T_amb, tcHours, target cottura, soglia alert.
- * Mostra preview impatto kRatio sul ritmo di maturazione.
+ * Modifica in corsa: T_amb, frigo, durate, soglia alert. In cima la risposta
+ * (quando inforni, prima e dopo); i numeri del modello stanno nei dettagli.
  */
 import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Card, Metric, S, SliderInput } from '../ui';
+import { Card, Metric, S, SliderInput, fmtHours, speakHours } from '../ui';
 import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS, getStyleProfile } from '../../engine';
 import { resolveThreshold } from '../../lib/bakeReadiness';
 import { buildInitialTimeline, db } from '../../db/db';
@@ -61,18 +61,16 @@ function RottaContent() {
   const oldBakeMs = planBakeMs(baseTimeline);
   const newBakeAt = new Date(planBakeMs(newTimeline));
 
-  // Preview kRatio (velocità relativa a 25°C ref)
-  const kRef     = (kEffective as Function)(25, session.agentEaKj, session.agentType) as number;
-  const kCurrent = (kEffective as Function)(ts?.tempDough ?? localT, session.agentEaKj, session.agentType) as number;
-  const kNew     = (kEffective as Function)(localT, session.agentEaKj, session.agentType) as number;
-
-  const kRatioCurr = kRef > 0 ? kCurrent / kRef : 0;
-  const kRatioNew  = kRef > 0 ? kNew / kRef : 0;
+  // Ritmo relativo a 25°C: adesso (T ambiente della sessione) contro la T proposta.
+  const tAmbNow  = ts?.tempAmbient ?? 22;
+  const kAt      = (t: number) => (kEffective as Function)(t, session.agentEaKj, session.agentType) as number;
+  const kRef     = kAt(25);
+  const kRatioCurr = kRef > 0 ? kAt(tAmbNow) / kRef : 0;
+  const kRatioNew  = kRef > 0 ? kAt(localT) / kRef : 0;
   const speedDelta = kRatioCurr > 0 ? ((kRatioNew / kRatioCurr) - 1) * 100 : 0;
 
-  // Sweet spot preview: ore al PICCO DI MATURAZIONE (orologio enzimatico two-clock)
-  // con T corrente vs T proposta. Usa l'ADU enzimatico integrato reale (ts.enzymaticAdu),
-  // NON l'ADU lievito né l'offset prefermento — quello seminava la lievitazione (bug risolto).
+  // Picco di maturazione (orologio enzimatico two-clock): ADU enzimatico integrato
+  // reale (ts.enzymaticAdu), NON l'ADU lievito né l'offset prefermento.
   const enzAdu = (() => {
     if (ts?.enzymaticAdu != null) return ts.enzymaticAdu;
     const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;  // pre-tick fallback
@@ -80,21 +78,43 @@ function RottaContent() {
       ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
       : 0;
   })();
-  const spotCurr = useMemo(() => {
-    try { return (sweetSpotMaturation as Function)({ ...session, alertThreshold: localThreshold }, enzAdu, ts?.tempAmbient ?? 22) as any; }
+  const spot = (threshold: number, tC: number) => {
+    try { return (sweetSpotMaturation as Function)({ ...session, alertThreshold: threshold }, enzAdu, tC) as any; }
     catch { return null; }
-  }, [session, enzAdu, ts?.tempAmbient, localThreshold]);
-  const spotNew = useMemo(() => {
-    try { return (sweetSpotMaturation as Function)({ ...session, alertThreshold: localThreshold }, enzAdu, localT) as any; }
-    catch { return null; }
-  }, [session, enzAdu, localT, localThreshold]);
+  };
+  const spotBase = useMemo(() => spot(sessionThreshold, tAmbNow),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, enzAdu, tAmbNow, sessionThreshold]);
+  const spotNew = useMemo(() => spot(localThreshold, localT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, enzAdu, localT, localThreshold]);
 
-  // Ora del pronto a temperatura ambiente: la decide la maturazione, non le durate.
-  const taReadyMs = spotNew && Number.isFinite(spotNew.hoursUntilPeak)
-    ? Date.now() + Math.max(0, spotNew.hoursUntilPeak) * 3_600_000 : null;
+  // A temperatura ambiente l'orario lo decide la maturazione, non le durate.
+  const readyMs = (sp: any) => sp && Number.isFinite(sp.hoursUntilPeak)
+    ? Date.now() + Math.max(0, sp.hoursUntilPeak) * 3_600_000 : null;
+  const bakeBeforeMs = isTcProto ? oldBakeMs : readyMs(spotBase);
+  const bakeAfterMs  = isTcProto ? newBakeAt.getTime() : readyMs(spotNew);
+  const bakeMoved = bakeBeforeMs != null && bakeAfterMs != null && Math.abs(bakeAfterMs - bakeBeforeMs) >= 60_000;
+
+  // Il frigo che lo spostamento allunga o accorcia: la durata che ne risulta.
+  const fridgeIdx = (() => {
+    const segs = baseTimeline.slice().sort((a, b) => a.startElapsedH - b.startElapsedH);
+    const i = segs.reduce((acc, sg, k) => (sg.status !== 'completed' && /fridge/.test(sg.phaseType) ? k : acc), -1);
+    return i;
+  })();
+  const segDur = (tl: typeof baseTimeline, i: number) => {
+    const sg = tl.slice().sort((a, b) => a.startElapsedH - b.startElapsedH)[i];
+    return sg ? Math.max(0, (sg.endElapsedH ?? sg.startElapsedH) - sg.startElapsedH) : null;
+  };
+  const fridgeBefore = fridgeIdx >= 0 ? segDur(baseTimeline, fridgeIdx) : null;
+  const fridgeAfter  = fridgeIdx >= 0 ? segDur(newTimeline, fridgeIdx) : null;
+
+  const thresholdChanged = localThreshold !== sessionThreshold;
+  const dirty = Object.keys(changes).length > 0 || thresholdChanged || localT !== tAmbNow
+    || (isTcProto && (bakeShiftH !== 0 || localFridgeT !== (session.fridgeTempC ?? 4)));
 
   const apply = () => {
-    const thresholdChanged = localThreshold !== sessionThreshold;
+    if (!dirty) return;
     const patch = {
       tcHours:        isTcProto ? localTcH : undefined,
       fridgeTempC:    isTcProto ? localFridgeT : undefined,
@@ -115,260 +135,204 @@ function RottaContent() {
     dispatch({ type: 'NAV', view: 'dashboard' });
   };
 
+  const mono = { fontFamily: 'var(--font-mono)' } as const;
+  const valueStyle = (color: string) => ({ ...mono, fontSize: '0.9rem', fontWeight: 700, color });
+  const note = { ...mono, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 } as const;
+
+  const tempCard = (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <label htmlFor="rotta-tamb" style={S.label}>Temperatura ambiente</label>
+        <span style={valueStyle('var(--text-primary)')}>{localT}°C</span>
+      </div>
+      <input
+        id="rotta-tamb" type="range" min={-2} max={40} step={0.5}
+        value={localT} aria-valuetext={`${localT}°C`}
+        onChange={e => setLocalT(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--accent-brand)', marginBottom: 10 }}
+      />
+      <div style={note} aria-live="polite">
+        {Math.abs(speedDelta) < 0.5
+          ? <>Stesso ritmo di adesso ({tAmbNow}°C).</>
+          : <>Matura il <strong style={{ color: speedDelta > 0 ? 'var(--state-optimal-lo)' : 'var(--state-cold)' }}>{Math.abs(speedDelta).toFixed(0)}% più {speedDelta > 0 ? 'in fretta' : 'piano'}</strong> che a {tAmbNow}°C.</>}
+      </div>
+    </Card>
+  );
+
+  const durationSliders = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {(proto === 'ta' || proto === 'tc_appreto') && (
+        <SliderInput label="Puntata TA" value={localPuntataH} onChange={setLocalPuntataH}
+          min={1} max={24} step={0.5} unit="h" color="var(--text-primary)" />
+      )}
+      {/* tc / tc_puntata: il frigo è la puntata (stessa durata di "Sposta la cottura") */}
+      {(proto === 'tc' || proto === 'tc_puntata') && (
+        <SliderInput label="Puntata TC (frigo)" value={localTcH} onChange={setLocalTcH}
+          min={1} max={72} step={1} unit="h" color="var(--state-cold)" />
+      )}
+      <SliderInput label="Staglio" value={localStaglioH} onChange={setLocalStaglioH}
+        min={0.1} max={3} step={0.1} unit="h" color="var(--text-primary)" />
+      {(proto === 'ta' || proto === 'tc_puntata') && (
+        <SliderInput label="Appretto TA" value={localApprettoH} onChange={setLocalApprettoH}
+          min={0.5} max={12} step={0.5} unit="h" color="var(--text-primary)" />
+      )}
+      {proto === 'tc_appreto' && (
+        <SliderInput label="Appretto TC (frigo)" value={localTcH} onChange={setLocalTcH}
+          min={1} max={48} step={1} unit="h" color="var(--state-cold)" />
+      )}
+    </div>
+  );
+
+  const thresholdCard = (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <label htmlFor="rotta-soglia" style={S.label}>Soglia alert maturazione</label>
+        <span style={valueStyle('var(--text-primary)')}>{localThreshold}%</span>
+      </div>
+      <input
+        id="rotta-soglia" type="range" min={60} max={98} step={1}
+        value={localThreshold} aria-valuetext={`${localThreshold}%`}
+        onChange={e => setThreshold(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--accent-brand)', marginBottom: 8 }}
+      />
+      <div style={note}>La maturazione a cui l'impasto è pronto da infornare.</div>
+    </Card>
+  );
+
+  const statusIt = (st?: string) => st === 'past_peak' ? 'picco passato' : st === 'upcoming' ? 'prima del picco' : '';
+  const peakLine = (sp: any, tC: number) => !sp || !Number.isFinite(sp.hoursUntilPeak) ? '—'
+    : sp.hoursUntilPeak > 0 ? `a ${tC}°C: tra ${fmtHours(sp.hoursUntilPeak)}${statusIt(sp.status) ? ` (${statusIt(sp.status)})` : ''}`
+    : `a ${tC}°C: in finestra`;
+
+  // il triangolo nativo resta: dice che si apre
+  const summaryStyle = { ...S.label, padding: '14px 0', margin: '-14px 0', cursor: 'pointer' } as const;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* Riepilogo sessione corrente */}
-      <Card style={{ padding: '12px 16px', background: 'rgba(255,140,50,0.06)' }}>
+      <Card style={{ padding: '12px 16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-          <Metric label="Maturazione" value={`${(ts?.maturationPct ?? 0).toFixed(0)}%`} color="var(--accent-brand)" />
+          <Metric label="Maturazione" value={`${(ts?.maturationPct ?? 0).toFixed(0)}%`} />
           <Metric label="T impasto"   value={`${(ts?.tempDough ?? 22).toFixed(1)}°C`} />
           <Metric label="Agente"      value={AGENT_SHORT[session.agentType] ?? session.agentLabel} />
         </div>
       </Card>
 
-      {/* ── T Ambiente ── */}
+      {/* ── La risposta: quando inforni, prima e dopo le modifiche ── */}
       <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <label htmlFor="rotta-tamb" style={S.label}>Temperatura ambiente</label>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--accent-brand)' }}>
-            {localT}°C
-          </span>
-        </div>
-        <input
-          id="rotta-tamb" type="range" min={-2} max={40} step={0.5}
-          value={localT} aria-valuetext={`${localT}°C`}
-          onChange={e => setLocalT(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: 'var(--accent-brand)', marginBottom: 12 }}
-        />
-        {/* Preview velocità */}
-        <div style={{
-          background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)',
-          padding: '10px 14px',
-          fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
-          display: 'flex', justifyContent: 'space-between',
-        }}>
-          <span style={{ color: 'var(--text-muted)' }}>
-            kRatio attuale: <strong style={{ color: 'var(--text-secondary)' }}>{kRatioCurr.toFixed(3)}</strong>
-            &nbsp;→ nuovo: <strong style={{ color: 'var(--accent-brand)' }}>{kRatioNew.toFixed(3)}</strong>
-          </span>
-          <span style={{
-            color: speedDelta > 0 ? 'var(--state-optimal-lo)' : speedDelta < 0 ? 'var(--state-cold)' : 'var(--text-muted)',
-            fontWeight: 700,
-          }}>
-            {speedDelta > 0 ? '+' : ''}{speedDelta.toFixed(1)}%
-          </span>
+        <div style={{ ...S.label, marginBottom: 8 }}>Inforni alle</div>
+        <div aria-live="polite">
+          <div style={{ ...mono, fontSize: 35, fontWeight: 800, lineHeight: 0.9, letterSpacing: '-0.03em', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+            {bakeAfterMs != null ? fmtBakeClock(bakeAfterMs) : '—'}
+          </div>
+          <div style={{ ...note, marginTop: 10 }}>
+            {bakeMoved
+              ? <>prima {fmtBakeClock(bakeBeforeMs!)} · {bakeAfterMs! > bakeBeforeMs! ? '+' : '−'}{fmtHours(Math.abs(bakeAfterMs! - bakeBeforeMs!) / 3_600_000)}</>
+              : 'nessuna modifica all\'orario'}
+            {isTcProto
+              ? <> · secondo il piano</>
+              : <> · con {localT}°C e maturazione al {localThreshold}%</>}
+          </div>
         </div>
       </Card>
 
-      {/* ── Sweet spot preview ── */}
-      {(spotCurr || spotNew) && (
-        <Card style={{ padding: '12px 16px', background: 'rgba(0,184,148,0.05)' }}>
-          <div style={{ ...S.label, marginBottom: 10 }}>Effetto sul picco di maturazione</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={{ borderRight: '1px solid var(--pm4-line)', paddingRight: 10 }}>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
-                T attuale — {(ts?.tempAmbient ?? localT).toFixed(1)}°C
-              </div>
-              {spotCurr ? (
-                <>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    {Number.isFinite(spotCurr.hoursUntilPeak) && spotCurr.hoursUntilPeak > 0
-                      ? `+${spotCurr.hoursUntilPeak.toFixed(1)}h`
-                      : 'In finestra'}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                    {spotCurr.status ?? ''}
-                  </div>
-                </>
-              ) : <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>}
-            </div>
-            <div>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
-                T proposta — {localT.toFixed(1)}°C
-              </div>
-              {spotNew ? (
-                <>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-brand)' }}>
-                    {Number.isFinite(spotNew.hoursUntilPeak) && spotNew.hoursUntilPeak > 0
-                      ? `+${spotNew.hoursUntilPeak.toFixed(1)}h`
-                      : 'In finestra'}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                    {spotNew.status ?? ''}
-                  </div>
-                </>
-              ) : <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>}
-            </div>
-          </div>
-          {spotCurr && spotNew &&
-            Number.isFinite(spotCurr.hoursUntilPeak) &&
-            Number.isFinite(spotNew.hoursUntilPeak) && (
-            <div style={{
-              marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--pm4-line)',
-              fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)',
-              display: 'flex', justifyContent: 'space-between',
-            }}>
-              <span>Δ picco con nuova T</span>
-              <span style={{
-                fontWeight: 700,
-                color: spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak > 0
-                  ? 'var(--state-cold)'
-                  : spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak < 0
-                  ? 'var(--state-optimal-lo)'
-                  : 'var(--text-muted)',
-              }}>
-                {spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak > 0 ? '+' : ''}
-                {(spotNew.hoursUntilPeak - spotCurr.hoursUntilPeak).toFixed(1)}h
+      {isTcProto ? (
+        <>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+              <label htmlFor="rotta-shift" style={S.label}>Sposta la cottura</label>
+              <span style={valueStyle(bakeShiftH !== 0 ? 'var(--accent-warning)' : 'var(--text-muted)')}>
+                {bakeShiftH === 0 ? '0' : `${bakeShiftH > 0 ? '+' : '−'}${fmtHours(Math.abs(bakeShiftH))}`}
               </span>
             </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Cottura ── */}
-      {isTcProto ? (
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <label htmlFor="rotta-shift" style={S.label}>Sposta la cottura</label>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: bakeShiftH !== 0 ? 'var(--accent-warning)' : 'var(--text-muted)' }}>
-              {bakeShiftH > 0 ? '+' : ''}{bakeShiftH}h
-            </span>
-          </div>
-          <input
-            id="rotta-shift" type="range" min={-6} max={24} step={0.5}
-            value={bakeShiftH} aria-valuetext={`${bakeShiftH > 0 ? 'più ' : bakeShiftH < 0 ? 'meno ' : ''}${Math.abs(bakeShiftH)} ore`}
-            onChange={e => setBakeShiftH(parseFloat(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent-warning)', marginBottom: 10 }}
-          />
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)' }} aria-live="polite">
-            Cottura: <strong style={{ color: 'var(--text-primary)' }}>{fmtBakeClock(newBakeAt.getTime())}</strong>
-            {Math.abs(newBakeAt.getTime() - oldBakeMs) >= 60_000 && <> · prima {fmtBakeClock(oldBakeMs)}</>}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6 }}>
-            Allunga o accorcia il frigo (o l'ultima fase): così si sposta l'infornata.
-          </div>
-        </Card>
-      ) : (
-        <Card>
-          <div style={{ ...S.label, marginBottom: 8 }}>Cottura</div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }} aria-live="polite">
-            A temperatura ambiente l'orario lo decide la maturazione
-            {taReadyMs != null ? <>: <strong style={{ color: 'var(--text-primary)' }}>{fmtBakeClock(taReadyMs)}</strong> con {localT}°C.</> : '.'}
-            {' '}Per anticipare o ritardare cambia la temperatura.
-          </div>
-        </Card>
-      )}
-
-      {/* ── Freddo in corsa (solo protocolli TC) ── */}
-      {isTcProto && (
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <span style={S.label}>Freddo in corsa (TC)</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
-              {localTcH > 0 ? `${localTcH}h` : 'disattivo'}
-            </span>
-          </div>
-          <input
-            type="range" min={0} max={72} step={1}
-            value={localTcH} aria-label="Freddo in corsa (ore)" aria-valuetext={localTcH > 0 ? `${localTcH} ore` : 'disattivo'}
-            onChange={e => setLocalTcH(parseFloat(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
-          />
-          {localTcH > 0 && (
-            <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-              kRatio a {localFridgeT}°C ≈ {((kEffective as Function)(localFridgeT, session.agentEaKj, session.agentType) as number / kRef).toFixed(4)}
-              {' '}— rallentamento fisiologico
+            <input
+              id="rotta-shift" type="range" min={-6} max={24} step={0.5}
+              value={bakeShiftH} aria-valuetext={bakeShiftH === 0 ? 'nessuno spostamento' : `${bakeShiftH > 0 ? 'più' : 'meno'} ${speakHours(Math.abs(bakeShiftH))}`}
+              onChange={e => setBakeShiftH(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--accent-warning)', marginBottom: 10 }}
+            />
+            <div style={note} aria-live="polite">
+              {fridgeBefore != null && fridgeAfter != null
+                ? <>In frigo: {Math.abs(fridgeAfter - fridgeBefore) >= 1 / 60
+                    ? <>{fmtHours(fridgeBefore)} → <strong style={{ color: 'var(--state-cold)' }}>{fmtHours(fridgeAfter)}</strong></>
+                    : fmtHours(fridgeBefore)}. Allunga o accorcia il frigo: lì l'impasto regge.</>
+                : <>Allunga o accorcia l'ultima fase.</>}
             </div>
-          )}
-        </Card>
+          </Card>
+          {tempCard}
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+              <label htmlFor="rotta-tfrigo" style={S.label}>Temperatura frigo</label>
+              <span style={valueStyle('var(--state-cold)')}>{localFridgeT}°C</span>
+            </div>
+            <input
+              id="rotta-tfrigo" type="range" min={1} max={8} step={0.5}
+              value={localFridgeT} aria-valuetext={`${localFridgeT}°C`}
+              onChange={e => setLocalFridgeT(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
+            />
+            <div style={note}>Cambia il ritmo della maturazione nelle fasi in frigo.</div>
+          </Card>
+          <Card>
+            <div style={{ ...S.label, marginBottom: 12 }}>Durate delle fasi</div>
+            {durationSliders}
+          </Card>
+          {thresholdCard}
+        </>
+      ) : (
+        <>
+          {tempCard}
+          {thresholdCard}
+          {/* In TA le durate non spostano l'orario: restano a portata, ma chiuse. */}
+          <Card>
+            <details>
+              <summary style={summaryStyle}>Durate delle fasi</summary>
+              <div style={{ ...note, margin: '4px 0 14px' }}>
+                Non spostano l'orario di cottura: servono per la timeline e i promemoria delle fasi.
+              </div>
+              {durationSliders}
+            </details>
+          </Card>
+        </>
       )}
 
-      {/* ── Durate fasi ── */}
+      {/* ── I numeri del modello, per chi li vuole ── */}
       <Card>
-        <div style={{ ...S.label, marginBottom: 12 }}>Durate fasi</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Puntata TA — per protocolli 'ta' e 'tc_appreto' */}
-          {(proto === 'ta' || proto === 'tc_appreto') && (
-            <SliderInput label="Puntata TA" value={localPuntataH} onChange={setLocalPuntataH}
-              min={1} max={24} step={0.5} unit="h" color="var(--accent-brand)" />
-          )}
-          {/* Puntata TC — per protocolli 'tc' e 'tc_puntata' (usa localTcH) */}
-          {(proto === 'tc' || proto === 'tc_puntata') && (
-            <SliderInput label="Puntata TC (frigo)" value={localTcH} onChange={setLocalTcH}
-              min={1} max={72} step={1} unit="h" color="var(--state-cold)" />
-          )}
-          {/* Staglio — sempre visibile */}
-          <SliderInput label="Staglio" value={localStaglioH} onChange={setLocalStaglioH}
-            min={0.1} max={3} step={0.1} unit="h" color="var(--text-muted)" />
-          {/* Appretto TA — per protocolli 'ta' e 'tc_puntata' */}
-          {(proto === 'ta' || proto === 'tc_puntata') && (
-            <SliderInput label="Appretto TA" value={localApprettoH} onChange={setLocalApprettoH}
-              min={0.5} max={12} step={0.5} unit="h" color="var(--accent-brand)" />
-          )}
-          {/* Appretto TC — per protocollo 'tc_appreto' (usa localTcH) */}
-          {proto === 'tc_appreto' && (
-            <SliderInput label="Appretto TC (frigo)" value={localTcH} onChange={setLocalTcH}
-              min={1} max={48} step={1} unit="h" color="var(--state-cold)" />
-          )}
-        </div>
+        <details>
+          <summary style={summaryStyle}>Dettagli del modello</summary>
+          <div style={{ ...note, display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            <div>Ritmo (kRatio, rif. 25°C): {kRatioCurr.toFixed(3)} a {tAmbNow}°C → {kRatioNew.toFixed(3)} a {localT}°C</div>
+            <div>Picco di maturazione {peakLine(spotNew, localT)}</div>
+            {isTcProto && <div>kRatio in frigo a {localFridgeT}°C ≈ {(kAt(localFridgeT) / kRef).toFixed(4)}</div>}
+          </div>
+        </details>
       </Card>
 
-      {/* ── Temperatura frigo (solo protocolli TC) ── */}
-      {isTcProto && (
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <label htmlFor="rotta-tfrigo" style={S.label}>Temperatura frigo</label>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-cold)' }}>
-              {localFridgeT}°C
-            </span>
-          </div>
-          <input
-            id="rotta-tfrigo" type="range" min={1} max={8} step={0.5}
-            value={localFridgeT} aria-valuetext={`${localFridgeT}°C`}
-            onChange={e => setLocalFridgeT(parseFloat(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--state-cold)', marginBottom: 8 }}
-          />
-          <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-            Aggiorna la curva Gompertz nei segmenti a freddo
-          </div>
-        </Card>
-      )}
-
-      {/* ── Soglia alert ── */}
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <label htmlFor="rotta-soglia" style={S.label}>Soglia alert maturazione</label>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--state-optimal-hi)' }}>
-            {localThreshold}%
-          </span>
-        </div>
-        <input
-          id="rotta-soglia" type="range" min={60} max={98} step={1}
-          value={localThreshold} aria-valuetext={`${localThreshold}%`}
-          onChange={e => setThreshold(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: 'var(--state-optimal-hi)' }}
-        />
-      </Card>
-
-      {/* ── Actions ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
-        <button onClick={apply} style={{
-          background: 'var(--accent-brand)', color: '#0a0806',
-          border: 'none', borderRadius: 'var(--radius-md)',
-          padding: '14px 20px', fontFamily: 'var(--font-mono)',
-          fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer',
-        }}>
-          ✓ Applica modifiche
-        </button>
-        <button onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })} style={{
-          background: 'transparent', color: 'var(--text-secondary)',
-          border: '1px solid var(--pm4-line-strong)',
-          borderRadius: 'var(--radius-md)',
-          padding: '13px 20px', fontFamily: 'var(--font-mono)',
-          fontSize: '0.9rem', cursor: 'pointer',
+      {/* ── Azioni: sempre a portata, anche con la pagina lunga ── */}
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 20,
+        margin: '0 calc(-1 * var(--padding-h))', padding: '13px var(--padding-h)',
+        paddingBottom: 'max(13px, env(safe-area-inset-bottom))',
+        background: 'linear-gradient(0deg, rgba(10,8,6,0.98), rgba(10,8,6,0.72))',
+        backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+        borderTop: '1px solid var(--pm4-line)',
+        display: 'flex', gap: 10,
+      }}>
+        <button onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })} className="pm-btn-secondary" style={{
+          flex: 1, minHeight: 44, background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
+          border: '1px solid var(--pm4-line-strong)', borderRadius: 'var(--radius-md)',
+          ...mono, fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer',
         }}>
           ← Annulla
+        </button>
+        <button onClick={apply} disabled={!dirty} className="pm-btn-primary" style={{
+          flex: 2, minHeight: 44, background: 'var(--accent-brand)', color: '#0a0806',
+          border: 'none', borderRadius: 'var(--radius-md)', padding: '0 14px',
+          ...mono, fontWeight: 700, fontSize: '0.9rem',
+          cursor: dirty ? 'pointer' : 'default', opacity: dirty ? 1 : 0.38,
+        }}>
+          {dirty ? '✓ Applica modifiche' : 'Nessuna modifica'}
         </button>
       </div>
     </div>
@@ -381,18 +345,19 @@ export function RottaView() {
 
   return (
     <div style={{
-      minHeight: '100dvh', padding: '24px var(--padding-h)',
+      minHeight: '100dvh', padding: '24px var(--padding-h) 0',
       display: 'flex', flexDirection: 'column', gap: 16,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}
-          style={{ background: 'none', border: 'none', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)', fontSize: '1rem', cursor: 'pointer' }}
+          aria-label="Torna alla dashboard"
+          style={{ minWidth: 44, minHeight: 44, margin: '-10px 0 -10px -12px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '1.1rem', cursor: 'pointer' }}
         >
           ←
         </button>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-          Aggiusta Rotta
+          Aggiusta rotta
         </h2>
       </div>
 

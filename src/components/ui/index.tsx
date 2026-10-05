@@ -180,6 +180,21 @@ export function NumInput({
   );
 }
 
+// ─── Durate leggibili: "7h 47m", "30 min", mai ore decimali ─────────────────
+export function fmtHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+  if (hh === 0) return `${mm} min`;
+  return mm > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${hh}h`;
+}
+/** La stessa durata per lo screen reader: "7 ore e 47 minuti". */
+export function speakHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+  const parts = [hh ? `${hh} ${hh === 1 ? 'ora' : 'ore'}` : '', mm ? `${mm} ${mm === 1 ? 'minuto' : 'minuti'}` : ''].filter(Boolean);
+  return parts.join(' e ') || '0 minuti';
+}
+
 // ─── SliderInput ──────────────────────────────────────────────────────────────
 export function SliderInput({
   label, value, onChange, min, max, step = 1, unit, color,
@@ -192,14 +207,14 @@ export function SliderInput({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span style={S.label}>{label}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: color ?? 'var(--accent-brand)' }}>
-          {value}{unit}
+          {unit === 'h' ? fmtHours(value) : <>{value}{unit}</>}
         </span>
       </div>
       <input
         type="range" min={min} max={max} step={step}
         value={value} onChange={e => onChange(parseFloat(e.target.value))}
         aria-label={`${label}${unit ? ' (' + unit + ')' : ''}`}
-        aria-valuetext={`${value}${unit ?? ''}`}
+        aria-valuetext={unit === 'h' ? speakHours(value) : `${value}${unit ?? ''}`}
         style={{ width: '100%', accentColor: color ?? 'var(--accent-brand)' }}
       />
     </div>

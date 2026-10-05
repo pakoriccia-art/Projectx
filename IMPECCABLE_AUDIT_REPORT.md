@@ -463,7 +463,19 @@ P2:
 
 P3: testo a 10.88 px in Rotta (T attuale/proposta) e unità a 10.2 px; Rotta in font di sistema nel blocco cottura; temperatura ambiente fino a −2°C; "⚠ 1 avvisi"; stati COMPLETATA/INTERROTTA dello Storico dello stesso colore; marker della timeline focusabili dopo l'infornata; gradiente rosso del danger fuori palette (`DashboardV4.tsx:1235`); glow e easing a rimbalzo segnalati dal detector.
 
+Corretti i P1 (passaggio 33, sotto).
+
 Punti di forza: il focus non finisce mai sul body; le conferme dicono le conseguenze ("Cottura prevista 14:11 domani invece di 22:00 domani"); target ≥ 44 px e contrasto ≥ 4.5:1 su dashboard e Storico; nessun overflow a 360 px.
+
+## Passaggio 33: P1 della critique Dashboard, Aggiusta rotta, Storico
+
+- Durate leggibili ovunque negli slider ("10h 44m", "30 min"), anche per lo screen reader ("7 ore e 51 minuti"): `fmtHours` / `speakHours` in `src/components/ui/index.tsx`.
+- Aggiusta rotta riorganizzata attorno alla risposta: in cima "Inforni alle ~22:00 domani · prima ~20:00 domani · +2h".
+  - TA: temperatura ambiente e soglia; le durate (che non spostano l'orario) chiuse in "Durate delle fasi", con la spiegazione.
+  - TC: "Sposta la cottura" mostra il frigo che ne risulta ("In frigo: 10h 44m → 12h 44m"); tolta la card duplicata "Freddo in corsa".
+  - Ritmo confrontato a parità di grandezza (T ambiente adesso contro T proposta): "Matura il 19% più in fretta che a 20°C"; kRatio, picco e stato (in italiano) in "Dettagli del modello".
+  - "Annulla / Applica" in una barra fissa in basso; "Nessuna modifica" disattivato finché non cambia nulla. "←" da 44 px con nome; titolo "Aggiusta rotta".
+- Dopo l'infornata il confronto è con l'orario che la dashboard mostrava ("prima del pronto: previsto 08:49 domani (−13h 50m)"), non con la fine delle fasi.
 
 ## Verifica
 - `tsc --noEmit`: nessun errore.

@@ -730,14 +730,21 @@ export function DashboardV4() {
   const readySince = session.readyAt ? new Date(session.readyAt) : null;
   const bakedStory = (() => {
     if (!bakedAt) return '';
-    if (!readySince) return 'infornata prima del pronto previsto';
+    if (!readySince) {
+      // il confronto è con l'orario che la dashboard mostrava, non col piano delle fasi
+      const pred = session.predictedBakeAt ? new Date(session.predictedBakeAt) : null;
+      if (!pred) return 'infornata prima del pronto previsto';
+      const early = Math.round((pred.getTime() - bakedAt.getTime()) / 60_000);
+      return early >= 15 ? `prima del pronto: previsto ${fmtClock(pred, nowDate)} (−${fmtDuration(early / 60)})` : 'infornata al pronto previsto';
+    }
     const diffMin = Math.round((bakedAt.getTime() - readySince.getTime()) / 60_000);
     return `pronta dalle ${fmtClock(readySince, nowDate)} · ${diffMin <= 1 ? 'subito' : `+${fmtDuration(diffMin / 60)}`}`;
   })();
   const markBaked = () => {
     setConfirmEarlyBake(false);
     const at = new Date();
-    const bakedPatch = { bakedAt: at, predictedBakeAt: planBake, bakedMaturationPct: enzymaticMatPct };
+    // l'orario che l'utente vedeva nell'hero (previsione o piano), per il confronto dopo
+    const bakedPatch = { bakedAt: at, predictedBakeAt: readyAt, bakedMaturationPct: enzymaticMatPct };
     dispatch({ type: 'SESSION_UPDATE', patch: bakedPatch as Partial<Session> });
     // Salvata subito: se l'app si chiude prima di "Fine", l'infornata non si perde.
     if (session.id != null) db.sessions.update(session.id, bakedPatch).catch(console.error);
@@ -882,11 +889,6 @@ export function DashboardV4() {
               </div>
               <div style={{ color: 'var(--pm4-umber)', fontSize: 11, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
                 maturazione {(session.bakedMaturationPct ?? enzymaticMatPct).toFixed(0)}%
-                {/* confronto con l'obiettivo scelto dall'utente, non col piano delle fasi */}
-                {(() => {
-                  const dev = Math.round((bakedAt.getTime() - targetBake.getTime()) / 60_000);
-                  return <> · obiettivo {fmtClock(targetBake, nowDate)}{Math.abs(dev) >= 15 ? ` (${dev > 0 ? '+' : '−'}${fmtDuration(Math.abs(dev) / 60)})` : ' ✓'}</>;
-                })()}
               </div>
             </div>
             {primarySignal === 'maturation' && <SecondaryRowCard><SecondaryRow pH={pH} leaveningPct={leaveningPct} W={W_current} /></SecondaryRowCard>}

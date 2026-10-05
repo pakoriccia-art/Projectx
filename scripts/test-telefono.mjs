@@ -414,6 +414,11 @@ async function scenarioPianifica() {
   await page.locator('footer').getByRole('button', { name: /Aggiusta rotta/ }).click(); await sleep(1000);
   const shiftSl = page.locator('#rotta-shift');
   check('Rotta: con il frigo si sposta la cottura', await shiftSl.count() > 0);
+  const rottaTxt = clean(await page.locator('body').innerText());
+  check('Rotta: durate leggibili, niente ore decimali', !/\d\.\d{3,}/.test(rottaTxt), (rottaTxt.match(/\S*\d\.\d{3,}\S*/) || [''])[0]);
+  const applyBox = await page.getByRole('button', { name: /Applica modifiche|Nessuna modifica/ }).boundingBox().catch(() => null);
+  const vh = page.viewportSize()?.height ?? await page.evaluate(() => innerHeight);
+  check('Rotta: "Applica" visibile senza scorrere', !!applyBox && applyBox.y + applyBox.height <= vh + 1);
   if (await shiftSl.count()) {
     await shiftSl.focus();
     for (let i = 0; i < 4; i++) { await page.keyboard.press('ArrowRight'); await sleep(150); }
