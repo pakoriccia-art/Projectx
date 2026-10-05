@@ -128,6 +128,7 @@ async function readDb(page) {
   }));
 }
 
+let lastRecap = '';
 async function runWizard(page) {
   await page.getByRole('button', { name: /Nuovo impasto/ }).first().click();
   for (let i = 0; i < 8; i++) {
@@ -147,6 +148,7 @@ async function runWizard(page) {
       if (await el.count()) await el.click().catch(() => {});
     }
     if (!(await cont.isEnabled())) throw new Error(`wizard bloccato al passo ${i + 1}`);
+    if (i === 7) lastRecap = clean(await page.locator('body').innerText());
     await cont.click();
     await sleep(400);
   }
@@ -177,6 +179,10 @@ async function scenarioNuovo() {
   await shot(page, device, 'nuovo-01-dashboard');
   const before = await timelineTimes(page);
   check('Dashboard aperta con la timeline', !!before.staglio, before.text);
+  const recapBake = (lastRecap.match(/COTTURA PREVISTA ~(\d{2}:\d{2})/i) || [])[1];
+  const dashBake = ((await page.locator('header').first().innerText().catch(() => '')).match(/COTTURA\s*~?(\d{2}:\d{2})/i) || [])[1];
+  check('Cottura del riepilogo = cottura in dashboard', !!recapBake && !!dashBake && Math.abs(toMin(recapBake) - toMin(dashBake)) <= 5,
+    `riepilogo ${recapBake}, dashboard ${dashBake}`);
 
   await page.locator('[aria-label*="passa a STAGLIO"]').first().click();
   await page.getByRole('button', { name: 'Conferma', exact: true }).click();

@@ -36,6 +36,8 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
+import { fridgePhaseIsSanctioned } from '../../engine/outOfProtocol';
+import { engineReadyH, apprettoCorrectionH, fmtBakeClock } from '../../lib/bakeForecast';
 import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPrefermentStages } from '../../services/sessionService';
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
@@ -397,7 +399,8 @@ export function buildSession(draft: WizardDraft): Session {
     alertThreshold:         draft.alertThreshold ?? (getStyleProfile as Function)(draft.style ?? 'napoletana').alertThreshold ?? 85,
     alertThresholdFromPlan: fromPlanner && draft.alertThreshold != null ? true : undefined,
     // Piano del Planner con il frigo: la scelta è già fatta, niente modale fuori protocollo.
-    outOfProtocolPhaseConfirmed: fromPlanner && _proto !== 'ta' ? true : undefined,
+    // Il frigo scelto nel wizard (o nel Planner) è una scelta già fatta: niente modale dopo l'avvio.
+    outOfProtocolPhaseConfirmed: _proto !== 'ta' ? true : undefined,
     containerPreset:        draft.containerPreset ?? 'closed_box',
     apprettoProtocol:       draft.apprettoProtocol ?? 'ta',
     puntataH:               _p,   // tc_appreto → back-calcolato; altri → slider utente
@@ -463,6 +466,23 @@ export function launchSession(draft: WizardDraft, dispatch: ReturnType<typeof us
   startSession(session)
     .then(id => dispatch({ type: 'SESSION_UPDATE', patch: { id } }))
     .catch(err => console.error('[startSession]', err));
+}
+
+/**
+ * Orario di cottura previsto per il draft, lo stesso che mostrerà la dashboard:
+ * tutto TA → previsione del motore; con il frigo → il piano delle fasi.
+ * Con un prefermento da preparare l'impasto parte quando è pronto.
+ */
+export function draftBakeForecast(draft: WizardDraft, now = Date.now()): { ms: number; planMs: number; fromEngine: boolean } | null {
+  try {
+    const s = buildSession(draft);
+    const offset = startsWithPreferment(draft) ? stageDurationH(draft.prefermenti) * 3_600_000 : 0;
+    const planMs = new Date(s.targetBakeAt).getTime() - new Date(s.startedAt).getTime() + now + offset;
+    const h = draft.targetBakeAt ? null : engineReadyH(s);
+    return h != null ? { ms: now + offset + h * 3_600_000, planMs, fromEngine: true } : { ms: planMs, planMs, fromEngine: false };
+  } catch {
+    return null;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1177,7 +1197,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         <NumInput
           label="Durata impastamento"
           unit="min"
-          value={draft.kneadDurationMin ?? 0}
+          value={draft.kneadDurationMin ?? 12}
           onChange={v => update({ kneadDurationMin: v })}
           min={0} max={120} step={1}
         />
@@ -1192,7 +1212,7 @@ function Step4({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             WP-3: con durata 0 → path legacy (C_attrito fisso) e card T uscita dormiente;
             con durata > 0 → path unified e la previsione T uscita si "sblocca". */}
         {(() => {
-          const knead   = draft.kneadDurationMin ?? 0;
+          const knead   = draft.kneadDurationMin ?? 12;
           // Acqua che si versa davvero (quella dei prefermenti è già dentro di loro)
           // e temperatura dei prefermenti pesata sulla loro massa.
           const waterG  = Math.round(splitRecipe({
@@ -1469,6 +1489,7 @@ function PuntataAlert({ puntataH, ambientTempC, style }: { puntataH: number; amb
 // STEP 7 — Tempistiche
 // ═══════════════════════════════════════════════════════════════════════════════
 function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<WizardDraft>) => void }) {
+  const [apprettoUndo, setApprettoUndo] = useState<number | null>(null);
   const proto   = draft.apprettoProtocol ?? 'ta';
   const puntata = draft.puntataH ?? 8;
   const staglio = draft.staglioH ?? 0.5;
@@ -1536,6 +1557,13 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         value={proto}
         onChange={v => update({ apprettoProtocol: v as any, puntataH: undefined })}
       />
+
+      {/* Frigo fuori dal protocollo dello stile: lo si dice qui, non con un modale dopo l'avvio */}
+      {isTcProto && !(fridgePhaseIsSanctioned as (p: unknown) => boolean)((getStyleProfile as Function)(draft.style ?? 'napoletana')?.protocollo_preferito) && (
+        <p role="note" style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+          Per la {String(draft.style ?? 'napoletana').replace(/^./, c => c.toUpperCase())} di solito è tutto a temperatura ambiente: il frigo è una tua scelta, la seguo.
+        </p>
+      )}
 
       {/* Temperatura frigo — visibile per tutti i protocolli TC */}
       {isTcProto && (
@@ -1631,16 +1659,39 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         </FormSection>
       </>}
 
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <StepMetric label="Durata totale" value={totalH.toFixed(1)} unit="h" />
-          <StepMetric
-            label="Cottura prevista"
-            value={new Date(Date.now() + totalH * 3600_000).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
-            color="var(--accent-brand)"
-          />
-        </div>
-      </Card>
+      {(() => {
+        // Lo stesso orario che darà la dashboard (motore se tutto TA, piano se c'è il frigo).
+        const fc = draftBakeForecast(draft);
+        const corr = proto === 'ta' && fc?.fromEngine
+          ? apprettoCorrectionH(totalH, (fc.ms - Date.now()) / 3_600_000, appreto) : null;
+        const fmtH = (h: number) => { const m = Math.round(h * 60); return m % 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m / 60} h`; };
+        return (
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <StepMetric label="Durata delle fasi" value={fmtH(totalH)} />
+              <StepMetric label="Cottura prevista" value={fc ? fmtBakeClock(fc.ms) : '—'} color="var(--accent-brand)" />
+            </div>
+            {corr != null && fc && (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
+                  Con queste durate inforneresti {fmtBakeClock(fc.planMs).replace(/^~/, 'alle ')}: l'impasto sarebbe {corr > 0 ? 'ancora acerbo' : 'già oltre il punto giusto'} (~{fmtH(Math.abs(corr))} {corr > 0 ? 'prima' : 'dopo'} del pronto).
+                </div>
+                <Btn variant="secondary" onClick={() => {
+                  setApprettoUndo(appreto);
+                  update({ apprettoH: appreto + corr });
+                }}>{corr > 0 ? 'Allunga' : 'Accorcia'} l'appretto di {fmtH(Math.abs(corr))}</Btn>
+              </div>
+            )}
+            {apprettoUndo != null && (
+              <div style={{ marginTop: 10 }}>
+                <Advisory tone="teal" text={`Appretto portato da ${fmtH(apprettoUndo)} a ${fmtH(appreto)}.`} undoLabel="Annulla"
+                  onUndo={() => { update({ apprettoH: apprettoUndo }); setApprettoUndo(null); }}
+                  onDismiss={() => setApprettoUndo(null)} />
+              </div>
+            )}
+          </Card>
+        );
+      })()}
     </div>
   );
 }
@@ -1888,6 +1939,29 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         );
       })()}
 
+      {/* ── Quando inforni: lo stesso orario che mostrerà la dashboard ── */}
+      {!fromPlannerStep8 && (() => {
+        const fc = draftBakeForecast(draft);
+        if (!fc) return null;
+        return (
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--pm4-tan)' }}>
+                Cottura prevista
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 800, color: 'var(--pm4-ember-lo)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtBakeClock(fc.ms)}
+              </span>
+            </div>
+            {startsWithPreferment(draft) && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)', marginTop: 4 }}>
+                contando il tempo {prefIsFeminine(mainPreparable(draft.prefermenti)!.type) ? 'della' : 'del'} {prefName(mainPreparable(draft.prefermenti)!.type)}
+              </div>
+            )}
+          </Card>
+        );
+      })()}
+
       {/* ── Ricetta: cosa pesare, nell'ordine in cui lo fai ── */}
       <RecipeCard draft={draft} update={update} recipe={recipe} />
 
@@ -2018,7 +2092,8 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           kneadingMethod:   (draft.kneadingMethod ?? 'spiral') as KneadingMethod,
           waterTotalGrams:  waterG,
           tempPreferment:   tPrefAvg,
-          kneadDurationMin: draft.kneadDurationMin ?? 12,
+          // Stessa regola del passo 4: 0 minuti = modello senza durata.
+          kneadDurationMin: (draft.kneadDurationMin ?? 12) > 0 ? (draft.kneadDurationMin ?? 12) : undefined,
           hydrationEff:     computeEffectiveMixHydration({ hydration: hydration, prefermenti: draft.prefermenti ?? [] }),
           doughMassKg:      (flour * (1 + hydration / 100)) / 1000,
           tapWaterC:        draft.tapWaterC,
@@ -2027,6 +2102,9 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           <Card>
             <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
               💧 Acqua di impastamento
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-tan)', marginBottom: 8 }}>
+              Calcolata con {draft.kneadDurationMin ?? 12} min di impastamento · si cambia al passo 4
             </div>
             <WaterTempResultCard
               result={wResult}

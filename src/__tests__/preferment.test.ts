@@ -314,3 +314,24 @@ describe('P2/P3 quarta critique', () => {
     expect(overSign('poolish')).toMatch(/^Se /);
   });
 });
+
+import { fridgePlan } from '../lib/preferment';
+
+describe('fridgePlan', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  const biga = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  const pool = { id: 'p', type: 'poolish', startAt: new Date(t0 + 4 * H), plannedH: 12, plannedTempC: 20 };
+  it('biga al 56% in frigo: pronta troppo tardi rispetto al poolish → nessuna finestra', () => {
+    const now = t0 + 9 * H;   // biga ~56%, poolish in ritardo di 5 h
+    const fp = fridgePlan(biga, pool, now, 4);
+    expect(fp.mainReady).toBeGreaterThan(fp.secondLate);
+    expect(fp.window).toBeNull();
+  });
+  it('biga quasi pronta in frigo: finestra con il poolish impastato adesso', () => {
+    const now = t0 + 15.5 * H;
+    const fp = fridgePlan({ ...biga, plannedH: 16 }, { ...pool, plannedH: 2 }, now, 4);
+    expect(fp.window).not.toBeNull();
+    expect(fp.window!.from).toBeLessThanOrEqual(fp.window!.to);
+  });
+});

@@ -226,7 +226,7 @@ export function BakeView() {
               letterSpacing: '0.06em', marginBottom: validation.feasible && validation.advice.length === 0 ? 0 : 8,
               color: validation.feasible ? '#3ddc97' : '#ff7675',
             }}>
-              {validation.feasible ? '✓ FATTIBILE' : '✗ NON FATTIBILE'}
+              {validation.feasible ? '✓ FATTIBILE' : '✗ NON RAGGIUNGE LO STILE'}
             </div>
             {!validation.feasible && (
               <div style={{ ...LABEL_MONO, fontSize: 11, marginBottom: 8, color: '#ff7675' }}>
@@ -265,7 +265,10 @@ export function BakeView() {
         {/* ── 2. CONSIGLIATO (blocco primario, effusività attiva) ── */}
         {validation && (
           <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12, borderColor: 'rgba(255,140,50,0.35)' }}>
-            <div style={{ ...LABEL_MONO, marginBottom: 10, color: 'var(--accent-brand)' }}>CONSIGLIATO</div>
+            {/* Con un verdetto negativo non è un "consigliato": è il meglio che questo forno può dare. */}
+            <div style={{ ...LABEL_MONO, marginBottom: 10, color: validation.feasible ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
+              {validation.feasible ? 'CONSIGLIATO' : 'IL MASSIMO CON QUESTO FORNO'}
+            </div>
             <div className="pm4-cells" style={{ gridTemplateColumns: validation.recommendation.cieloC != null ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)' }}>
               <div className="pm4-cell">
                 <div style={LABEL_MONO}>TEMPERATURA</div>
@@ -292,10 +295,12 @@ export function BakeView() {
               margin: '10px 0 0', fontFamily: 'var(--font-mono)', fontSize: 11,
               color: 'var(--pm4-tan)', lineHeight: 1.5,
             }}>
-              {validation.recommendation.stoneNote}
+              {/* Gli identificatori del motore (es. cordierite_refrattaria) diventano nomi leggibili. */}
+              {validation.recommendation.stoneNote.replace(/\b[a-z]+(?:_[a-z]+)+\b/g,
+                id => (STONE_LABELS as Record<string, { label: string }>)[id]?.label ?? id.replace(/_/g, ' '))}
             </p>
             <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
-              ⚠ Valori indicativi — validationStatus: hypothesis
+              ⚠ Valori indicativi: ipotesi non ancora validata
             </div>
           </div>
         )}
@@ -437,7 +442,7 @@ export function BakeView() {
                   </div>
                 ))}
                 <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
-                  ⚠ Soglie indicative — validationStatus: hypothesis
+                  ⚠ Soglie indicative: ipotesi non ancora validata
                 </div>
               </div>
             )}

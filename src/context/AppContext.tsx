@@ -152,6 +152,7 @@ function reducer(state: AppState, action: Action): AppState {
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
         kneadingMethod:   'spiral',
+        kneadDurationMin: 12,           // visibile al passo 4: lo stesso valore usato per l'acqua
         tLaboratorio:     20,
         alertThreshold:   85,
       }, wizardStep: 1 };
@@ -173,6 +174,7 @@ function reducer(state: AppState, action: Action): AppState {
         containerPreset:  'closed_box',
         apprettoProtocol: 'ta',
         kneadingMethod:   'spiral',
+        kneadDurationMin: 12,           // visibile al passo 4: lo stesso valore usato per l'acqua
         tLaboratorio:     20,
         alertThreshold:   85,
         ...action.patch,                // sovrascrive i default con i valori del planner

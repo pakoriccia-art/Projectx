@@ -437,7 +437,8 @@ export function finalWaterAdvice(d: {
     ddtTarget: ddtForStyle(d.style), tempAmbient: d.tLaboratorio ?? 20, waterG: split.final.waterG,
     massKg: flour * (1 + hyd / 100) / 1000,
     hydrationPct: (computeEffectiveMixHydration as (s: unknown) => number)({ hydration: hyd, prefermenti: d.prefermenti ?? [] }),
-    kneadingMethod: d.kneadingMethod ?? 'spiral', kneadDurationMin: d.kneadDurationMin ?? 12,
+    kneadingMethod: d.kneadingMethod ?? 'spiral',
+    kneadDurationMin: (d.kneadDurationMin ?? 12) > 0 ? (d.kneadDurationMin ?? 12) : undefined,
     tempPreferment: prefTempC, tapWaterC: d.tapWaterC,
   });
 }
@@ -590,4 +591,23 @@ export function recipeFixKind(d: {
   const hydMax = hydrationRangeForStyle(d.style, d.mainFlourGroup?.effectiveW).max;
   if (pb.fixValue <= hydMax) return 'hydration';
   return pb.fixFraction ? 'reduceWater' : null;
+}
+
+/**
+ * Se il principale va in frigo adesso e il secondo si impasta adesso: quando
+ * sono pronti e quando vanno oltre. La finestra c'è solo se il più lento è
+ * pronto prima che il più veloce vada oltre (il frigo rallenta anche il pronto).
+ */
+export function fridgePlan(main: StageItem, second: StageItem, now: number, fridgeTempC: number): {
+  mainReady: number; mainLate: number; secondReady: number; secondLate: number;
+  window: { from: number; to: number } | null;
+} {
+  const movedMain = { ...main, moves: [...(main.moves ?? []), { at: new Date(now), place: 'frigo' as const, tempC: fridgeTempC }] };
+  const mixedSecond = { ...second, mixedAt: new Date(now) };
+  const mainReady = prefProgress(itemClock(movedMain), now, 100).etaMs;
+  const mainLate = prefProgress(itemClock(movedMain), now, lateThresholdPct(main.type)).etaMs;
+  const secondReady = prefProgress(itemClock(mixedSecond), now, 100).etaMs;
+  const secondLate = prefProgress(itemClock(mixedSecond), now, lateThresholdPct(second.type)).etaMs;
+  const from = Math.max(mainReady, secondReady), to = Math.min(mainLate, secondLate);
+  return { mainReady, mainLate, secondReady, secondLate, window: from <= to ? { from, to } : null };
 }

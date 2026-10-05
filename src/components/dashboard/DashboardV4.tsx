@@ -16,7 +16,7 @@ import {
   getStyleProfile, computeStyleAwareAlertLevel, computeDashboardEffectiveW,
   computeCurrentPH, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS,
 } from '../../engine';
-import { applyPhaseTransition, buildInitialTimeline, type Session } from '../../db/db';
+import { applyPhaseTransition, buildInitialTimeline, db, type Session } from '../../db/db';
 import type { DashboardWResult, AlertLevelResult } from '../../engine';
 import { simulateTimeline } from '../../engine/serviceWindowSolver';
 import { makeLeavAduRateAt, computeCollapseETA, type CollapseETAResult } from '../../engine/collapse';
@@ -253,7 +253,18 @@ export function DashboardV4() {
   const confirmTitleRef = useRef<HTMLDivElement>(null);
   const phaseOpener     = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (pendingPhase) confirmTitleRef.current?.focus();
+    if (pendingPhase) {
+      const t = confirmTitleRef.current;
+      t?.focus({ preventScroll: true });
+      // Annulla e Conferma non devono restare sotto il footer fisso: si porta il pannello in vista.
+      const panel = t?.closest('.pm4-panel') as HTMLElement | null;
+      if (panel) {
+        const footerH = (document.querySelector('footer') as HTMLElement | null)?.getBoundingClientRect().height ?? 96;
+        const r = panel.getBoundingClientRect();
+        const overflow = r.bottom - (window.innerHeight - footerH - 12);
+        if (overflow > 0) window.scrollBy({ top: Math.min(overflow, Math.max(0, r.top - 12)), behavior: 'smooth' });
+      }
+    }
     else if (phaseOpener.current) { phaseOpener.current.focus?.(); phaseOpener.current = null; }
   }, [pendingPhase]);
   const [undo, setUndo] = useState<{ snap: PhaseSnapshot; label: string } | null>(null);
@@ -293,6 +304,8 @@ export function DashboardV4() {
     setOopAcknowledged(true);
     if (session) sessionStorage.setItem(`pm-oopAck:${session.id}`, '1');
     dispatch({ type: 'SESSION_UPDATE', patch: { outOfProtocolPhaseConfirmed: confirmed } });
+    // Salvata subito: dopo la riapertura dell'app la scelta resta.
+    if (session?.id != null) db.sessions.update(session.id, { outOfProtocolPhaseConfirmed: confirmed }).catch(console.error);
   };
 
   // Schermo acceso mentre si monitora: niente sblocchi con le mani infarinate.
@@ -437,7 +450,9 @@ export function DashboardV4() {
   const isReadyRef = useRef(false);
   useEffect(() => {
     if (session && isReadyRef.current && !session.readyAt && !session.bakedAt) {
-      dispatch({ type: 'SESSION_UPDATE', patch: { readyAt: new Date() } as Partial<Session> });
+      const readyAtNow = new Date();
+      dispatch({ type: 'SESSION_UPDATE', patch: { readyAt: readyAtNow } as Partial<Session> });
+      if (session.id != null) db.sessions.update(session.id, { readyAt: readyAtNow }).catch(console.error);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ts, session?.readyAt, session?.bakedAt]);
@@ -707,9 +722,10 @@ export function DashboardV4() {
   })();
   const markBaked = () => {
     const at = new Date();
-    dispatch({ type: 'SESSION_UPDATE', patch: {
-      bakedAt: at, predictedBakeAt: planBake, bakedMaturationPct: enzymaticMatPct,
-    } as Partial<Session> });
+    const bakedPatch = { bakedAt: at, predictedBakeAt: planBake, bakedMaturationPct: enzymaticMatPct };
+    dispatch({ type: 'SESSION_UPDATE', patch: bakedPatch as Partial<Session> });
+    // Salvata subito: se l'app si chiude prima di "Fine", l'infornata non si perde.
+    if (session.id != null) db.sessions.update(session.id, bakedPatch).catch(console.error);
     focusNext.current = 'baked';
     setBakeUndoOpen(true);
     if (bakeUndoTimer.current) clearTimeout(bakeUndoTimer.current);
@@ -718,9 +734,9 @@ export function DashboardV4() {
       new Date(at.getTime() + 30 * 60_000));
   };
   const undoBaked = () => {
-    dispatch({ type: 'SESSION_UPDATE', patch: {
-      bakedAt: undefined, predictedBakeAt: undefined, bakedMaturationPct: undefined,
-    } as Partial<Session> });
+    const cleared = { bakedAt: undefined, predictedBakeAt: undefined, bakedMaturationPct: undefined };
+    dispatch({ type: 'SESSION_UPDATE', patch: cleared as Partial<Session> });
+    if (session.id != null) db.sessions.update(session.id, cleared).catch(console.error);
     setBakeUndoOpen(false);
     if (bakeUndoTimer.current) clearTimeout(bakeUndoTimer.current);
     cancelNotification(NOTIF_ID.outcome);

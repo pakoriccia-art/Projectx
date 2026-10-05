@@ -419,6 +419,20 @@ Risolti i P1/P2/P3 della quarta (CTA in vista, avvisi per ogni prefermento, slid
 
 Prima critique sull'intero ramo Diretto (wizard → dashboard → Rotta → Forno → Storico); le precedenti valutavano solo la dashboard (27). Il monitor migliora; emergono incoerenze tra le viste: tre orari di cottura diversi, acqua 21 °C al passo 4 e 3,9 °C al passo 8 (durata d'impastamento 0 contro 12 min), TC su Napoletana sospeso da un modale e non salvato (dopo il reload torna TA), infornata non salvata fino a "Fine · salva", Aggiusta rotta senza effetto sull'orario.
 
+## Passaggio 30: P1 delle critique Nuovo impasto (24/40) e Prefermento (28/40)
+
+Nuovo impasto:
+- Un solo orario di cottura: passo 7 e riepilogo usano la stessa previsione della dashboard (motore se tutto TA, piano se c'è il frigo), con il giorno; se le durate scelte portano altrove compare "Allunga/Accorcia l'appretto di X" (annullabile).
+- Una sola durata d'impastamento (12 min visibili al passo 4): l'acqua è la stessa al passo 4 e al passo 8.
+- Il frigo scelto nel wizard è confermato (niente modale dopo l'avvio; nota al passo 7 per gli stili tutto TA); la scelta dal modale è salvata in IndexedDB.
+- "Ho infornato" (e il pronto) salvati subito: l'infornata sopravvive alla chiusura dell'app.
+- Il pannello di conferma della fase si porta sopra il footer.
+- Forno: "Non raggiunge lo stile" + "Il massimo con questo forno"; niente identificatori grezzi.
+
+Prefermento:
+- Il frigo per il ritardo del poolish è consigliato solo se porta a una finestra vera (fridgePlan: simula biga in frigo e poolish impastato adesso).
+- Oltre e troppo oltre: l'impasto finale è il primario, il frigo il piano B ("Non puoi impastare adesso?").
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

@@ -19,7 +19,7 @@ import {
   EARLY_PCT, FRIDGE_HINT_PCT, currentSpot, elapsedPrefHours, equivalentTempC, finalWaterAdvice,
   fmtGrams, fmtSpanH, fridgeGain, isPreparable, itemClock, itemState, normalizeStage,
   overSign, placeOf, placeTempC, prefAl, prefDdtC, prefIsFeminine, prefName, prefTempAtMix,
-  prefWithArticle, readySigns, readyWord, splitRecipe, stageReadyAt, stageStatus, waterAdvice,
+  prefWithArticle, readySigns, readyWord, splitRecipe, stageReadyAt, stageStatus, waterAdvice, fridgePlan,
   type ItemState, type LateLevel, type PrefPlace, type StageItem,
 } from '../../lib/preferment';
 
@@ -214,21 +214,22 @@ export function PrefermentStageView() {
   };
 
   // Frigo: in anticipo dall'85% (vale se lo sposti ora), azione principale quando è già oltre.
-  const fridgeHint = (it: StageItem, urgent: boolean, secondary = false) => {
+  const fridgeHint = (it: StageItem, urgent: boolean) => {
     const s = itemState(it, now);
     if (!s.started || spotOf(it).place === 'frigo') return null;
     if (!urgent && (s.pct < FRIDGE_HINT_PCT || s.level === 'late' || s.level === 'veryLate')) return null;
-    if (urgent && s.level !== 'late') return null;
+    if (urgent && s.level !== 'late' && s.level !== 'veryLate') return null;
     const g = fridgeGain(it, now, fridge);
     const nm = prefWithArticle(it.type), f = prefIsFeminine(it.type);
     return (
       <Card key={`fr-${it.id}-${urgent}`} elevated>
         <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-flour)', marginBottom: 10 }}>
           {urgent
-            ? `${cap(nm)} è oltre: in frigo rallenta e ti dà tempo per impastare.`
+            ? `Non puoi impastare adesso? In frigo ${nm} rallenta e peggiora più piano.`
             : `Non impasti entro le ${fmtClock(g.lateAtStay, now)}? Metti ${nm} in frigo adesso: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
         </div>
-        <Btn variant={urgent && !secondary ? 'primary' : 'secondary'} onClick={() => moveTo(it, 'frigo')}>
+        {/* Oltre vuol dire impastare: il frigo è il piano B, mai il primario. */}
+        <Btn variant="secondary" onClick={() => moveTo(it, 'frigo')}>
           Mett{f ? 'ila' : 'ilo'} in frigo{urgent ? ' (rallenta)' : ''}
         </Btn>
       </Card>
@@ -315,7 +316,7 @@ export function PrefermentStageView() {
       ) : !dosesOpen ? (
         <div ref={readyRef}>
           {/* Primario solo quando è il momento: mai due primari (con il frigo urgente resta secondario) */}
-          <Btn variant={level === 'ready' ? 'primary' : 'secondary'} onClick={() => goOn(null)}>
+          <Btn variant={level === 'growing' ? 'secondary' : 'primary'} onClick={() => goOn(null)}>
             {level === 'late' || level === 'veryLate'
               ? 'Impasto finale (è oltre) →'
               : level === 'growing' || started.some(x => x.pct < 100)
@@ -401,7 +402,7 @@ export function PrefermentStageView() {
       ))}
 
       {/* Il più urgente: frigo come azione principale se è oltre, poi dove si trova, poi frigo in anticipo */}
-      {fIt && fridgeHint(fIt, true, !!status?.overdue)}
+      {fIt && fridgeHint(fIt, true)}
       {fIt && focus?.started && placePicker(fIt, others.length ? `Dove si trova ${prefWithArticle(type)}` : 'Dove si trova adesso')}
       {fIt && fridgeHint(fIt, false)}
 
@@ -420,7 +421,9 @@ export function PrefermentStageView() {
           // Il principale è già oltre? Aspettare il secondo lo peggiora; il frigo serve solo se arriva in tempo.
           const mainAlreadyLate = mainLate != null && mainLate <= now;
           const waitingHurts = mainLate != null && mainLate < readyIfNow;
-          const fridgeHelps = !mainAlreadyLate && !!mainFridge && mainFridge.lateAtFridge >= readyIfNow;
+          // Il frigo aiuta solo se porta a una finestra vera: rallenta anche il pronto del principale.
+          const fp = main && mainFridge ? fridgePlan(main, it, now, fridge) : null;
+          const fridgeHelps = !mainAlreadyLate && !!fp?.window;
           return (
             <Card key={it.id} elevated={due}>
               <div style={{ ...label, marginBottom: 8, color: overdue ? 'var(--state-critical)' : due ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
@@ -456,9 +459,9 @@ export function PrefermentStageView() {
                     ? `, ma ${prefWithArticle(main.type)} è già oltre da ${fmtSpanH(now - mainLate)}: aspettare ${nm} ${prefIsFeminine(main.type) ? 'la' : 'lo'} porterebbe ancora più avanti. Conviene procedere senza.`
                     : waitingHurts
                       ? `, ma ${prefWithArticle(main.type)} va oltre alle ${fmtClock(mainLate, now)}.${fridgeHelps
-                        ? ` In frigo ${prefIsFeminine(main.type) ? 'la' : 'lo'} rallenti: regge fino alle ${fmtClock(mainFridge!.lateAtFridge, now)}, in tempo.`
-                        : mainFridge && mainFridge.gainH > 0.25
-                          ? ` Anche in frigo regge solo fino alle ${fmtClock(mainFridge.lateAtFridge, now)}: conviene procedere senza.`
+                        ? ` In frigo ${prefIsFeminine(main.type) ? 'la' : 'lo'} rallenti: pronti insieme tra le ${fmtClock(fp!.window!.from, now)} e le ${fmtClock(fp!.window!.to, now)}.`
+                        : mainFridge
+                          ? ' Anche in frigo non sarebbero pronti insieme: conviene procedere senza.'
                           : ' Conviene procedere senza.'}`
                       : `, in tempo per ${prefWithArticle(main.type)}.`)}
                 </div>
