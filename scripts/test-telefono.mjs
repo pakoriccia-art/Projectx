@@ -56,15 +56,15 @@ let device;
  */
 async function openApp() {
   // Dopo un force-stop Android può metterci un attimo a liberare la WebView vecchia.
-  await sleep(2000);
+  await sleep(3000);
   const launch = async () => {
     const out = String(await device.shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${PKG}/.MainActivity`).catch(e => e));
     if (/Error|Exception/i.test(out)) await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
   };
   await launch();
   const start = Date.now();
-  const deadline = start + 90_000;
-  let reconnected = false, relaunched = false;
+  const deadline = start + 120_000;
+  let lastReconnect = start, relaunched = false;
   while (Date.now() < deadline) {
     const wv = device.webViews().find(w => w.pkg() === PKG);
     if (wv) {
@@ -73,9 +73,10 @@ async function openApp() {
       await sleep(2500);
       return page;
     }
-    // A 25 s: ci si ricollega (la connessione nuova rilegge l'elenco delle WebView).
-    if (!reconnected && Date.now() - start > 25_000) {
-      reconnected = true;
+    // Ogni 20 s ci si ricollega (la connessione nuova rilegge l'elenco delle WebView),
+    // anche dopo il rilancio.
+    if (Date.now() - lastReconnect > 20_000) {
+      lastReconnect = Date.now();
       await device.close().catch(() => {});
       [device] = await android.devices();
     }
@@ -88,7 +89,12 @@ async function openApp() {
     }
     await sleep(1000);
   }
-  throw new Error('WebView di PizzaMatrix non trovata dopo 90 s (l\'app è partita?)');
+  // Diagnosi: l'app non è partita, o è partita ma la WebView non si vede?
+  const pid = String(await device.shell(`pidof ${PKG}`).catch(() => '')).trim();
+  const top = String(await device.shell('dumpsys activity activities | grep mResumedActivity').catch(() => '')).trim();
+  console.error(`  · openApp: pid ${pid || 'nessuno'} · in primo piano: ${top.slice(0, 120) || '?'}`);
+  await device.screenshot({ path: path.join(OUT, 'openapp-fallita.png') }).catch(() => {});
+  throw new Error(`WebView di PizzaMatrix non trovata dopo 120 s (${pid ? 'app avviata' : 'app non avviata'})`);
 }
 
 async function shot(page, device, name) {
