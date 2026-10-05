@@ -396,6 +396,12 @@ Stesso punteggio della seconda, per motivi diversi: risolti doppio tocco, fasi l
 
 Risolti i P1 della terza (attribuzione, vicolo cieco del secondo, gerarchia sul più urgente) e i P2/P3 (ritardo scalato, focus, nomi dei gruppi, cambio tipo reversibile, avvio spostabile, Btn 44 px). Nuovi P1: poolish in ritardo con la biga già oltre (testo incoerente, primario sbagliato), CTA dell'impasto finale sotto la piega a PRONTA, notifica di ritardo solo sul primo prefermento. P2: "Sono pronti" in crescita, slider idratazione oltre lo schema, testi delle notifiche 132/133, contrasto "troppo oltre".
 
+## Passaggio 26: P1 della quarta critique del prefermento
+
+- Secondo prefermento in ritardo: testo coerente ("la biga è già oltre da 2 h: aspettare il poolish la porterebbe ancora più avanti", oppure "in frigo la rallenti: regge fino alle …, in tempo") e un solo pulsante principale, quello che conviene: "Metti la biga in frigo e impasta il poolish" se il frigo basta, "Procedi senza il poolish" se no. Il frigo nell'hero diventa secondario.
+- Quando è il momento (pronta, oltre) il pulsante dell'impasto finale sta subito sotto l'orario; in crescita dice "Impasto finale adesso", mai "pronti".
+- Notifica di ritardo per ciascun prefermento impastato (131/134/135); 132 "insieme" solo se l'orario non è stato spostato; grammatica della 133.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

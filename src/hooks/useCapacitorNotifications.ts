@@ -23,6 +23,8 @@ export const NOTIF_ID = {
   prefermentLate: 131,
   prefermentNext: 132,
   prefermentFridge: 133,
+  prefermentLate2: 134,
+  prefermentLate3: 135,
 } as const;
 
 /** Programma una notifica a un istante preciso (no-op silenzioso dove manca). */
@@ -59,7 +61,7 @@ export function useCapacitorNotifications() {
   //  130 pronto · 131 oltre la soglia · 132 ora di impastare il secondo · 133 frigo in anticipo.
   const stage = state.prefermentStage;
   useEffect(() => {
-    const ids = [NOTIF_ID.preferment, NOTIF_ID.prefermentLate, NOTIF_ID.prefermentNext, NOTIF_ID.prefermentFridge];
+    const ids = [NOTIF_ID.preferment, NOTIF_ID.prefermentLate, NOTIF_ID.prefermentLate2, NOTIF_ID.prefermentLate3, NOTIF_ID.prefermentNext, NOTIF_ID.prefermentFridge];
     if (!stage) { ids.forEach(cancelNotification); return; }
     const st = normalizeStage(stage);
     const items = st.items ?? [];
@@ -77,15 +79,25 @@ export function useCapacitorNotifications() {
     at(NOTIF_ID.preferment,
       `🥣 ${Cap(names)} ${items.length > 1 ? `dovrebbero essere ${readyWord(allFem, true)}` : `dovrebbe essere ${readyWord(allFem)}`}`,
       "Controlla i segni e, se ci siamo, apri PizzaMatrix per l'impasto finale.", status.readyAt);
-    // 131: il primo che va oltre, col suo nome.
-    const first = status.all.reduce((a, b) => (b.lateAt < a.lateAt ? b : a));
-    const ft = first.it.type, ff = prefIsFeminine(ft);
-    at(NOTIF_ID.prefermentLate, `⚠️ ${Cap(prefWithArticle(ft))} potrebbe essere oltre`,
-      `${overSign(ft).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${ff ? 'ila' : 'ilo'} in frigo.`, first.lateAt);
-    // 132: ora di impastare il prossimo.
+    // 131/134/135: un avviso di ritardo per ciascun prefermento impastato, col suo
+    // nome. Se uno è già oltre, gli altri restano avvisati.
+    const lateIds = [NOTIF_ID.prefermentLate, NOTIF_ID.prefermentLate2, NOTIF_ID.prefermentLate3];
+    lateIds.forEach((id, i) => {
+      const x = status.all[i];
+      if (!x || !x.started) { cancelNotification(id); return; }
+      const t = x.it.type, f = prefIsFeminine(t);
+      at(id, `⚠️ ${Cap(prefWithArticle(t))} potrebbe essere oltre`,
+        `${overSign(t).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${f ? 'ila' : 'ilo'} in frigo.`, x.lateAt);
+    });
+    // 132: ora di impastare il prossimo (insieme al principale solo se l'orario non è stato spostato).
     const next = items.find(it => !it.mixedAt);
-    at(NOTIF_ID.prefermentNext, `🥣 Ora impasta ${prefWithArticle(next?.type ?? 'poolish')}`,
-      `Così è ${readyWord(prefIsFeminine(next?.type ?? 'poolish'))} insieme ${prefAl(items[0].type)}. Le dosi sono in PizzaMatrix.`,
+    const nType = next?.type ?? 'poolish', nFem = prefIsFeminine(nType);
+    const nReady = next ? new Date(next.startAt).getTime() + next.plannedH * 3_600_000 : 0;
+    const mainReady = status.all[0]?.etaMs ?? nReady;
+    at(NOTIF_ID.prefermentNext, `🥣 Ora impasta ${prefWithArticle(nType)}`,
+      Math.abs(nReady - mainReady) < 10 * 60_000
+        ? `Così è ${readyWord(nFem)} insieme ${prefAl(items[0].type)}. Le dosi sono in PizzaMatrix.`
+        : `Sarà ${readyWord(nFem)} ${hm(nReady)}. Le dosi sono in PizzaMatrix.`,
       next ? new Date(next.startAt).getTime() : null);
     // 133: frigo in anticipo, un'ora prima del pronto del primo impastato che non è in frigo.
     const fridgeT = (stage.draft as { fridgeTempC?: number }).fridgeTempC ?? 4;
@@ -97,7 +109,7 @@ export function useCapacitorNotifications() {
       const g = fridgeGain(cand.it, hintAt, fridgeT);
       const t = cand.it.type, f = prefIsFeminine(t);
       at(NOTIF_ID.prefermentFridge, `🥣 ${Cap(prefWithArticle(t))} tra un'ora è ${readyWord(f)}`,
-        `Non impasti prima di ${hm(g.lateAtStay).replace(/^alle /, 'le ')}? Mett${f ? 'ila' : 'ilo'} in frigo: regge fino ${hm(g.lateAtFridge)}.`, hintAt);
+        `Non impasti entro ${hm(g.lateAtStay).replace(/^alle /, 'le ')}? Mett${f ? 'ila' : 'ilo'} in frigo: regge fino ${hm(g.lateAtFridge).replace(/^(?!alle )/, 'a ')}.`, hintAt);
     } else cancelNotification(NOTIF_ID.prefermentFridge);
   }, [stage?.id, stage?.readyAt, stage?.items]);
 

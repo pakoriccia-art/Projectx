@@ -212,7 +212,7 @@ export function PrefermentStageView() {
   };
 
   // Frigo: in anticipo dall'85% (vale se lo sposti ora), azione principale quando è già oltre.
-  const fridgeHint = (it: StageItem, urgent: boolean) => {
+  const fridgeHint = (it: StageItem, urgent: boolean, secondary = false) => {
     const s = itemState(it, now);
     if (!s.started || spotOf(it).place === 'frigo') return null;
     if (!urgent && (s.pct < FRIDGE_HINT_PCT || s.level === 'late' || s.level === 'veryLate')) return null;
@@ -224,9 +224,9 @@ export function PrefermentStageView() {
         <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)', marginBottom: 10 }}>
           {urgent
             ? `${cap(nm)} è oltre: in frigo rallenta e ti dà tempo per impastare.`
-            : `Non impasti prima delle ${fmtClock(g.lateAtStay, now)}? Metti ${nm} in frigo adesso: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
+            : `Non impasti entro le ${fmtClock(g.lateAtStay, now)}? Metti ${nm} in frigo adesso: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
         </div>
-        <Btn variant={urgent ? 'primary' : 'secondary'} onClick={() => moveTo(it, 'frigo')}>
+        <Btn variant={urgent && !secondary ? 'primary' : 'secondary'} onClick={() => moveTo(it, 'frigo')}>
           Mett{f ? 'ila' : 'ilo'} in frigo{urgent ? ' (rallenta)' : ''}
         </Btn>
       </Card>
@@ -271,6 +271,60 @@ export function PrefermentStageView() {
     : level === 'ready' ? `${cap(readyWord(fem))} dalle ${fmtClock(readyMs, now)}`
       : `Oltre dalle ${fmtClock(focus?.lateAt ?? readyMs, now)}`;
 
+  // Impasto finale: un impasto in corso blocca, poi le conferme in fila.
+  const ctaBlock = (state.activeSession ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+            C'è un impasto in corso: per avviarne un altro, prima terminalo.
+          </div>
+          <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}>Vai all'impasto in corso</Btn>
+        </div>
+      ) : pending ? (
+        <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+          L'impasto finale si sblocca quando hai impastato anche {prefWithArticle(pending.it.type)}{pending.overdueMs > 0 ? ', o se procedi senza.' : ` (alle ${fmtClock(new Date(pending.it.startAt), now)}).`}
+        </div>
+      ) : confirm && confirm !== 'skip' ? (
+        <div ref={confirmRef} tabIndex={-1} role="group" aria-label="Conferma impasto finale" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>
+          {confirm === 'veryLate' && worst && (<>
+            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--state-critical)' }}>
+              {cap(prefWithArticle(worst.it.type))} è al ~{Math.round(worst.pct)}%: l'impasto può venire acido e meno strutturato.
+            </div>
+            <Btn onClick={() => setConfirm(null)}>Aspetto, {prefIsFeminine(worst.it.type) ? 'la' : 'lo'} controllo</Btn>
+            <Btn variant="secondary" onClick={() => goOn('veryLate')}>Impasto lo stesso</Btn>
+          </>)}
+          {confirm === 'early' && leastRipe && (<>
+            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
+              {cap(prefWithArticle(leastRipe.it.type))} è al ~{Math.round(leastRipe.pct)}%: l'impasto partirà meno maturo e ci metterà di più.
+            </div>
+            <Btn onClick={() => setConfirm(null)}>Aspetto</Btn>
+            <Btn variant="secondary" onClick={() => goOn('early')}>Impasto lo stesso</Btn>
+          </>)}
+          {confirm === 'service' && target && (<>
+            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)' }}>
+              Impasti {shiftMs > 0 ? `${fmtSpanH(shiftMs)} dopo` : `${fmtSpanH(-shiftMs)} prima di`} quanto previsto. Il servizio?
+            </div>
+            <Btn onClick={() => { setConfirm(null); startDough(false); }}>Tengo il servizio alle {fmtClock(target, now)}</Btn>
+            <Btn variant="secondary" onClick={() => { setConfirm(null); startDough(true); }}>
+              Sposto il servizio alle {fmtClock(new Date(target.getTime() + shiftMs), now)}
+            </Btn>
+            <Btn variant="secondary" onClick={() => setConfirm(null)}>Non ancora</Btn>
+          </>)}
+        </div>
+      ) : !dosesOpen ? (
+        <div ref={readyRef}>
+          {/* Primario solo quando è il momento: mai due primari (con il frigo urgente resta secondario) */}
+          <Btn variant={level === 'ready' ? 'primary' : 'secondary'} onClick={() => goOn(null)}>
+            {level === 'late' || level === 'veryLate'
+              ? 'Impasto finale (è oltre) →'
+              : level === 'growing' || started.some(x => x.pct < 100)
+                ? 'Impasto finale adesso →'
+                : many ? `Sono ${readyWord(allFem, true)}: impasto finale →` : `È ${readyWord(fem)}: impasto finale →`}
+          </Btn>
+        </div>
+      ) : null);
+  // Quando è il momento (pronta, oltre) l'azione sta subito sotto l'orario, non in fondo.
+  const ctaUp = level !== 'growing';
+
   return (
     <div style={{ padding: '24px var(--padding-h) max(24px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 560, margin: '0 auto' }}>
       <div style={label}>Prefermento · in corso</div>
@@ -313,6 +367,8 @@ export function PrefermentStageView() {
         )}
       </div>
 
+      {ctaUp && ctaBlock}
+
       {/* Adesso: le dosi del principale */}
       {main && (dosesOpen ? (
         <Card elevated>
@@ -332,7 +388,7 @@ export function PrefermentStageView() {
       ))}
 
       {/* Il più urgente: frigo come azione principale se è oltre, poi dove si trova, poi frigo in anticipo */}
-      {fIt && fridgeHint(fIt, true)}
+      {fIt && fridgeHint(fIt, true, !!status?.overdue)}
       {fIt && focus?.started && placePicker(fIt, others.length ? `Dove si trova ${prefWithArticle(type)}` : 'Dove si trova adesso')}
       {fIt && fridgeHint(fIt, false)}
 
@@ -348,6 +404,10 @@ export function PrefermentStageView() {
           const readyIfNow = now + it.plannedH * 3_600_000;
           const mainLate = mainState?.started ? mainState.lateAt : null;
           const mainFridge = main && mainState?.started && spotOf(main).place !== 'frigo' ? fridgeGain(main, now, fridge) : null;
+          // Il principale è già oltre? Aspettare il secondo lo peggiora; il frigo serve solo se arriva in tempo.
+          const mainAlreadyLate = mainLate != null && mainLate <= now;
+          const waitingHurts = mainLate != null && mainLate < readyIfNow;
+          const fridgeHelps = !mainAlreadyLate && !!mainFridge && mainFridge.lateAtFridge >= readyIfNow;
           return (
             <Card key={it.id} elevated={due}>
               <div style={{ ...label, marginBottom: 8, color: overdue ? 'var(--state-critical)' : due ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
@@ -379,19 +439,36 @@ export function PrefermentStageView() {
               {overdue && (
                 <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', lineHeight: 1.5, marginBottom: 8 }}>
                   Sei in ritardo di {fmtSpanH(s.overdueMs)}. Se {f ? 'la' : 'lo'} impasti adesso è {readyWord(f)} alle {fmtClock(readyIfNow, now)}
-                  {mainLate != null && main && (mainLate < readyIfNow
-                    ? `, ma ${prefWithArticle(main.type)} va oltre alle ${fmtClock(mainLate, now)}${mainFridge ? ` (in frigo regge fino alle ${fmtClock(mainFridge.lateAtFridge, now)})` : ''}.`
-                    : `, in tempo per ${prefWithArticle(main.type)}.`)}
+                  {main && mainLate != null && (mainAlreadyLate
+                    ? `, ma ${prefWithArticle(main.type)} è già oltre da ${fmtSpanH(now - mainLate)}: aspettare ${nm} ${prefIsFeminine(main.type) ? 'la' : 'lo'} porterebbe ancora più avanti. Conviene procedere senza.`
+                    : waitingHurts
+                      ? `, ma ${prefWithArticle(main.type)} va oltre alle ${fmtClock(mainLate, now)}.${fridgeHelps
+                        ? ` In frigo ${prefIsFeminine(main.type) ? 'la' : 'lo'} rallenti: regge fino alle ${fmtClock(mainFridge!.lateAtFridge, now)}, in tempo.`
+                        : mainFridge && mainFridge.gainH > 0.25
+                          ? ` Anche in frigo regge solo fino alle ${fmtClock(mainFridge.lateAtFridge, now)}: conviene procedere senza.`
+                          : ' Conviene procedere senza.'}`
+                      : `, in tempo per ${prefWithArticle(main.type)}.`)}
                 </div>
               )}
               {doses(it)}
               <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <Btn variant={due ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
+                {/* Un solo primario: la scelta che conviene. L'utente decide comunque. */}
+                {overdue && waitingHurts && fridgeHelps && main ? (
+                  <Btn onClick={() => {
+                    const t = new Date();
+                    saveItems(items.map(x => x.id === main.id
+                      ? { ...x, moves: [...(x.moves ?? []), { at: t, place: 'frigo' as PrefPlace, tempC: placeTempC('frigo', fridge) }] }
+                      : x.id === it.id ? { ...x, mixedAt: t } : x));
+                  }}>
+                    Metti {prefWithArticle(main.type)} in frigo e impasta {nm} ✓
+                  </Btn>
+                ) : null}
+                {overdue && waitingHurts && !fridgeHelps && (
+                  confirm === 'skip' ? null : <Btn onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn>
+                )}
+                <Btn variant={due && !(overdue && waitingHurts) ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
                   {due ? (overdue ? `L${f ? 'a' : 'o'} impasto adesso ✓` : 'Fatto ✓') : `L'ho già impastat${f ? 'a' : 'o'}`}
                 </Btn>
-                {overdue && mainFridge && mainLate != null && mainLate < readyIfNow && (
-                  <Btn variant="secondary" onClick={() => { moveTo(main!, 'frigo'); }}>Metti {prefWithArticle(main!.type)} in frigo</Btn>
-                )}
                 {overdue && (
                   confirm === 'skip' ? (
                     <div ref={confirmRef} tabIndex={-1} role="group" aria-label={`Procedi senza ${nm}`} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
@@ -401,9 +478,9 @@ export function PrefermentStageView() {
                       <Btn variant="danger" onClick={() => skipItem(it)}>Sì, procedi senza</Btn>
                       <Btn variant="secondary" onClick={() => setConfirm(null)}>No</Btn>
                     </div>
-                  ) : (
+                  ) : !(waitingHurts && !fridgeHelps) ? (
                     <Btn variant="secondary" onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn>
-                  )
+                  ) : null
                 )}
               </div>
             </Card>
@@ -454,55 +531,7 @@ export function PrefermentStageView() {
 
       {error && <div role="alert" style={{ ...MONO, fontSize: 13, color: 'var(--state-critical)' }}>{error}</div>}
 
-      {/* Impasto finale: un impasto in corso blocca, poi le conferme in fila */}
-      {state.activeSession ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
-            C'è un impasto in corso: per avviarne un altro, prima terminalo.
-          </div>
-          <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}>Vai all'impasto in corso</Btn>
-        </div>
-      ) : pending ? (
-        <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
-          L'impasto finale si sblocca quando hai impastato anche {prefWithArticle(pending.it.type)}{pending.overdueMs > 0 ? ', o se procedi senza.' : ` (alle ${fmtClock(new Date(pending.it.startAt), now)}).`}
-        </div>
-      ) : confirm && confirm !== 'skip' ? (
-        <div ref={confirmRef} tabIndex={-1} role="group" aria-label="Conferma impasto finale" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>
-          {confirm === 'veryLate' && worst && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--state-critical)' }}>
-              {cap(prefWithArticle(worst.it.type))} è al ~{Math.round(worst.pct)}%: l'impasto può venire acido e meno strutturato.
-            </div>
-            <Btn onClick={() => setConfirm(null)}>Aspetto, {prefIsFeminine(worst.it.type) ? 'la' : 'lo'} controllo</Btn>
-            <Btn variant="secondary" onClick={() => goOn('veryLate')}>Impasto lo stesso</Btn>
-          </>)}
-          {confirm === 'early' && leastRipe && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
-              {cap(prefWithArticle(leastRipe.it.type))} è al ~{Math.round(leastRipe.pct)}%: l'impasto partirà meno maturo e ci metterà di più.
-            </div>
-            <Btn onClick={() => setConfirm(null)}>Aspetto</Btn>
-            <Btn variant="secondary" onClick={() => goOn('early')}>Impasto lo stesso</Btn>
-          </>)}
-          {confirm === 'service' && target && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)' }}>
-              Impasti {shiftMs > 0 ? `${fmtSpanH(shiftMs)} dopo` : `${fmtSpanH(-shiftMs)} prima di`} quanto previsto. Il servizio?
-            </div>
-            <Btn onClick={() => { setConfirm(null); startDough(false); }}>Tengo il servizio alle {fmtClock(target, now)}</Btn>
-            <Btn variant="secondary" onClick={() => { setConfirm(null); startDough(true); }}>
-              Sposto il servizio alle {fmtClock(new Date(target.getTime() + shiftMs), now)}
-            </Btn>
-            <Btn variant="secondary" onClick={() => setConfirm(null)}>Non ancora</Btn>
-          </>)}
-        </div>
-      ) : !dosesOpen ? (
-        <div ref={readyRef}>
-          {/* Primario solo quando è il momento: mai due primari (con il frigo urgente resta secondario) */}
-          <Btn variant={level === 'ready' ? 'primary' : 'secondary'} onClick={() => goOn(null)}>
-            {level === 'late' || level === 'veryLate'
-              ? 'Impasto finale (è oltre) →'
-              : many ? `Sono ${readyWord(allFem, true)}: impasto finale →` : `È ${readyWord(fem)}: impasto finale →`}
-          </Btn>
-        </div>
-      ) : null}
+      {!ctaUp && ctaBlock}
 
       {confirmCancel ? (
         <div ref={cancelRef} tabIndex={-1} role="group" aria-label="Conferma annullamento" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>

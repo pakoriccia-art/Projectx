@@ -476,7 +476,7 @@ async function scenarioPrefermento() {
   await rowSel().first().click(); await sleep(1000);
 
   console.log('\nF3 · Impasto finale');
-  await page.getByRole('button', { name: /impasto finale/ }).click(); await sleep(500);
+  await page.getByRole('button', { name: /impasto finale/i }).click(); await sleep(500);
   const wait = page.getByRole('button', { name: /^Aspetto$/ });
   const early = page.getByRole('button', { name: /Impasto lo stesso/ });
   check('Impasto in anticipo: chiede conferma, "Aspetto" in evidenza', await wait.count() > 0 && await early.count() > 0
@@ -546,7 +546,7 @@ async function scenarioPrefermento() {
     await skip.click(); await page.getByRole('button', { name: /Sì, procedi senza/ }).click(); await sleep(800);
   }
   const afterSkip = clean(await page.locator('body').innerText());
-  check('Si può procedere senza il poolish', !/da impastare/i.test(afterSkip) && /impasto finale →/.test(afterSkip), afterSkip.slice(0, 160));
+  check('Si può procedere senza il poolish', !/da impastare/i.test(afterSkip) && /impasto finale[^→]{0,12}→/i.test(afterSkip), afterSkip.slice(0, 160));
   await page.getByRole('button', { name: /^Annulla$/ }).click();
   await page.getByRole('button', { name: /Sì, annulla/ }).click(); await sleep(1000);
 }
