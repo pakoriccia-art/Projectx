@@ -497,4 +497,93 @@ P3:
 - `npm test`: 256 test vitest (4 nuovi su `fmtTime`), 242 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
 - Controllo nel browser a 390 e 360 px, 25 controlli su 25: formati dei giorni in dashboard, timeline, Planner, Wizard e Storico; "Aspetto" in brace; un solo "Annulla"; "Ho infornato, chiudi" assente in frigo; marker senza ruolo dopo l'infornata; badge, plurale ed Esc nello Storico; nessun testo sotto 11 px in Rotta e Storico; timeline TC intera a 360 px; gradiente del danger dai token.
 - Rilevatore sui file toccati: spariti i colori fuori palette del danger, l'easing a rimbalzo e il font a 10.2 px. Restano il glow (intenzionale) e le dimensioni di font fuori scala già note.
-- Finto telefono, scenario `tutti`: 74/74.
+- Finto telefono, scenario `tutti`: 74/74. Telefono vero (Samsung SM-S931B), scenario `tutti`: 74/74, compresi i force-stop e la riapertura dopo 60 s (dopo i commit `14d4e85` e `73e06cc` allo script: il socket della WebView chiusa non ferma più il giro, e niente `page.close()` prima del force-stop, che lo lasciava appeso).
+
+## Passaggio 35: critique generale dell'app (25/40)
+
+Method: dual-agent (A: design review sull'app reale a 390 e 360 px, con l'orologio avanzato di 3/13/16/22 h · B: detector CLI su `index.html` e `src`, overlay `detect.js` iniettato su 6 viste, misure a11y e responsive su 24 viste × 2 larghezze). Solo rapporto, nessuna modifica al codice. Verificati nel sorgente i due P0 prima della sintesi.
+
+### Design Health Score
+
+| # | Euristica | Voto | Problema chiave |
+|---|---|---:|---|
+| 1 | Visibilità dello stato | 2 | In una sessione "tutto in frigo" il chip dice "PUNTATA · TC" e il semaforo misura a temperatura ambiente: "regge fino a ~22:22 domani", poi "PRONTO DA INFORNARE · ORA" in verde con l'impasto a 4 °C |
+| 2 | Corrispondenza col mondo reale | 2 | "τ × 1.5" sui contenitori, "C=28.1°C" e "C_attrito" due volte al passo 4, "0.5 h"/"65.4 h" nel riepilogo, "1:16" e "~76s" nello stesso pannello del Forno, "ENGINE · FERMENTATION SCIENCE" in Home |
+| 3 | Controllo e libertà | 3 | Annulla ovunque e "Aspetto" primario; ma durante una sessione il monitor non ha uscite verso Home, Planner o Storico |
+| 4 | Coerenza e standard | 2 | Sei formati di durata; "Usa questo piano / Usa questo schema / Usa questo"; TC senza riscaldo nel Wizard e con "riscaldo 5h 55m" nel Planner; tre famiglie tipografiche |
+| 5 | Prevenzione degli errori | 2 | I default sbagliano da soli: passo 7 TA si apre con "l'impasto sarebbe ancora acerbo"; il Forno si apre su "✗ NON RAGGIUNGE LO STILE"; il Planner lascia avviare un piano con lo staglio dopo il forno |
+| 6 | Riconoscimento vs ricordo | 3 | Riepilogo completo e "(dal piano)"; τ, C_attrito e "inforni a ~9°" chiedono di ricordare |
+| 7 | Flessibilità ed efficienza | 2 | Otto passi obbligatori a ogni impasto, nessun "rifai questa" dallo Storico; nel Planner risposta in cima e input 1.500 px sotto; ogni chip è un tab stop |
+| 8 | Estetica e minimalismo | 3 | Monitor essenziale; rumore in Home, al passo 4 e in QUASI PRONTO (cinque elementi brace) |
+| 9 | Recupero dagli errori | 3 | "Allunga l'appretto di 3 h 30" in un tocco; ma il chip "inforni a ~9°" e "Sotto il target" non hanno azione |
+| 10 | Aiuto e documentazione | 3 | "Cosa significa" sul semaforo, "ipotesi non ancora validata"; nessun aiuto su τ e contenitori |
+| | **Totale** | **25/40** | **Solido nel cuore, incoerente ai bordi** |
+
+### Verdetto di design specificity
+
+**LLM (A):** il monitor live è di questo prodotto e di nessun altro: pannelli fresati, canali numerati, il semaforo che risponde con un orario ("INFORNI ALLE ~12:11 domani · tra 15h 46m · regge fino a ~22:19 domani"), i 10 LED, il grafico brace/oro/freddo. Wizard, Rotta e Prefermento parlano la stessa lingua grazie ai primitivi. La firma si perde ai bordi: la Home è uno splash da template (due righe in inglese, un elenco di modelli matematici, 60% di schermo vuoto); lo Storico è un record con quattro numeri e un cestino; il Forno è un form di preset con un pannello rosso; il Planner è un modulo di 3.400 px dove l'unico momento "di misura" sono le colline delle alternative.
+
+**Rilevatore (B):** 153 segnalazioni, 148 advisory e 5 warning. 112 font fuori rampa (0.72rem ×28, 0.78 ×14, 0.75 ×14, 1.1rem ×13; sotto gli 11 px solo 0.65rem ×4 nel Planner e 0.64rem in `PrefermentCreditCard.tsx:76`), 33 colori fuori palette (16 non documentati: il verde Classic `#00b894` in `WizardView.tsx:1419`, i gialli `rgba(253,203,110,…)` ×4 nel Wizard, gli arancio `rgba(253,186,116,…)` ×3 nel Planner, `rgba(255,200,0,…)` ×3 in WaterTemp, il pomello bianco puro `#fff` in `BakeView.tsx:101`, `#bcd9ff` in `BakeView.tsx:253`), 3 transizioni di `width`/`max-height` in `feedback.tsx:175,194,245` (debito già noto), più il pallino live, il glow critico e la griglia incisa: eccezioni documentate in DESIGN.md. Per file: Planner 36, Wizard 36, WaterTemp 25, feedback 11, index.html 10. Il rilevatore ha colto cose che A non ha visto (il bianco puro del toggle del Forno, i gialli Tailwind) e ha mancato ciò che A ha visto: non legge `0.66rem`/`0.68rem` (10.88 px: 21 dichiarazioni nel Wizard e nel Planner), i `fontSize: 10` numerici di `BakeView.tsx` e `MiniHillCurve.tsx`, né il sans di sistema nelle note. Dove concordano: i testi a 10.88 px del passo 4, del passo 8 e del Planner.
+
+**Overlay:** iniezione riuscita (live-server su 8400, poi fermato). Home 4, Wizard 2, Dashboard 3, Rotta 2, Storico 2, Planner 19 (tiny-text ×5, all-caps-body ×2, nested-cards, em-dash ×15, width-transition ×3). Il browser è headless: nessuna scheda [Human] visibile, solo screenshot. L'overlay considera "tiny" sotto i 12 px, DESIGN.md fissa 11: le voci a 11–11.52 px sono conformi.
+
+**Misure (B):** nessun overflow a 390 e 360 px in 24 viste; un `<h1>` e un `<main>` per vista; 0 bottoni senza nome; reduced-motion rispettato (0 animazioni infinite); focus mai sul body dopo le azioni del monitor. Fuori norma: il `select` "Libreria farine" (324×32 px, unico input senza label, `WizardView.tsx:578`), "▸ Parametri avanzati" 38 px, "Torna alla schermata iniziale" del Planner 36 px di larghezza, i campi giorno/ora del Planner 43 px; i sottotitoli "τ × 1 … 3" del passo 6 a 3.42:1; "Continua →" manda il focus sul body ai passi 1→2, 2→3, 4→5 (dove il Continua seguente monta disabilitato); radiogroup senza nome al passo 4 e nel Forno; 4 mini-curve SVG del Planner senza nome; i "Usa questo" disabilitati del Planner a opacità 0.45 invece dello 0.38 documentato. A 360 px il badge "intatta" di "02 FORZA DEL GLUTINE" finisce nel padding del pannello (misura con font di fallback: Google Fonts è bloccato nel sandbox).
+
+### Impressione generale
+
+Il cuore mantiene la promessa: quando si aspetta, l'app dice un orario, quanto manca, fino a quando regge e perché. Attorno al cuore ci sono tre cose che la smentiscono: la sessione in frigo misurata come se fosse sul banco, il Planner che consiglia con quattro stelle un piano che non ci sta, e i default del Wizard e del Forno che si aprono già in errore. L'opportunità più grande è portare la firma del monitor, l'orario come risposta, in Home e Storico.
+
+### Cosa funziona
+
+1. **Il semaforo che risponde con un orario** (`SemaforoCard.tsx`, `DashboardV4.tsx:572-600`): una riga risponde a quando, quanto manca, fino a quando e perché, con cifre tabulari e lo stesso orario in header, hero e timeline.
+2. **Le conferme dicono le conseguenze**: "Passi a STAGLIO · TA ora? PUNTATA accorciata di 8h · L'orario di cottura non cambia"; "Non è ancora al punto (maturazione 5%, pronto ~09:27 domani). Infornata lo stesso?" con "Aspetto" primario; ogni conferma ha un annulla con orizzonte dichiarato.
+3. **Il prefermento come vista di lavoro** (`PrefermentStageView.tsx`): dosi, "Fatto ✓", "L'ho impastata prima…", "Come capire che è pronta", acqua e ghiaccio per l'impasto finale, e la biga oltre gestita con "Mettila in frigo (rallenta)". È la valle più difficile del prodotto e la meglio scritta. B conferma: target ≥ 44 px, nessun overflow, focus sempre su un titolo.
+
+### Problemi prioritari
+
+**[P0] La sessione "tutto in frigo" è misurata a temperatura ambiente.** Wizard con "TC · Tutto in frigo", 12 h a 4 °C, cottura prevista ~08:58 domani. Dashboard: chip "PUNTATA · TC", ma "IN CORSO ~12:14 domani · regge fino a ~22:22 domani"; a +13 h "QUASI PRONTO"; a +16 h "PRONTO DA INFORNARE · ORA" in verde e la banda "È ora dello staglio · 4h fa" mentre nessuno ha toccato l'impasto; a +22 h il pannello Termina offre "Ho infornato, chiudi". Causa, verificata: `tickState` parte nullo (`AppContext.tsx:183`) e `useTickEngine.ts:113-116` ricade su `phase='bulk_room'` e `tAmbient=tLaboratorio`; `DashboardV4.tsx:492` fa lo stesso, quindi `isColdPhase` è falso e lo stato FREDDO già disegnato non compare mai; `db.ts:298` costruisce bene la timeline con `bulk_fridge` per primo, ma nessuno la legge all'avvio. Perché conta: è il caso d'uso dichiarato (48 h in frigo), viola "The Ready Is Green Rule" e l'app si contraddice sullo stesso schermo. Fix: all'avvio (e nel restore senza `lastTickState`, `useSessionRestore.ts:66`) seminare `phase` e `tempAmbient` dal segmento `current` della timeline; cablaggio UI/hook, il motore non si tocca. Comando: `/impeccable harden`.
+
+**[P0] Il Planner consiglia con quattro stelle un piano che non sta nel tempo, e lo lascia avviare.** Cottura "19:30 mer · tra 46h 58m"; alternativa "TC totale ★★★★☆ · 65h 57m in tutto · Sotto il target" sopra "TC Appretto ★★★☆☆ · Al target". Con "Usa questo" → "Usa questo piano →" il riepilogo mostra "Staglio 14:09 gio · Forno 19:30 mer" e la dashboard "~52h prima del piano delle fasi". Causa, verificata: `FermentationPlannerView.tsx:267,320,344` assegna le stelle da `viability` e dalle ore di frigo, mai dalle ore disponibili; `:483` aggiunge solo il badge. Perché conta: inganna con un segnale di qualità. Fix: un piano che non ci sta non è un'alternativa: nascosto, o senza CTA con "Non ci sta: servono 66h, ne hai 47 · sposta la cottura a gio 14:25 →"; le stelle includono la fattibilità; il riepilogo rifiuta una fase dopo il Forno. Comando: `/impeccable harden`.
+
+**[P1] I default del Wizard contraddicono il modello e il TC non ha il riscaldo.** Passo 7 TA, senza toccare nulla: "Con queste durate inforneresti alle 08:55 domani: l'impasto sarebbe ancora acerbo (~3 h 30 prima del pronto)". Passo 7 TC: solo "FREDDO TOTALE (PUNTATA + APPRETO) 12h" (refuso, `WizardView.tsx:1591`) e "STAGLIO 30 min"; poi in dashboard "❄ inforni a ~9° · 9° sotto i 18° consigliati" senza azione e "STAGLIO 08:28 · APPRETTO 08:28" allo stesso minuto; il Planner per lo stesso stile calcola "riscaldo 5h 55m". Fix: default dell'appretto dal modello (lo stesso calcolo di "Allunga di 3 h 30"); fase "Riscaldo TA" anche nel Wizard TC (`db.ts:298`, `warmupH` del Planner); il chip freddo diventa un bottone verso Rotta con la correzione precompilata. Comando: `/impeccable harden` + `/impeccable clarify`.
+
+**[P1] Il Forno si apre in errore per lo stile più comune.** Napoletana 65%: "✗ NON RAGGIUNGE LO STILE · Forno a 250°C insufficiente … (3) cambia stile" perché `DEFAULT_PROFILE` (`BakeView.tsx:115`) è "Domestico 250°C", mai scelto dall'utente. Nello stesso pannello "TEMPO 1:16" e "Tempo indicativo ~76s", "PIROMETRO (MODDED)", pomello del toggle in bianco puro (`:101`). Fix: chiedere il forno nel Wizard o ricordare l'ultimo usato; senza informazione, archetipo in cima e verdetto sotto; un solo formato ("76 s"). Comando: `/impeccable onboard` + `/impeccable clarify`.
+
+**[P2] Le durate hanno sei formati e la brace parla cinque volte.** "12 h 30", "tra 15h 46m", "0.5 h"/"65.4 h" nel riepilogo (`Metric` con `unit="h"`, contro il Don't di DESIGN.md), "1:16"/"~76s", "65h 57m", "7.0h → 4.9h" in Qualità. In QUASI PRONTO: "Fatto ora" brace piena, badge brace, readout brace, "Aggiusta rotta →" nel semaforo e "Aggiusta rotta" con contorno brace nel footer, a 300 px l'uno dall'altro. Fix: `fmtHours` di `ui/index.tsx` ovunque, compreso `Metric` e le card del Planner; una sola azione brace per schermata. Comando: `/impeccable polish` + `/impeccable quieter`.
+
+Altri P2, da non perdere: il monitor è un vicolo cieco per 48 ore (il wordmark non porta alla Home, niente Planner né Storico con una sessione viva; la Home già sa mostrare "Poolish in corso →", manca lo stesso pattern per la sessione); tastiera e screen reader (radiogroup con un tab stop per chip e senza frecce, `ui/index.tsx:236-243`; focus sul body dopo "Continua" ai passi 1→2, 2→3, 4→5; cambio di stato del semaforo senza `aria-live`; `select` farine senza label; nel Storico il cestino arriva in tabulazione prima del voto).
+
+### Red flag per persona
+
+**Pizzaiolo in servizio, telefono a un metro:** legge "ORA" verde e tira fuori il panetto dal frigo; il chip "PUNTATA · TC" da 11 px che lo smentisce non lo vede. Apre il Forno al pronto e trova "✗ NON RAGGIUNGE LO STILE" per un forno domestico che non ha. Non può pianificare l'impasto di domani finché quello di oggi è vivo. Al passo 6 deve scegliere fra 7 chip "τ × 2.2 / τ × 2.5" con le dita sporche.
+
+**Appassionato alla prima sessione da 48 h in frigo:** sceglie "Cottura 19:30 mer", preme "Usa questo" su quattro stelle e si ritrova "Staglio gio · Forno mer". In dashboard legge "~12:14 domani · regge fino a ~22:22" mentre il suo piano dice 08:58: non sa a quale orario credere. "❄ inforni a ~9°" gli dice che c'è un problema, non cosa fare.
+
+**Screen reader / solo tastiera:** cinque Tab per sentire gli stili, le frecce non fanno nulla; dopo "Continua →" il focus cade sul body e "Passo 2 di 8" non viene annunciato; "PRONTO DA INFORNARE" arriva senza annuncio; 8 Tab per impostare giorno e ora nel Planner; "Usa questo piano →" disabilitato senza `aria-describedby`.
+
+### Osservazioni minori
+
+- "INFORNI ALLE ?": il bottone di aiuto si legge come punto interrogativo dell'orario.
+- Eliminazione in danger quieto e Termina in danger pieno: due pesi per due azioni distruttive.
+- "Fine · salva": il punto mediano è un microformato interno finito in un'etichetta.
+- Analisi ripete per intero il semaforo di Monitor sotto "01 STATO".
+- Planner senza data: "IL TUO PIANO · Staglio 13:55 gio · Forno 14:25 gio" per un orario che nessuno ha scelto; in Servizio senza data nessuna CTA.
+- Qualità: tre meter in blu, giallo e arancio, colori decorativi.
+- Storico: "MATURAZ. 5% · USURA W 0%" sopra "Com'è venuta?"; l'ordine di un diario è esito, infornata, numeri. Lo stato vuoto non dice cosa ci finirà.
+- Home: "ENGINE v2.4.0 · FERMENTATION SCIENCE" e "Capacitor Android + Web" in inglese; tagline e note del Wizard nel sans di sistema (`index.html:71`, `App.tsx:159-172`).
+- Riepilogo con LM: "200g lievito madre" va a capo su tre righe.
+- Passo 3 biga + LM: la biga resta a lievito di birra anche con pasta madre al passo 5: da verificare se voluto.
+- Gli `input type=date/time` non forzano `lang`: nel Chromium di test "07:33 PM" e "mm/dd/yyyy".
+- Detector: `.pm4-btn { transition: all .18s }` (`index.html:387`); 46 righe con bianco puro o trasparente contro il Do "mai il bianco trasparente", che DESIGN.md stesso contraddice documentando `button-ghost` a `rgba(255,255,255,0.04)`.
+
+### Domande
+
+1. Se il semaforo risponde con un orario, perché la Home non lo fa? Cosa perderebbe con "🍕 Napoletana · inforni alle ~12:11 domani" al posto di "ENGINE v2.4.0 · FERMENTATION SCIENCE"?
+2. Perché un esperto deve rifare 8 passi per la pizza del sabato dopo, se lo Storico ha tutto per un "Rifai questa"?
+3. Il Wizard chiede il contenitore con 7 opzioni e τ, e non chiede il forno. Qual è la domanda più utile per l'infornata?
+4. Il Planner conosce il riscaldo e il Wizard TC no: sono due modelli dello stesso impasto?
+5. Se "la previsione guida", perché i default del passo 7 non sono la previsione?
+6. Quattro stelle vogliono dire "piano buono" o "freddo lungo"?
+7. Il monitor sa dire "Infornata alle 20:30 · prima del pronto (−12h 58m)": perché lo Storico mostra "USURA W 0%" invece di quella frase?
+
+Non visto: lo stato FREDDO del semaforo (mai raggiunto per il P0), COLLASSO e CRITICO, il modale fuori protocollo, le notifiche locali, lo Storico con più sessioni, il Servizio con data impostata. Font reali non caricati nel sandbox: larghezze misurate con i fallback.
