@@ -38,8 +38,10 @@ function fmtClock(d: Date | number, now: number): string {
 
 const cap = (t: string) => t.replace(/^./, c => c.toUpperCase());
 const LEVEL_COLOR: Record<LateLevel, string> = {
-  growing: 'var(--pm4-flour)', ready: 'var(--pm4-ember-lo)', late: 'var(--state-critical)', veryLate: 'var(--state-collapsed, #d63031)',
+  // Testo sempre ad AA: "troppo oltre" si distingue con la parola e con la barra (#d63031), non col testo scuro.
+  growing: 'var(--pm4-flour)', ready: 'var(--pm4-ember-lo)', late: 'var(--state-critical)', veryLate: 'var(--state-critical)',
 };
+const BAR_COLOR: Record<LateLevel, string> = { ...LEVEL_COLOR, growing: 'var(--pm4-tan)', veryLate: 'var(--state-collapsed, #d63031)' };
 
 type Confirm = null | 'early' | 'veryLate' | 'service' | 'skip';
 
@@ -206,7 +208,7 @@ export function PrefermentStageView() {
         {row('Farina', fmtGrams(g.flourG))}
         {row('Acqua', fmtGrams(g.waterG))}
         {g.yeastG != null && row(yeastLabel, fmtGrams(g.yeastG))}
-        {w && <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5 }}>Per un impasto a ~{prefDdtC(g.type)}°C: {w}.</div>}
+        {w && <div style={{ ...MONO, fontSize: 11, color: 'var(--pm4-umber)', lineHeight: 1.5 }}>Per un impasto a ~{prefDdtC(g.type)}°C: {w}.</div>}
       </>
     );
   };
@@ -221,7 +223,7 @@ export function PrefermentStageView() {
     const nm = prefWithArticle(it.type), f = prefIsFeminine(it.type);
     return (
       <Card key={`fr-${it.id}-${urgent}`} elevated>
-        <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)', marginBottom: 10 }}>
+        <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-flour)', marginBottom: 10 }}>
           {urgent
             ? `${cap(nm)} è oltre: in frigo rallenta e ti dà tempo per impastare.`
             : `Non impasti entro le ${fmtClock(g.lateAtStay, now)}? Metti ${nm} in frigo adesso: regge fino alle ${fmtClock(g.lateAtFridge, now)} (+${fmtSpanH(g.gainH * 3_600_000)}).`}
@@ -236,7 +238,7 @@ export function PrefermentStageView() {
   const label = { ...MONO, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: 'var(--pm4-tan)' };
   function row(k: string, v: string) {
     return (
-      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...MONO, fontSize: 13, lineHeight: 1.9 }}>
+      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, ...MONO, fontSize: '0.9rem', lineHeight: 1.9 }}>
         <span style={{ color: 'var(--pm4-tan)' }}>{k}</span>
         <span style={{ color: 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{v}</span>
       </div>
@@ -269,38 +271,38 @@ export function PrefermentStageView() {
   const win = status?.window;
   const timerLabel = level === 'growing' ? `${cap(readyWord(fem))} alle ${fmtClock(readyMs, now)}`
     : level === 'ready' ? `${cap(readyWord(fem))} dalle ${fmtClock(readyMs, now)}`
-      : `Oltre dalle ${fmtClock(focus?.lateAt ?? readyMs, now)}`;
+      : `${level === 'veryLate' ? 'Troppo oltre' : 'Oltre'} dalle ${fmtClock(focus?.lateAt ?? readyMs, now)}`;
 
   // Impasto finale: un impasto in corso blocca, poi le conferme in fila.
   const ctaBlock = (state.activeSession ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+          <div role="status" style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
             C'è un impasto in corso: per avviarne un altro, prima terminalo.
           </div>
-          <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}>Vai all'impasto in corso</Btn>
+
         </div>
       ) : pending ? (
-        <div role="status" style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+        <div role="status" style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
           L'impasto finale si sblocca quando hai impastato anche {prefWithArticle(pending.it.type)}{pending.overdueMs > 0 ? ', o se procedi senza.' : ` (alle ${fmtClock(new Date(pending.it.startAt), now)}).`}
         </div>
       ) : confirm && confirm !== 'skip' ? (
         <div ref={confirmRef} tabIndex={-1} role="group" aria-label="Conferma impasto finale" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>
           {confirm === 'veryLate' && worst && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--state-critical)' }}>
+            <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--state-critical)' }}>
               {cap(prefWithArticle(worst.it.type))} è al ~{Math.round(worst.pct)}%: l'impasto può venire acido e meno strutturato.
             </div>
             <Btn onClick={() => setConfirm(null)}>Aspetto, {prefIsFeminine(worst.it.type) ? 'la' : 'lo'} controllo</Btn>
             <Btn variant="secondary" onClick={() => goOn('veryLate')}>Impasto lo stesso</Btn>
           </>)}
           {confirm === 'early' && leastRipe && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
+            <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
               {cap(prefWithArticle(leastRipe.it.type))} è al ~{Math.round(leastRipe.pct)}%: l'impasto partirà meno maturo e ci metterà di più.
             </div>
             <Btn onClick={() => setConfirm(null)}>Aspetto</Btn>
             <Btn variant="secondary" onClick={() => goOn('early')}>Impasto lo stesso</Btn>
           </>)}
           {confirm === 'service' && target && (<>
-            <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-flour)' }}>
+            <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-flour)' }}>
               Impasti {shiftMs > 0 ? `${fmtSpanH(shiftMs)} dopo` : `${fmtSpanH(-shiftMs)} prima di`} quanto previsto. Il servizio?
             </div>
             <Btn onClick={() => { setConfirm(null); startDough(false); }}>Tengo il servizio alle {fmtClock(target, now)}</Btn>
@@ -334,35 +336,46 @@ export function PrefermentStageView() {
         <h2 ref={titleRef} tabIndex={-1} style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: level === 'growing' ? 'var(--pm4-flour)' : heroColor, outline: 'none' }}>
           {title}
         </h2>
+        {level === 'growing' && <div style={{ ...label, marginTop: 10 }}>{readyWord(fem)} alle</div>}
         <div role="timer" aria-live="off" aria-label={timerLabel}
-          style={{ ...MONO, marginTop: 10, fontSize: 44, fontWeight: 800, lineHeight: 1, color: heroColor, fontVariantNumeric: 'tabular-nums' }}>
+          style={{ ...MONO, marginTop: 10, fontSize: 35, fontWeight: 800, lineHeight: 1, color: heroColor, fontVariantNumeric: 'tabular-nums' }}>
           {big}
         </div>
-        <div style={{ ...MONO, marginTop: 8, fontSize: 13, color: 'var(--pm4-tan)' }}>
+        <div style={{ ...MONO, marginTop: 8, fontSize: '0.9rem', color: 'var(--pm4-tan)' }}>
           maturazione ~{Math.round(focus?.pct ?? 0)}% · {level === 'growing'
             ? `${readyWord(fem)} tra ${fmtSpanH(readyMs - now)}`
             : `era ${readyWord(fem)} alle ${fmtClock(readyMs, now)}${level === 'ready' ? ' · controlla i segni' : ''}`}
         </div>
         <div aria-hidden="true" style={{ marginTop: 12, height: 6, borderRadius: 3, background: 'var(--pm4-line)' }}>
-          <div style={{ width: `${Math.min(100, focus?.pct ?? 0)}%`, height: '100%', borderRadius: 3, background: level === 'growing' ? 'var(--pm4-tan)' : heroColor }} />
+          <div style={{ width: `${Math.min(100, focus?.pct ?? 0)}%`, height: '100%', borderRadius: 3, background: BAR_COLOR[level] }} />
         </div>
         {/* La finestra per l'impasto finale: la vera domanda è "entro quando" */}
         {win && level !== 'late' && level !== 'veryLate' && (
-          <div style={{ ...MONO, marginTop: 10, fontSize: 13, fontWeight: 700, color: win.from > win.to ? 'var(--state-critical)' : 'var(--pm4-flour)' }}>
+          <div style={{ ...MONO, marginTop: 10, fontSize: '0.9rem', fontWeight: 700, color: win.from > win.to ? 'var(--state-critical)' : 'var(--pm4-flour)' }}>
             {win.from > win.to
               // Nessuna finestra: uno va oltre prima che l'ultimo sia pronto.
               ? `⚠ Non sono pronti insieme: ${prefWithArticle(status!.all.reduce((a, b) => (b.lateAt < a.lateAt ? b : a)).it.type)} va oltre alle ${fmtClock(win.to, now)}, prima che tutto sia pronto (${fmtClock(win.from, now)})`
               : now < win.from
                 ? `Impasto finale tra le ${fmtClock(win.from, now)} e le ${fmtClock(win.to, now)}`
                 : `Impasta entro le ${fmtClock(win.to, now)}`}
+            {win.from <= win.to && (() => {
+              const h = new Date(Math.max(win.from, now)).getHours();
+              return h >= 23 || h < 6
+                ? <div style={{ fontWeight: 400, color: 'var(--pm4-tan)', marginTop: 4 }}>Cade di notte: in frigo puoi spostarla al mattino.</div>
+                : null;
+            })()}
           </div>
         )}
-        <div style={{ ...MONO, marginTop: 8, fontSize: 12, color: 'var(--pm4-umber)' }}>
-          {fem ? 'Impastata' : 'Impastato'} alle {fmtClock(fIt?.mixedAt ?? startMs, now)} · ora {PLACE[spot.place]} (~{Math.round(spot.tempC)}°C)
+        <div style={{ ...MONO, marginTop: 8, fontSize: 11, color: 'var(--pm4-umber)' }}>
+          {fIt?.id === main?.id && !stage.mixedAck && (focus?.pct ?? 0) < 15
+            ? `Da impastare adesso · ${PLACE[spot.place]} (~${Math.round(spot.tempC)}°C)`
+            : `${fem ? 'Impastata' : 'Impastato'} alle ${fmtClock(fIt?.mixedAt ?? startMs, now)} · ora ${PLACE[spot.place]} (~${Math.round(spot.tempC)}°C)`}
         </div>
         {(level === 'late' || level === 'veryLate') && (
-          <div role="alert" style={{ ...MONO, marginTop: 8, fontSize: 13, lineHeight: 1.5, color: heroColor }}>
-            ⚠ {overSign(type)}.{level === 'veryLate' ? " Controllala prima di usarla: l'impasto può venire acido e meno strutturato." : ''}
+          <div role="alert" style={{ ...MONO, marginTop: 8, fontSize: '0.9rem', lineHeight: 1.5, color: heroColor }}>
+            ⚠ {overSign(type)}.{level === 'veryLate'
+              ? ` Controlla${fem ? 'la' : 'lo'} prima di usar${fem ? 'la' : 'lo'}: l'impasto può venire acido e meno strutturato. Se è oltre puoi usarne meno, o rinfrescar${fem ? 'la' : 'lo'} con farina e acqua prima dell'impasto finale.`
+              : ''}
           </div>
         )}
       </div>
@@ -381,7 +394,7 @@ export function PrefermentStageView() {
       ) : (
         <button type="button" onClick={() => setShowDoses(true)} style={{
           alignSelf: 'flex-start', minHeight: 44, background: 'none', border: 'none', cursor: 'pointer',
-          ...MONO, fontSize: 13, color: 'var(--pm4-tan)', textDecoration: 'underline', padding: 0,
+          ...MONO, fontSize: '0.9rem', color: 'var(--pm4-tan)', textDecoration: 'underline', padding: 0,
         }}>
           Rivedi le dosi {prefIsFeminine(main.type) ? 'della' : 'del'} {prefName(main.type)}
         </button>
@@ -423,21 +436,21 @@ export function PrefermentStageView() {
                 const shift = (h: number) => updateItem(it.id, { startAt: new Date(Math.max(Date.now(), startAt + h * 3_600_000)) });
                 return (
                   <>
-                    <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5, marginBottom: 6 }}>
+                    <div style={{ ...MONO, fontSize: 11, color: 'var(--pm4-umber)', lineHeight: 1.5, marginBottom: 6 }}>
                       Tra {fmtSpanH(startAt - now)}: {together
                         ? `così ${f ? 'è pronta' : 'è pronto'} insieme ${main ? prefAl(main.type) : ''}.`
                         : `${f ? 'pronta' : 'pronto'} alle ${fmtClock(readyAtShifted, now)}.`} Ti avviso.
                       {night && ' Cade di notte: puoi anticiparlo e tenerlo più al fresco, o spostarlo dopo.'}
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                      <div style={{ flex: 1 }}><Btn variant="secondary" disabled={startAt - 3_600_000 < now} onClick={() => shift(-1)}>Prima di 1 h</Btn></div>
-                      <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => shift(1)}>Dopo 1 h</Btn></div>
+                      <div style={{ flex: 1 }}><Btn variant="secondary" disabled={startAt - 3_600_000 < now} onClick={() => shift(-1)}>Anticipa 1 h</Btn></div>
+                      <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => shift(1)}>Posticipa 1 h</Btn></div>
                     </div>
                   </>
                 );
               })()}
               {overdue && (
-                <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', lineHeight: 1.5, marginBottom: 8 }}>
+                <div style={{ ...MONO, fontSize: '0.9rem', color: 'var(--pm4-flour)', lineHeight: 1.5, marginBottom: 8 }}>
                   Sei in ritardo di {fmtSpanH(s.overdueMs)}. Se {f ? 'la' : 'lo'} impasti adesso è {readyWord(f)} alle {fmtClock(readyIfNow, now)}
                   {main && mainLate != null && (mainAlreadyLate
                     ? `, ma ${prefWithArticle(main.type)} è già oltre da ${fmtSpanH(now - mainLate)}: aspettare ${nm} ${prefIsFeminine(main.type) ? 'la' : 'lo'} porterebbe ancora più avanti. Conviene procedere senza.`
@@ -464,7 +477,7 @@ export function PrefermentStageView() {
                   </Btn>
                 ) : null}
                 {overdue && waitingHurts && !fridgeHelps && (
-                  confirm === 'skip' ? null : <Btn onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn>
+                  confirm === 'skip' ? null : <div className="pm-skip"><Btn onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn></div>
                 )}
                 <Btn variant={due && !(overdue && waitingHurts) ? 'primary' : 'secondary'} onClick={() => updateItem(it.id, { mixedAt: new Date() })}>
                   {due ? (overdue ? `L${f ? 'a' : 'o'} impasto adesso ✓` : 'Fatto ✓') : `L'ho già impastat${f ? 'a' : 'o'}`}
@@ -472,14 +485,17 @@ export function PrefermentStageView() {
                 {overdue && (
                   confirm === 'skip' ? (
                     <div ref={confirmRef} tabIndex={-1} role="group" aria-label={`Procedi senza ${nm}`} style={{ display: 'flex', flexDirection: 'column', gap: 8, outline: 'none' }}>
-                      <div style={{ ...MONO, fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+                      <div style={{ ...MONO, fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
                         Senza {nm} la sua farina e la sua acqua vanno nell'impasto finale. Confermi?
                       </div>
                       <Btn variant="danger" onClick={() => skipItem(it)}>Sì, procedi senza</Btn>
-                      <Btn variant="secondary" onClick={() => setConfirm(null)}>No</Btn>
+                      <Btn variant="secondary" onClick={() => {
+                        setConfirm(null);
+                        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.pm-skip button')?.focus());
+                      }}>No</Btn>
                     </div>
                   ) : !(waitingHurts && !fridgeHelps) ? (
-                    <Btn variant="secondary" onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn>
+                    <div className="pm-skip"><Btn variant="secondary" onClick={() => setConfirm('skip')}>Procedi senza {nm}</Btn></div>
                   ) : null
                 )}
               </div>
@@ -489,7 +505,7 @@ export function PrefermentStageView() {
         return (
           <Card key={it.id}>
             <div style={{ ...label, marginBottom: 6 }}>{cap(prefName(it.type))}</div>
-            <div style={{ ...MONO, fontSize: 13, color: LEVEL_COLOR[s.level], marginBottom: 10 }}>
+            <div style={{ ...MONO, fontSize: '0.9rem', color: LEVEL_COLOR[s.level], marginBottom: 10 }}>
               ~{Math.round(s.pct)}% · {s.level === 'growing' ? `${readyWord(f)} alle ${fmtClock(s.etaMs, now)}`
                 : s.level === 'ready' ? `${readyWord(f)} · controlla i segni` : `oltre da ${fmtSpanH(now - s.lateAt)} · ${overSign(it.type)}`}
             </div>
@@ -502,10 +518,20 @@ export function PrefermentStageView() {
 
       {/* Segni */}
       <Card>
-        <div style={{ ...label, marginBottom: 8 }}>Come capire che è {readyWord(fem)}</div>
-        <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14, lineHeight: 1.45, color: 'var(--pm4-flour)' }}>
-          {readySigns(type).map(s => <li key={s}>{s}</li>)}
-        </ul>
+        {(() => {
+          // I segni di ciascun prefermento impastato (il più urgente per primo).
+          const shown = [fIt, ...others].filter((x): x is StageItem => !!x && (x.id === fIt?.id || !!x.mixedAt));
+          return shown.map((x, i) => (
+            <div key={x.id} style={{ marginTop: i ? 12 : 0 }}>
+              <div style={{ ...label, marginBottom: 8 }}>
+                {shown.length > 1 ? `${cap(prefName(x.type))}: come capire che è ${readyWord(prefIsFeminine(x.type))}` : `Come capire che è ${readyWord(prefIsFeminine(x.type))}`}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.9rem', lineHeight: 1.45, color: 'var(--pm4-flour)' }}>
+                {readySigns(x.type).map(sg => <li key={sg}>{sg}</li>)}
+              </ul>
+            </div>
+          ));
+        })()}
       </Card>
 
       {/* Impasto finale */}
@@ -518,24 +544,24 @@ export function PrefermentStageView() {
         {recipe.final.fatG > 0 && row('Grassi', fmtGrams(recipe.final.fatG))}
         {recipe.final.yeastG > 0 && row(yeastLabel, fmtGrams(recipe.final.yeastG))}
         {autolysis.map(g => (
-          <div key={g.id} style={{ ...MONO, marginTop: 6, fontSize: 12, color: 'var(--pm4-flour)', lineHeight: 1.5 }}>
+          <div key={g.id} style={{ ...MONO, marginTop: 6, fontSize: 11, color: 'var(--pm4-flour)', lineHeight: 1.5 }}>
             Autolisi: {fmtGrams(g.flourG)} farina + {fmtGrams(g.waterG)} acqua, mescolate ~{Math.max(0.5, prefs.find(p => p.id === g.id)?.durationH ?? 1)} h prima dell'impasto finale.
           </div>
         ))}
         {finalWater && (
-          <div style={{ ...MONO, marginTop: 6, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5 }}>
+          <div style={{ ...MONO, marginTop: 6, fontSize: 11, color: 'var(--pm4-umber)', lineHeight: 1.5 }}>
             Con i prefermenti dove sono adesso (~{Math.round(tPrefNow ?? spot.tempC)}°C): {finalWater}.
           </div>
         )}
       </Card>
 
-      {error && <div role="alert" style={{ ...MONO, fontSize: 13, color: 'var(--state-critical)' }}>{error}</div>}
+      {error && <div role="alert" style={{ ...MONO, fontSize: '0.9rem', color: 'var(--state-critical)' }}>{error}</div>}
 
       {!ctaUp && ctaBlock}
 
       {confirmCancel ? (
         <div ref={cancelRef} tabIndex={-1} role="group" aria-label="Conferma annullamento" style={{ display: 'flex', flexDirection: 'column', gap: 10, outline: 'none' }}>
-          <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-tan)' }}>Annullo la preparazione? Non resta nello Storico.</div>
+          <div style={{ ...MONO, fontSize: '0.9rem', color: 'var(--pm4-tan)' }}>Annullo la preparazione? Non resta nello Storico.</div>
           <Btn variant="danger" onClick={removeStage}>Sì, annulla</Btn>
           <Btn variant="secondary" onClick={() => setConfirmCancel(false)}>No, continua</Btn>
         </div>

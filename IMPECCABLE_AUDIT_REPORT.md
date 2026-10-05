@@ -402,6 +402,15 @@ Risolti i P1 della terza (attribuzione, vicolo cieco del secondo, gerarchia sul 
 - Quando è il momento (pronta, oltre) il pulsante dell'impasto finale sta subito sotto l'orario; in crescita dice "Impasto finale adesso", mai "pronti".
 - Notifica di ritardo per ciascun prefermento impastato (131/134/135); 132 "insieme" solo se l'orario non è stato spostato; grammatica della 133.
 
+## Passaggio 27: P2/P3 della quarta critique del prefermento
+
+- Slider di idratazione dei prefermenti con gli stessi limiti dello schema (biga 40–55, poolish 95–105, riporto 55–75, autolisi 50–80); messaggi di validazione in italiano.
+- "Troppo oltre": testo ad AA (#ff7675), il rosso scuro resta per la barra; etichetta del timer distinta; concordanza "Controllala/Controllalo"; consiglio pratico (usarne meno o rinfrescarla).
+- Segni per ogni prefermento impastato; il segno di troppo maturo è una verifica ("Se ha odore pungente…, è oltre"), anche nelle notifiche.
+- "PRONTA ALLE" sopra l'orario grande; "Cade di notte" sotto la finestra; banner "non pronti insieme"; "Da impastare adesso" prima di "Fatto".
+- Focus dopo "No" e dopo "Ripristina"; "Tieni quella" porta su "← Indietro"; domanda di sostituzione più compatta; "Vedi la correzione ↑" solo se c'è una correzione; "Acqua —" al passo 8; "Anticipa/Posticipa 1 h"; niente doppio "Vai all'impasto in corso"; virgola decimale; secondo prefermento in Avanzato al 25%.
+- Caratteri del codice del flusso ricondotti alla scala (0,9rem body, 11px label, 35px readout, 1,4rem headline). Restano le segnalazioni legacy del wizard.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.

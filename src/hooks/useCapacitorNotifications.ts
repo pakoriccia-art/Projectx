@@ -87,7 +87,7 @@ export function useCapacitorNotifications() {
       if (!x || !x.started) { cancelNotification(id); return; }
       const t = x.it.type, f = prefIsFeminine(t);
       at(id, `⚠️ ${Cap(prefWithArticle(t))} potrebbe essere oltre`,
-        `${overSign(t).replace(/: è oltre$/, '')}? Allora è oltre: impasta appena puoi o mett${f ? 'ila' : 'ilo'} in frigo.`, x.lateAt);
+        `${overSign(t)}: impasta appena puoi o mett${f ? 'ila' : 'ilo'} in frigo.`, x.lateAt);
     });
     // 132: ora di impastare il prossimo (insieme al principale solo se l'orario non è stato spostato).
     const next = items.find(it => !it.mixedAt);

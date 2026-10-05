@@ -10,7 +10,7 @@ import type { PrefermentoComponent, PrefermentStage } from '../db/db';
 import {
   fArrhenius, computeWaterTempDDT, computeEffectiveMixHydration, type KneadingMethod, type WaterTempResult,
 } from '../engine';
-import { ddtForStyle } from '../data/styleConstraints';
+import { ddtForStyle, hydrationRangeForStyle } from '../data/styleConstraints';
 
 export type PrefPlace = 'fresco' | 'stanza' | 'frigo';
 export type PrefTiming = 'now' | 'ready';
@@ -157,9 +157,10 @@ export function fmtGrams(g: number): string {
 
 /** Segno di troppo maturo, da evidenziare quando il ritardo è grande. */
 export function overSign(type: string): string {
+  // Una verifica da fare, non un fatto: la previsione guida, l'occhio decide.
   return type === 'poolish'
-    ? 'Cupola crollata, odore alcolico forte: è oltre'
-    : 'Odore pungente, si strappa senza filamenti: è oltre';
+    ? 'Se la cupola è crollata e l\'odore è alcolico forte, è oltre'
+    : 'Se ha odore pungente e si strappa senza filamenti, è oltre';
 }
 
 /** Maturazione (%) oltre la quale il ritardo diventa un avviso. */
@@ -555,6 +556,9 @@ export function stageBannerText(s: StageStatus, now = Date.now()): { text: strin
     return { text: `⚠ ${cap(prefName(s.overdue.it.type))} da impastare (era ${fmtWhen(new Date(s.overdue.it.startAt).getTime(), now)})`, tone: 'late' };
   }
   const n = namesOf(s.all);
+  if (s.all.length > 1 && s.window.from > s.window.to) {
+    return { text: `⚠ ${cap(n.text)} non ${readyWord(n.fem, true)} insieme`, tone: 'late' };
+  }
   if (s.all.every(x => x.started && x.pct >= 100)) {
     return { text: `🥣 ${cap(n.text)} ${readyWord(n.fem, n.plural)} · impasta entro ${fmtWhen(s.window.to, now).replace(/^alle /, 'le ')}`, tone: 'ready' };
   }
@@ -570,4 +574,20 @@ export function prefAl(type: string): string {
 /** Il prefermento da preparare principale: il più lungo (quello che parte subito). */
 export function mainPreparable<T extends { type: string; durationH?: number }>(prefs: T[] | undefined): T | undefined {
   return (prefs ?? []).filter(isPreparable).sort((a, b) => (b.durationH ?? 12) - (a.durationH ?? 12))[0];
+}
+
+/**
+ * Quale correzione esiste per una ricetta impossibile: idratazione (se nel range
+ * dello stile), riduzione del prefermento più acquoso, riduzione del più grande.
+ */
+export function recipeFixKind(d: {
+  style?: string; mainFlourGroup?: { effectiveW?: number }; totalFlourGrams?: number;
+  hydration?: number; salt?: number; prefermenti?: PrefermentoComponent[];
+}): 'hydration' | 'reduceWater' | 'reduceFlour' | null {
+  const pb = recipeProblem(d);
+  if (!pb) return null;
+  if (pb.kind === 'flour') return 'reduceFlour';
+  const hydMax = hydrationRangeForStyle(d.style, d.mainFlourGroup?.effectiveW).max;
+  if (pb.fixValue <= hydMax) return 'hydration';
+  return pb.fixFraction ? 'reduceWater' : null;
 }

@@ -68,27 +68,27 @@ const PrefermentoComponentSchema = z.object({
   // KB §5.7 — vincoli per tipo (vedi validatePrefermentiMix engine-level per la versione completa)
   if (p.type === 'biga') {
     if (p.hydration < 40 || p.hydration > 55) {
-      ctx.addIssue({ code: 'custom', message: 'Biga: hydration ∈ [40, 55]%' });
+      ctx.addIssue({ code: 'custom', message: 'Biga: idratazione tra 40 e 55%' });
     }
     if (p.yeastPct == null || p.yeastPct < 0.05 || p.yeastPct > 2.0) {
-      ctx.addIssue({ code: 'custom', message: 'Biga: yeastPct ∈ [0.05, 2.0]%' });
+      ctx.addIssue({ code: 'custom', message: 'Biga: lievito tra 0,05 e 2%' });
     }
   } else if (p.type === 'poolish') {
     if (Math.abs(p.hydration - 100) > 5) {
-      ctx.addIssue({ code: 'custom', message: 'Poolish: hydration ≈ 100% (±5)' });
+      ctx.addIssue({ code: 'custom', message: 'Poolish: idratazione tra 95 e 105%' });
     }
     if (p.yeastPct == null || p.yeastPct < 0.05 || p.yeastPct > 1.0) {
-      ctx.addIssue({ code: 'custom', message: 'Poolish: yeastPct ∈ [0.05, 1.0]%' });
+      ctx.addIssue({ code: 'custom', message: 'Poolish: lievito tra 0,05 e 1%' });
     }
   } else if (p.type === 'autolysis') {
     if (p.durationH < 0.33 || p.durationH > 24) {
-      ctx.addIssue({ code: 'custom', message: 'Autolisi: durationH ∈ [0.33, 24]h' });
+      ctx.addIssue({ code: 'custom', message: 'Autolisi: durata tra 20 minuti e 24 ore' });
     }
     if (p.tempC < 4 || p.tempC > 35) {
-      ctx.addIssue({ code: 'custom', message: 'Autolisi: tempC ∈ [4, 35]°C' });
+      ctx.addIssue({ code: 'custom', message: 'Autolisi: temperatura tra 4 e 35°C' });
     }
     if (p.hydration < 50 || p.hydration > 80) {
-      ctx.addIssue({ code: 'custom', message: 'Autolisi: hydration ∈ [50, 80]%' });
+      ctx.addIssue({ code: 'custom', message: 'Autolisi: idratazione tra 50 e 80%' });
     }
   }
 });

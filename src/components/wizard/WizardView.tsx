@@ -40,7 +40,7 @@ import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPref
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
   prefName, prefWithArticle, prefIsFeminine, splitRecipe, prefTempAtMix, fmtGrams, type PrefPlace,
-  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems, mainPreparable,
+  recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems, mainPreparable, recipeFixKind, prefAl,
 } from '../../lib/preferment';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import {
@@ -533,7 +533,7 @@ function Step2({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
         onChange={choose}
       />
       {(kind === 'biga' || kind === 'poolish') && (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5, margin: 0 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 }}>
           Nel prossimo passo scegli quanta farina va {kind === 'biga' ? 'nella biga' : 'nel poolish'} e
           quando {kind === 'biga' ? 'la' : 'lo'} prepari: grammi e orari li calcolo io.
         </p>
@@ -771,7 +771,7 @@ function SimplePrefCard({ pref, draft, update, onUpdate }: {
       {/* Cosa pesare: subito, non al riepilogo */}
       <div style={{
         padding: '8px 12px', background: `${color}14`, borderRadius: 'var(--radius-sm)',
-        fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--pm4-flour)', lineHeight: 1.6,
+        fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--pm4-flour)', lineHeight: 1.6,
       }}>
         {fmtGrams(grams.flourG)} farina · {fmtGrams(grams.waterG)} acqua
         {grams.yeastG != null && <> · {fmtGrams(grams.yeastG)} lievito</>}
@@ -779,7 +779,7 @@ function SimplePrefCard({ pref, draft, update, onUpdate }: {
 
       <details>
         <summary style={{ cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center',
-          fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--pm4-tan)' }}>
+          fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--pm4-tan)' }}>
           Regola a mano (idratazione, lievito, temperatura)
         </summary>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
@@ -815,9 +815,11 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
 
   // Cambio di tipo: valori precedenti da ripristinare (WP-5B esteso a tutti i tipi).
   const [typeUndo, setTypeUndo] = useState<{ prev: PrefermentoComponent; text: string } | null>(null);
+  const typeRef = useRef<HTMLDivElement>(null);
 
-  const hydMin = pref.type === 'biga' ? 40 : pref.type === 'riporto' ? 55 : 80;
-  const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
+  // Stessi limiti dello schema (schemas.ts): uno slider non deve portare dove l'avvio poi rifiuta.
+  const hydMin = pref.type === 'biga' ? 40 : pref.type === 'riporto' ? 55 : pref.type === 'autolysis' ? 50 : 95;
+  const hydMax = pref.type === 'biga' ? 55 : pref.type === 'riporto' ? 75 : pref.type === 'autolysis' ? 80 : 105;
 
   return (
     <Card elevated style={{ border: `1px solid ${color}55` }}>
@@ -829,6 +831,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
         }}>×</button>
       </div>
 
+      <div ref={typeRef}>
       <SnapButtons
         label={`Tipo pre-fermento ${idx + 1}`}
         options={[
@@ -863,6 +866,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
           onUpdate(next);
         }}
       />
+      </div>
 
       {typeUndo && (
         <div style={{ marginTop: 10 }}>
@@ -871,7 +875,11 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
             tone="teal"
             text={typeUndo.text}
             undoLabel="Ripristina"
-            onUndo={() => { onUpdate(typeUndo.prev); setTypeUndo(null); }}
+            onUndo={() => {
+              onUpdate(typeUndo.prev); setTypeUndo(null);
+              // Il focus torna sulla scelta del tipo ripristinata.
+              requestAnimationFrame(() => typeRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
+            }}
             onDismiss={() => setTypeUndo(null)}
           />
         </div>
@@ -925,7 +933,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
       }}>
         {pref.flourFraction}% farina · {pref.tempC}°C · {pref.durationH}h
         {pref.type !== 'autolysis' ? ` · idr. ${pref.hydration}%` : ''}
-        {isPreparable(pref) ? ` · lievito ${pref.yeastPct ?? 0.05}%` : ''}
+        {isPreparable(pref) ? ` · lievito ${String(pref.yeastPct ?? 0.05).replace('.', ',')}%` : ''}
       </div>
     </Card>
   );
@@ -1001,7 +1009,8 @@ function Step3({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     const left = 100 - MIN_FINAL_FLOUR_PCT - totalPrefFrac;
     if (left < 5) return;
     const np = createDefaultPref(newType, draft.mainFlourGroup);
-    update({ prefermenti: [...prefermenti, { ...np, flourFraction: Math.min(np.flourFraction, left) }] });
+    // Al massimo il 25%: di più lascerebbe all'impasto finale pochissima acqua.
+    update({ prefermenti: [...prefermenti, { ...np, flourFraction: Math.min(25, left) }] });
   };
 
   const removePref = (idx: number) => {
@@ -1650,7 +1659,7 @@ function StepMetric({ label, value, unit, color }: { label: string; value: strin
 // ─── Ricetta in grammi (passo 8) ──────────────────────────────────────────────
 function RecipeRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.9 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.9 }}>
       <span style={{ color: 'var(--pm4-tan)' }}>{label}</span>
       <span style={{ color: strong ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
@@ -1674,8 +1683,8 @@ function RecipeCard({ draft, update, recipe }: {
   const fix = (() => {
     if (!problem) return null;
     // L'idratazione proposta deve stare nel range dello stile; altrimenti si riduce il prefermento.
-    const hydMax = hydrationRangeForStyle(draft.style, draft.mainFlourGroup?.effectiveW).max;
-    if (problem.kind === 'water' && problem.fixValue > hydMax && problem.fixFraction) {
+    const kind = recipeFixKind(draft);
+    if (kind === 'reduceWater' && problem.fixFraction) {
       const ff = problem.fixFraction;
       const p = prefs.find(x => x.id === ff.id)!;
       return {
@@ -1686,7 +1695,7 @@ function RecipeCard({ draft, update, recipe }: {
         },
       };
     }
-    if (problem.kind === 'water' && problem.fixValue <= hydMax) {
+    if (kind === 'hydration') {
       return {
         label: `Porta l'idratazione al ${problem.fixValue}%`,
         apply: () => {
@@ -1709,7 +1718,7 @@ function RecipeCard({ draft, update, recipe }: {
   })();
   return (
     <Card elevated>
-      <div style={{ marginBottom: 10, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)' }}>
+      <div style={{ marginBottom: 10, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-brand)', fontFamily: 'var(--font-mono)' }}>
         Ricetta
       </div>
       {prefs.some(isPreparable) && (
@@ -1740,13 +1749,13 @@ function RecipeCard({ draft, update, recipe }: {
             <RecipeRow key={g.id} label={`${prefName(g.type).charAt(0).toUpperCase()}${prefName(g.type).slice(1)} (${prefIsFeminine(g.type) ? 'tutta' : 'tutto'})`} value={fmtGrams(g.totalG)} strong={i === 0} />
           ))}
           <RecipeRow label="Farina" value={fmtGrams(recipe.final.flourG)} />
-          <RecipeRow label="Acqua" value={fmtGrams(recipe.final.waterG)} />
+          <RecipeRow label="Acqua" value={recipe.final.waterG >= 1 ? fmtGrams(recipe.final.waterG) : '—'} />
           <RecipeRow label="Sale" value={fmtGrams(recipe.final.saltG)} />
           {recipe.final.fatG > 0 && <RecipeRow label="Grassi" value={fmtGrams(recipe.final.fatG)} />}
           {recipe.final.yeastG > 0 && <RecipeRow label={yeastLabel} value={fmtGrams(recipe.final.yeastG)} />}
         </div>
         {problem && (
-          <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, color: 'var(--state-critical)' }}>
+          <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--state-critical)' }}>
             <span>{problem.message} Così non si può impastare.</span>
             {fix && (
               <button id="recipe-fix" type="button" onClick={() => {
@@ -1757,7 +1766,7 @@ function RecipeCard({ draft, update, recipe }: {
                 alignSelf: 'flex-start', minHeight: 44, padding: '10px 14px', cursor: 'pointer',
                 background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-flour)',
                 border: '1px solid var(--pm4-line-strong)', borderRadius: 'var(--radius-md)',
-                fontFamily: 'var(--font-mono)', fontSize: 13,
+                fontFamily: 'var(--font-mono)', fontSize: '0.9rem',
               }}>{fix.label}</button>
             )}
           </div>
@@ -1868,7 +1877,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {rows.map(([label, d]) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
                   <span style={{ color: hl(label) ? 'var(--pm4-ember-lo)' : 'var(--pm4-tan)' }}>{label}</span>
                   <span style={{ color: hl(label) ? 'var(--pm4-ember-lo)' : 'var(--pm4-flour)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(d)}</span>
                 </div>
@@ -1991,10 +2000,10 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           dove sarà il prefermento: la calcola la fase in corso, un solo calcolo. */}
       {startsWithPreferment(draft) ? (
         <Card>
-          <div style={{ marginBottom: 6, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ marginBottom: 6, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-info)', fontFamily: 'var(--font-mono)' }}>
             💧 Acqua · impasto finale
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-tan)' }}>
             La temperatura dell'acqua per l'impasto finale te la calcolo quando {prefWithArticle(mainPreparable(draft.prefermenti)!.type)} è {prefIsFeminine(mainPreparable(draft.prefermenti)!.type) ? 'pronta' : 'pronto'}: dipende da dove sarà.
           </div>
         </Card>
@@ -2130,9 +2139,9 @@ export function WizardView() {
       } catch (e) {
         // L'utente legge una frase, il dettaglio tecnico (Zod) resta in console.
         const raw = e instanceof Error ? e.message : String(e);
-        setBuildError(/Unrecognized key|Expected|Invalid|Number must/i.test(raw)
+        setBuildError(/Unrecognized key|Expected|Invalid|Number must|Required/i.test(raw)
           ? 'Non riesco ad avviare questo piano: alcuni valori non sono validi.'
-          : `Non riesco ad avviare la sessione: ${raw}`);
+          : `Non riesco ad avviare: ${raw.replace(/ · /g, '; ')}. Correggilo al passo dei prefermenti.`);
         console.error('[WizardView] buildSession error:', e);
       }
     }
@@ -2235,14 +2244,17 @@ export function WizardView() {
               outline: 'none',
               display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
               border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-sm)',
-              fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--pm4-flour)',
+              fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--pm4-flour)',
             }}>
               <span>C'è già {prefWithArticle(t)} in corso ({prefIsFeminine(t) ? 'pronta' : 'pronto'} {when}). {prefIsFeminine(t) ? 'La' : 'Lo'} sostituisco con la nuova preparazione?</span>
-              <Btn variant="secondary" onClick={() => {
-                setReplaceStage(null);
-                requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#wizard-next button')?.focus());
-              }}>{prefIsFeminine(t) ? 'Tieni quella' : 'Tieni quello'} in corso</Btn>
-              <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai a {prefIsFeminine(t) ? 'quella' : 'quello'} in corso</Btn>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => {
+                  setReplaceStage(null);
+                  // Non sul pulsante di avvio, che riaprirebbe la domanda: su "← Indietro".
+                  requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#wizard-back button')?.focus());
+                }}>Tieni {prefIsFeminine(t) ? 'quella' : 'quello'}</Btn></div>
+                <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai {prefAl(t)}</Btn></div>
+              </div>
               <Btn variant="danger" disabled={starting} onClick={() => void startStage()}>Sostituisci</Btn>
             </div>
           );
@@ -2255,7 +2267,7 @@ export function WizardView() {
             {blockedReason()}
           </p>
         )}
-        {step === 8 && recipeProblem(draft) && (
+        {step === 8 && recipeFixKind(draft) && (
           // La correzione sta nella ricetta, spesso sotto la piega: un tocco la porta in vista.
           <Btn variant="secondary" onClick={() => {
             const el = document.getElementById('recipe-fix');
@@ -2272,10 +2284,12 @@ export function WizardView() {
               : '🍕 Avvia sessione'}
         </Btn>
         </div>
+        <div id="wizard-back">
         <Btn variant="secondary" onClick={prev}>
           {step === 8 && draft.navigationSource === 'planner' ? '← Planner'
             : step === 1 ? '← Home' : '← Indietro'}
         </Btn>
+        </div>
       </div>
     </div>
   );

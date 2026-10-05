@@ -918,7 +918,7 @@ export function DashboardV4() {
               minHeight: 44, padding: '10px 14px', cursor: 'pointer', textAlign: 'left',
               background: b.tone === 'late' ? 'rgba(255,118,117,0.10)' : 'rgba(255,140,50,0.06)',
               border: `1px solid ${b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-line-strong)'}`, borderRadius: 8,
-              color: b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-flour)', fontFamily: 'var(--font-mono)', fontSize: 13,
+              color: b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-flour)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem',
             }}>
               {b.text} →
             </button>

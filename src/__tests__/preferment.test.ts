@@ -288,3 +288,29 @@ describe('stato attribuito al prefermento giusto', () => {
     expect(t).toMatch(/impasta entro/);
   });
 });
+
+import { recipeFixKind, overSign } from '../lib/preferment';
+
+describe('P2/P3 quarta critique', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  it('banner: non pronti insieme', () => {
+    const bigaIt = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+    // poolish mai impastato e lontano: sarà pronto dopo che la biga va oltre
+    const poolIt = { id: 'p', type: 'poolish', startAt: new Date(t0 + 12 * H), plannedH: 12, plannedTempC: 20 };
+    const st: any = { startedAt: new Date(t0), readyAt: new Date(t0 + 24 * H), plannedH: 16, plannedTempC: 16, items: [bigaIt, poolIt], draft: {} };
+    const now = t0 + 2 * H;
+    expect(stageBannerText(stageStatus(st, now), now).text).toMatch(/non pronti insieme/);
+  });
+  it('correzione: idratazione se nel range dello stile, altrimenti riduce il prefermento', () => {
+    const p70 = [{ ...poolish, flourFraction: 70 }];
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 55, prefermenti: p70 })).toBe('reduceWater');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 62, prefermenti: [{ ...poolish, flourFraction: 64 }] })).toBe('hydration');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 65, prefermenti: [biga, { ...poolish, flourFraction: 45 }] })).toBe('reduceFlour');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 65, prefermenti: [biga] })).toBeNull();
+  });
+  it('segno di troppo maturo come verifica', () => {
+    expect(overSign('biga')).toMatch(/^Se /);
+    expect(overSign('poolish')).toMatch(/^Se /);
+  });
+});
