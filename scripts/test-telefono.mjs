@@ -18,6 +18,9 @@
  * riaperta → impasto finale con la durata reale → dashboard. Poolish già pronto
  * → la sessione parte subito.
  *
+ * Prima di ogni scenario, e dopo un errore, chiude ciò che un giro interrotto ha
+ * lasciato aperto (impasto in corso, biga in preparazione).
+ *
  * Uso: node scripts/test-telefono.mjs [--scenario nuovo|pianifica|prefermento|tutti] [--wait 60] [--keep]
  *   --scenario  quale percorso provare (default: tutti)
  *   --wait N    secondi ad app chiusa prima di riaprirla (default 60)
@@ -159,18 +162,61 @@ async function runWizard(page) {
 if (!device) { console.error('Nessun telefono trovato da adb.'); process.exit(2); }
 console.log(`Telefono: ${device.model()} (${device.serial()})`);
 
-let page = await openApp();
-// Una biga "in corso" lasciata da un test interrotto: la si annulla.
-if (await page.getByRole('button', { name: /^Annulla$/ }).count() && /sta maturando/.test(await page.locator('body').innerText())) {
-  await page.getByRole('button', { name: /^Annulla$/ }).click();
-  await page.getByRole('button', { name: /Sì, annulla/ }).click();
-  await sleep(1000);
+const headerText = async () => clean(await page.locator('header').first().innerText().catch(() => ''));
+const inDashboard = async () => await page.locator('header').filter({ hasText: /Trascorso/i }).count() > 0;
+async function endSession() {
+  await page.getByRole('button', { name: /^Termina$/ }).click();
+  await page.getByRole('button', { name: /■ Termina/ }).click();
+  await sleep(1500);
 }
-const inDashboard = await page.locator('header').filter({ hasText: /Trascorso/i }).count();
-if (inDashboard) {
-  console.error('C\'è già una sessione in corso sul telefono. Terminala dall\'app (Termina) e rilancia il test.');
+
+/**
+ * Chiude ciò che un giro interrotto ha lasciato aperto: l'impasto in corso
+ * (Termina) e la biga in preparazione (Annulla). Ripresi all'avvio, farebbero
+ * fallire il giro dopo.
+ */
+async function cleanupApp() {
+  for (let i = 0; i < 4; i++) {
+    // la schermata del prefermento: l'unica fuori dalla dashboard con "Annulla"
+    if (!(await inDashboard()) && await page.getByRole('button', { name: /^Annulla$/ }).count()) {
+      await page.getByRole('button', { name: /^Annulla$/ }).click();
+      await page.getByRole('button', { name: /Sì, annulla/ }).click();
+      await sleep(1000);
+      console.log('  · Annullata una preparazione rimasta aperta');
+      // dietro può esserci ancora un impasto in corso: lo si ritrova riaprendo l'app
+      await device.shell(`am force-stop ${PKG}`);
+      page = await openApp();
+      continue;
+    }
+    if (await inDashboard()) {
+      const prefRow = page.locator('button[aria-label$=": apri"]');
+      if (await prefRow.count()) { await prefRow.first().click(); await sleep(1000); continue; }
+      console.log(`  · Chiusa una sessione rimasta aperta: ${(await headerText()).slice(0, 60)}`);
+      await endSession();
+      continue;
+    }
+    return;
+  }
+}
+
+let page = await openApp();
+await cleanupApp();
+if (await inDashboard()) {
+  console.error('C\'è una sessione che lo script non è riuscito a chiudere. Terminala dall\'app (Termina) e rilancia il test.');
   await shot(page, device, '00-sessione-esistente');
   process.exit(3);
+}
+
+/** Un'eccezione non deve lasciare sessioni aperte per il giro dopo. */
+async function runScenario(name, fn) {
+  try { await fn(); }
+  catch (e) {
+    check(`Scenario ${name} interrotto`, false, String(e?.message ?? e).split('\n')[0]);
+    await shot(page, device, `errore-${name}`).catch(() => {});
+    // si riparte da un'app appena aperta: lo stato a metà scenario è imprevedibile
+    try { await device.shell(`am force-stop ${PKG}`); page = await openApp(); await cleanupApp(); }
+    catch (e2) { console.error(`  Pulizia non riuscita: ${String(e2?.message ?? e2).split('\n')[0]}`); }
+  }
 }
 
 async function scenarioNuovo() {
@@ -263,11 +309,6 @@ async function openPlanner() {
   await page.getByRole('button', { name: /Pianifica/ }).first().click();
   await sleep(1200);
 }
-async function endSession() {
-  await page.getByRole('button', { name: /^Termina$/ }).click();
-  await page.getByRole('button', { name: /■ Termina/ }).click();
-  await sleep(1500);
-}
 async function startFromWizard(tag) {
   await page.getByRole('button', { name: /Avvia sessione/ }).click();
   await sleep(2500);
@@ -277,7 +318,6 @@ async function startFromWizard(tag) {
   check(`${tag}: nessun modale "fuori protocollo"`, await page.locator('#pm-oop-title').count() === 0);
 }
 const heroText = async () => clean(await page.locator('.pm4-stack').last().locator('.pm4-panel').first().innerText().catch(() => ''));
-const headerText = async () => clean(await page.locator('header').first().innerText().catch(() => ''));
 async function tapPhase(name) {
   const m = page.locator(`[aria-label*="passa a ${name}"]`).first();
   if (!(await m.count())) return false;
@@ -571,16 +611,16 @@ async function scenarioPrefermento() {
   await page.getByRole('button', { name: /Sì, annulla/ }).click(); await sleep(1000);
 }
 
-if (SCENARIO === 'nuovo' || SCENARIO === 'tutti') await scenarioNuovo();
+if (SCENARIO === 'nuovo' || SCENARIO === 'tutti') await runScenario('nuovo', scenarioNuovo);
 if (SCENARIO === 'pianifica' || SCENARIO === 'tutti') {
   page = await openApp();
-  if (await page.locator('header').filter({ hasText: /Trascorso/i }).count()) await endSession();
-  await scenarioPianifica();
+  await cleanupApp();
+  await runScenario('pianifica', scenarioPianifica);
 }
 if (SCENARIO === 'prefermento' || SCENARIO === 'tutti') {
   page = await openApp();
-  if (await page.locator('header').filter({ hasText: /Trascorso/i }).count()) await endSession();
-  await scenarioPrefermento();
+  await cleanupApp();
+  await runScenario('prefermento', scenarioPrefermento);
 }
 
 const failed = results.filter(r => !r.ok);

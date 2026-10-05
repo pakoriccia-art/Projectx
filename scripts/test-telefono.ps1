@@ -69,7 +69,7 @@ $code = $LASTEXITCODE
 switch ($code) {
   0 { Write-Host "`nTutti i controlli superati." -ForegroundColor Green }
   1 { Write-Host "`nAlcuni controlli non sono passati: vedi sopra e test-results\telefono." -ForegroundColor Yellow }
-  3 { Write-Host "`nC'era già una sessione in corso: terminala nell'app e rilancia." -ForegroundColor Yellow }
+  3 { Write-Host "`nC'è una sessione che lo script non è riuscito a chiudere: terminala nell'app e rilancia." -ForegroundColor Yellow }
   default { Write-Host "`nIl test si è interrotto (codice $code)." -ForegroundColor Red }
 }
 exit $code
