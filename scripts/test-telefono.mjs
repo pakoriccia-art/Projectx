@@ -51,12 +51,12 @@ let device;
 let page;
 
 /**
- * Chiude l'app senza lasciare un socket CDP aperto: prima la pagina, poi il
- * force-stop. Un reset a sorpresa sul socket della WebView chiusa ("read
- * ECONNRESET") Playwright lo emette come 'error' senza gestore, e Node muore.
+ * Chiude l'app. Niente page.close() prima del force-stop: su una WebView Android
+ * Playwright aspetta l'evento di chiusura della pagina, che non arriva mai, e il
+ * giro resta appeso. Il reset del socket CDP che può seguire il force-stop
+ * ("read ECONNRESET") lo assorbe il gestore di uncaughtException qui sotto.
  */
 async function stopApp() {
-  await page?.close().catch(() => {});
   await device.shell(`am force-stop ${PKG}`).catch(() => {});
   await sleep(800);
 }
