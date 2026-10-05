@@ -174,6 +174,8 @@ export interface Session {
   readyAt?: Date;
   // Modalità Servizio: durata della finestra; la cottura del piano è il suo inizio.
   serviceWindowH?: number;
+  // La soglia viene dal Planner (anche se coincide con quella dello stile).
+  alertThresholdFromPlan?: boolean;
   // Fotografia dello stato del tick (TickState), per riprendere la sessione dopo
   // la chiusura dell'app. Non indicizzata: nessun bump dello schema.
   lastTickState?: Record<string, unknown>;                      // primo istante in cui il semaforo è andato a PRONTO

@@ -52,10 +52,16 @@ let device;
  * al telefono (la connessione nuova rilegge l'elenco delle WebView).
  */
 async function openApp() {
-  const out = String(await device.shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${PKG}/.MainActivity`).catch(e => e));
-  if (/Error|Exception/i.test(out)) await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
-  const deadline = Date.now() + 60_000;
-  let reconnected = false;
+  // Dopo un force-stop Android può metterci un attimo a liberare la WebView vecchia.
+  await sleep(2000);
+  const launch = async () => {
+    const out = String(await device.shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${PKG}/.MainActivity`).catch(e => e));
+    if (/Error|Exception/i.test(out)) await device.shell(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
+  };
+  await launch();
+  const start = Date.now();
+  const deadline = start + 90_000;
+  let reconnected = false, relaunched = false;
   while (Date.now() < deadline) {
     const wv = device.webViews().find(w => w.pkg() === PKG);
     if (wv) {
@@ -64,14 +70,22 @@ async function openApp() {
       await sleep(2500);
       return page;
     }
-    if (!reconnected && Date.now() > deadline - 40_000) {
+    // A 25 s: ci si ricollega (la connessione nuova rilegge l'elenco delle WebView).
+    if (!reconnected && Date.now() - start > 25_000) {
       reconnected = true;
       await device.close().catch(() => {});
       [device] = await android.devices();
     }
+    // A 45 s: l'app forse non è partita davvero, si rilancia.
+    if (!relaunched && Date.now() - start > 45_000) {
+      relaunched = true;
+      await device.shell(`am force-stop ${PKG}`).catch(() => {});
+      await sleep(1500);
+      await launch();
+    }
     await sleep(1000);
   }
-  throw new Error('WebView di PizzaMatrix non trovata dopo 60 s (l\'app è partita?)');
+  throw new Error('WebView di PizzaMatrix non trovata dopo 90 s (l\'app è partita?)');
 }
 
 async function shot(page, device, name) {

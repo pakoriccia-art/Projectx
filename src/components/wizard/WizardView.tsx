@@ -395,6 +395,7 @@ export function buildSession(draft: WizardDraft): Session {
     totalFlourGrams:        draft.totalFlourGrams ?? 1000,
     // Soglia della sessione: quella scelta (planner) o, di default, quella dello stile.
     alertThreshold:         draft.alertThreshold ?? (getStyleProfile as Function)(draft.style ?? 'napoletana').alertThreshold ?? 85,
+    alertThresholdFromPlan: fromPlanner && draft.alertThreshold != null ? true : undefined,
     // Piano del Planner con il frigo: la scelta è già fatta, niente modale fuori protocollo.
     outOfProtocolPhaseConfirmed: fromPlanner && _proto !== 'ta' ? true : undefined,
     containerPreset:        draft.containerPreset ?? 'closed_box',

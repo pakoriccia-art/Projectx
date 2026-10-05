@@ -454,7 +454,9 @@ export function DashboardV4() {
   const { W_current, W_initial, decayPct, tRatio, tCritHours } = wRes;
   // Soglia della sessione (scelta nel planner o nel wizard), altrimenti dello stile.
   const threshold = resolveThreshold(session.alertThreshold, styleProfile.alertThreshold);
-  const thresholdFromPlan = session.alertThreshold != null && session.alertThreshold !== styleProfile.alertThreshold;
+  // "(dal piano)" anche quando la soglia del Planner coincide per caso con quella dello stile.
+  const thresholdFromPlan = !!session.alertThresholdFromPlan
+    || (session.alertThreshold != null && session.alertThreshold !== styleProfile.alertThreshold);
   const primarySignal: string = styleProfile.primarySignal ?? 'maturation';
 
   // elapsedH computato da Date.now() — aggiornato ad ogni re-render (triggerd da tickState)
