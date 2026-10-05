@@ -509,7 +509,7 @@ async function scenarioPrefermento() {
   console.log('\nF5 · Biga e poolish insieme, e frigo in anticipo');
   await wizardWithPref('Avanzato', async () => {
     await page.getByRole('button', { name: /Aggiungi pre-fermento/ }).click(); await sleep(400);
-    await page.getByRole('radio', { name: /Tipo: Poolish/ }).nth(1).click(); await sleep(300);
+    await page.getByRole('radio', { name: /Tipo pre-fermento 2: Poolish/ }).click(); await sleep(300);
   });
   const go = page.getByRole('button', { name: /Impasta la biga adesso/ });
   check('Avanzato: si parte dalla biga (la più lunga)', await go.count() > 0);

@@ -48,6 +48,7 @@ const S = {
     border: 'none',
     borderRadius: 'var(--radius-md)',
     padding: '12px 20px',         // era 13px (fuori scala 4px)
+    minHeight: 44,                // target tattile (DESIGN.md button-primary)
     fontFamily: 'var(--font-mono)',
     fontWeight: 700,
     fontSize: '0.9rem',
@@ -60,6 +61,7 @@ const S = {
     border: '1px solid var(--pm4-line-strong)',
     borderRadius: 'var(--radius-md)',
     padding: '12px 20px',
+    minHeight: 44,
     fontFamily: 'var(--font-mono)',
     fontSize: '0.9rem',
     cursor: 'pointer',

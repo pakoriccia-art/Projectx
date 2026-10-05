@@ -813,8 +813,8 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
   };
   const color = TYPE_COLORS[pref.type] ?? 'var(--accent-brand)';
 
-  // WP-5(B): idratazione precedente da ripristinare se l'utente annulla il reset Autolisi.
-  const [autolysisUndoHyd, setAutolysisUndoHyd] = useState<number | null>(null);
+  // Cambio di tipo: valori precedenti da ripristinare (WP-5B esteso a tutti i tipi).
+  const [typeUndo, setTypeUndo] = useState<{ prev: PrefermentoComponent; text: string } | null>(null);
 
   const hydMin = pref.type === 'biga' ? 40 : pref.type === 'riporto' ? 55 : 80;
   const hydMax = pref.type === 'biga' ? 60 : pref.type === 'riporto' ? 75 : 110;
@@ -830,7 +830,7 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
       </div>
 
       <SnapButtons
-        label="Tipo"
+        label={`Tipo pre-fermento ${idx + 1}`}
         options={[
           { value: 'poolish',   label: 'Poolish',  desc: 'Idr. ~100%' },
           { value: 'biga',      label: 'Biga',     desc: 'Idr. ~48%'  },
@@ -848,33 +848,34 @@ function PrefRow({ pref, idx, onUpdate, onRemove }: {
             // idratazione è nascosto per l'autolisi → senza questo, un poolish convertito
             // resterebbe a 100% e bloccherebbe l'avvio (Zod superRefine).
             : { hydration: 65, yeastPct: undefined, durationH: 1 };
-          // WP-5(B): il reset a 65 resta (serve a Zod) ma non più silenzioso —
-          // memorizza il valore precedente per l'undo se davvero cambia.
-          if (t === 'autolysis' && pref.hydration !== 65) {
-            setAutolysisUndoHyd(pref.hydration);
-          } else {
-            setAutolysisUndoHyd(null);
-          }
-          onUpdate({ ...pref, type: t, ...newDefaults });
+          // Mai sovrascrivere in silenzio: se cambiano idratazione, lievito o durata
+          // lo si dice, con "Ripristina" che rimette il prefermento com'era (tipo compreso).
+          const next = { ...pref, type: t, ...newDefaults };
+          const fmt = (p: PrefermentoComponent) => [
+            `idratazione ${p.hydration}%`,
+            p.yeastPct != null ? `lievito ${String(p.yeastPct).replace('.', ',')}%` : 'senza lievito',
+            `${p.durationH} h`,
+          ].join(', ');
+          const changed = next.hydration !== pref.hydration || next.yeastPct !== pref.yeastPct || next.durationH !== pref.durationH;
+          setTypeUndo(changed && t !== pref.type
+            ? { prev: pref, text: `Passando a ${prefName(t)}: ${fmt(next)} (prima ${fmt(pref)}).` }
+            : null);
+          onUpdate(next);
         }}
       />
 
-      {autolysisUndoHyd != null && pref.type === 'autolysis' && (() => {
-        // Undo sicuro solo se il valore precedente è valido per l'autolisi (50–80%):
-        // ripristinare un 100% (poolish) o 48% (biga) ri-bloccherebbe Zod.
-        const undoSafe = autolysisUndoHyd >= 50 && autolysisUndoHyd <= 80;
-        return (
-          <div style={{ marginTop: 10 }}>
-            <Advisory
-              tone="teal"
-              text={`Passando ad Autolisi ho riportato l'idratazione del pre-fermento a 65% (l'autolisi richiede 50–80%).`}
-              undoLabel={undoSafe ? `Ripristina ${autolysisUndoHyd}%` : undefined}
-              onUndo={undoSafe ? () => { onUpdate({ ...pref, hydration: autolysisUndoHyd }); setAutolysisUndoHyd(null); } : undefined}
-              onDismiss={() => setAutolysisUndoHyd(null)}
-            />
-          </div>
-        );
-      })()}
+      {typeUndo && (
+        <div style={{ marginTop: 10 }}>
+          <Advisory
+            key={typeUndo.text}
+            tone="teal"
+            text={typeUndo.text}
+            undoLabel="Ripristina"
+            onUndo={() => { onUpdate(typeUndo.prev); setTypeUndo(null); }}
+            onDismiss={() => setTypeUndo(null)}
+          />
+        </div>
+      )}
 
       {/* ── Composizione ── */}
       <FormSection title="Composizione" accent={color}>
@@ -1748,7 +1749,11 @@ function RecipeCard({ draft, update, recipe }: {
           <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.5, color: 'var(--state-critical)' }}>
             <span>{problem.message} Così non si può impastare.</span>
             {fix && (
-              <button type="button" onClick={fix.apply} style={{
+              <button id="recipe-fix" type="button" onClick={() => {
+                fix.apply();
+                // Dopo la correzione il passo successivo è avviare: il focus va lì.
+                requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#wizard-next button')?.focus());
+              }} style={{
                 alignSelf: 'flex-start', minHeight: 44, padding: '10px 14px', cursor: 'pointer',
                 background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-flour)',
                 border: '1px solid var(--pm4-line-strong)', borderRadius: 'var(--radius-md)',
@@ -2066,6 +2071,9 @@ export function WizardView() {
   // "Sostituisci la biga in corso?": null = nessuna domanda, 'ask' = in attesa.
   const [replaceStage, setReplaceStage] = useState<null | 'ask'>(null);
   const [starting, setStarting] = useState(false);
+  const replaceRef = useRef<HTMLDivElement>(null);
+  // La domanda "C'è già … in corso" prende il focus quando compare.
+  useEffect(() => { if (replaceStage === 'ask') replaceRef.current?.focus(); }, [replaceStage]);
 
   /** Salva la preparazione e solo dopo la mostra: l'id c'è sempre (annulla sicuro). */
   const startingRef = useRef(false);
@@ -2223,13 +2231,17 @@ export function WizardView() {
           const hm = at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
           const when = at.toDateString() === new Date().toDateString() ? `alle ${hm}` : `${at.toLocaleDateString('it-IT', { weekday: 'long' })} alle ${hm}`;
           return (
-            <div role="group" aria-label="Preparazione già in corso" style={{
+            <div ref={replaceRef} tabIndex={-1} role="group" aria-label="Preparazione già in corso" style={{
+              outline: 'none',
               display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
               border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-sm)',
               fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--pm4-flour)',
             }}>
               <span>C'è già {prefWithArticle(t)} in corso ({prefIsFeminine(t) ? 'pronta' : 'pronto'} {when}). {prefIsFeminine(t) ? 'La' : 'Lo'} sostituisco con la nuova preparazione?</span>
-              <Btn variant="secondary" onClick={() => setReplaceStage(null)}>{prefIsFeminine(t) ? 'Tieni quella' : 'Tieni quello'} in corso</Btn>
+              <Btn variant="secondary" onClick={() => {
+                setReplaceStage(null);
+                requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#wizard-next button')?.focus());
+              }}>{prefIsFeminine(t) ? 'Tieni quella' : 'Tieni quello'} in corso</Btn>
               <Btn variant="secondary" onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}>Vai a {prefIsFeminine(t) ? 'quella' : 'quello'} in corso</Btn>
               <Btn variant="danger" disabled={starting} onClick={() => void startStage()}>Sostituisci</Btn>
             </div>
@@ -2243,6 +2255,15 @@ export function WizardView() {
             {blockedReason()}
           </p>
         )}
+        {step === 8 && recipeProblem(draft) && (
+          // La correzione sta nella ricetta, spesso sotto la piega: un tocco la porta in vista.
+          <Btn variant="secondary" onClick={() => {
+            const el = document.getElementById('recipe-fix');
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el?.focus();
+          }}>Vedi la correzione ↑</Btn>
+        )}
+        <div id="wizard-next">
         <Btn onClick={next} disabled={!canProceed() || starting || replaceStage === 'ask'}
           aria-describedby={!canProceed() ? 'wizard-blocked-hint' : undefined}>
           {step < TOTAL_STEPS ? 'Continua →'
@@ -2250,6 +2271,7 @@ export function WizardView() {
               ? `🥣 Impasta ${prefWithArticle(mainPreparable(draft.prefermenti)!.type)} adesso`
               : '🍕 Avvia sessione'}
         </Btn>
+        </div>
         <Btn variant="secondary" onClick={prev}>
           {step === 8 && draft.navigationSource === 'planner' ? '← Planner'
             : step === 1 ? '← Home' : '← Indietro'}

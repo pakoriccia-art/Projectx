@@ -353,11 +353,29 @@ export function PrefermentStageView() {
               <div style={{ ...label, marginBottom: 8, color: overdue ? 'var(--state-critical)' : due ? 'var(--accent-brand)' : 'var(--pm4-tan)' }}>
                 {overdue ? `${cap(nm)}: da impastare (era alle ${fmtClock(startAt, now)})` : due ? `Adesso: impasta ${nm}` : `Poi: ${nm} alle ${fmtClock(startAt, now)}`}
               </div>
-              {!due && (
-                <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5, marginBottom: 6 }}>
-                  Tra {fmtSpanH(startAt - now)}: così {f ? 'è pronta' : 'è pronto'} insieme {main ? prefAl(main.type) : ''}. Ti avviso.
-                </div>
-              )}
+              {!due && (() => {
+                // L'orario si può spostare: chi lo impasta decide, la vista dice cosa cambia.
+                const readyAtShifted = startAt + it.plannedH * 3_600_000;
+                const mainReady = mainState?.etaMs ?? readyAtShifted;
+                const together = Math.abs(readyAtShifted - mainReady) < 10 * 60_000;
+                const hour = new Date(startAt).getHours();
+                const night = hour >= 23 || hour < 6;
+                const shift = (h: number) => updateItem(it.id, { startAt: new Date(Math.max(Date.now(), startAt + h * 3_600_000)) });
+                return (
+                  <>
+                    <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-umber)', lineHeight: 1.5, marginBottom: 6 }}>
+                      Tra {fmtSpanH(startAt - now)}: {together
+                        ? `così ${f ? 'è pronta' : 'è pronto'} insieme ${main ? prefAl(main.type) : ''}.`
+                        : `${f ? 'pronta' : 'pronto'} alle ${fmtClock(readyAtShifted, now)}.`} Ti avviso.
+                      {night && ' Cade di notte: puoi anticiparlo e tenerlo più al fresco, o spostarlo dopo.'}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <div style={{ flex: 1 }}><Btn variant="secondary" disabled={startAt - 3_600_000 < now} onClick={() => shift(-1)}>Prima di 1 h</Btn></div>
+                      <div style={{ flex: 1 }}><Btn variant="secondary" onClick={() => shift(1)}>Dopo 1 h</Btn></div>
+                    </div>
+                  </>
+                );
+              })()}
               {overdue && (
                 <div style={{ ...MONO, fontSize: 13, color: 'var(--pm4-flour)', lineHeight: 1.5, marginBottom: 8 }}>
                   Sei in ritardo di {fmtSpanH(s.overdueMs)}. Se {f ? 'la' : 'lo'} impasti adesso è {readyWord(f)} alle {fmtClock(readyIfNow, now)}

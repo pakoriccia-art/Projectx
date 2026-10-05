@@ -384,6 +384,14 @@ Stesso punteggio della seconda, per motivi diversi: risolti doppio tocco, fasi l
 - Gerarchia sul più urgente e finestra per l'impasto finale in alto ("Impasto finale tra le … e le …", "Impasta entro le …", oppure "Non sono pronti insieme"). "TROPPO OLTRE" sopra il 150%, CTA "Impasto finale (è oltre)" mai primario insieme al frigo.
 - Piccoli: "pronta/pronto/pronti" declinato, "insieme alla biga", etichetta del timer per livello, aria-label sulla riga in dashboard, acqua finale con la temperatura dei prefermenti pesata sulla massa, wizard con il prefermento principale = il più lungo, "Acqua —" invece di 0 g.
 
+## Passaggio 24: P2/P3 restanti della terza critique del prefermento
+
+- Btn condiviso a 44 px (`minHeight` su primario e secondario): tutta l'app, dashboard verificata.
+- Passo 8 bloccato: "Vedi la correzione ↑" nel footer porta in vista e mette il focus sulla correzione; dopo averla applicata il focus va su "Impasta …".
+- Focus sulla domanda "C'è già … in corso"; "Tieni quella" lo riporta al pulsante principale.
+- Avanzato: gruppi "Tipo pre-fermento 1/2"; ogni cambio di tipo che cambia idratazione, lievito o durata lo dice ("Passando a poolish: … (prima …)") con "Ripristina" che rimette il prefermento com'era.
+- Fase in corso: l'avvio del secondo prefermento si sposta ("Prima di 1 h" / "Dopo 1 h", mai prima di adesso), con il nuovo orario di pronto e un avviso se cade di notte.
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
