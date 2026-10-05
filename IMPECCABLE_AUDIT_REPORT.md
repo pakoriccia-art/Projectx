@@ -411,6 +411,10 @@ Risolti i P1 della terza (attribuzione, vicolo cieco del secondo, gerarchia sul 
 - Focus dopo "No" e dopo "Ripristina"; "Tieni quella" porta su "← Indietro"; domanda di sostituzione più compatta; "Vedi la correzione ↑" solo se c'è una correzione; "Acqua —" al passo 8; "Anticipa/Posticipa 1 h"; niente doppio "Vai all'impasto in corso"; virgola decimale; secondo prefermento in Avanzato al 25%.
 - Caratteri del codice del flusso ricondotti alla scala (0,9rem body, 11px label, 35px readout, 1,4rem headline). Restano le segnalazioni legacy del wizard.
 
+## Passaggio 28: quinta critique del flusso prefermento (28/40)
+
+Risolti i P1/P2/P3 della quarta (CTA in vista, avvisi per ogni prefermento, slider nello schema, contrasto, segni per ogni prefermento, focus). Nuovi P1: il frigo consigliato per il ritardo del poolish porta a "Non sono pronti insieme" (controlla che la biga non vada oltre, non che sia pronta in tempo); quando un prefermento è oltre il primario è il frigo e non l'impasto finale (in troppo oltre nessun primario). P2: "Fatto" non registra l'ora reale, poolish in ritardo senza notifica, impasto finale primario all'81% senza conferma, focus dopo "Fatto".
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
