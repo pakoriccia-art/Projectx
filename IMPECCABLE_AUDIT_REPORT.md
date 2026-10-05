@@ -392,6 +392,10 @@ Stesso punteggio della seconda, per motivi diversi: risolti doppio tocco, fasi l
 - Avanzato: gruppi "Tipo pre-fermento 1/2"; ogni cambio di tipo che cambia idratazione, lievito o durata lo dice ("Passando a poolish: … (prima …)") con "Ripristina" che rimette il prefermento com'era.
 - Fase in corso: l'avvio del secondo prefermento si sposta ("Prima di 1 h" / "Dopo 1 h", mai prima di adesso), con il nuovo orario di pronto e un avviso se cade di notte.
 
+## Passaggio 25: quarta critique del flusso prefermento (28/40)
+
+Risolti i P1 della terza (attribuzione, vicolo cieco del secondo, gerarchia sul più urgente) e i P2/P3 (ritardo scalato, focus, nomi dei gruppi, cambio tipo reversibile, avvio spostabile, Btn 44 px). Nuovi P1: poolish in ritardo con la biga già oltre (testo incoerente, primario sbagliato), CTA dell'impasto finale sotto la piega a PRONTA, notifica di ritardo solo sul primo prefermento. P2: "Sono pronti" in crescita, slider idratazione oltre lo schema, testi delle notifiche 132/133, contrasto "troppo oltre".
+
 ## Verifica
 - `tsc --noEmit`: nessun errore.
 - `npm test`: 256 test vitest, 154 test engine, 285 test di stress e 1001 asserzioni di fuzz, tutti superati.
