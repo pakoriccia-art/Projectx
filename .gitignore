@@ -8,3 +8,6 @@ android/
 # Playwright artifacts
 playwright-report/
 test-results/
+
+# stato runtime del live-server di impeccable
+.impeccable/live/
