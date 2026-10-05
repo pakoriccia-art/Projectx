@@ -48,6 +48,38 @@ const clean = s => s.replace(/\s+/g, ' ').trim();
 const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
 let device;
+let page;
+
+/**
+ * Chiude l'app senza lasciare un socket CDP aperto: prima la pagina, poi il
+ * force-stop. Un reset a sorpresa sul socket della WebView chiusa ("read
+ * ECONNRESET") Playwright lo emette come 'error' senza gestore, e Node muore.
+ */
+async function stopApp() {
+  await page?.close().catch(() => {});
+  await device.shell(`am force-stop ${PKG}`).catch(() => {});
+  await sleep(800);
+}
+
+/** Riepilogo e risultati.json: anche quando il giro si interrompe. */
+function finish() {
+  const failed = results.filter(r => !r.ok);
+  fs.writeFileSync(path.join(OUT, 'risultati.json'), JSON.stringify(results, null, 2));
+  console.log(`\n${results.length - failed.length}/${results.length} controlli superati. Screenshot e risultati in ${OUT}`);
+}
+
+// Un socket caduto non è un controllo fallito: il passo dopo è sempre openApp(),
+// che si ricollega. Tutto il resto ferma il giro, ma con il conto stampato.
+process.on('uncaughtException', (e) => {
+  const msg = String(e?.message ?? e);
+  if (/ECONNRESET|EPIPE|ECONNREFUSED|Target closed|has been closed/i.test(msg) || /ECONNRESET|EPIPE|ECONNREFUSED/.test(e?.code ?? '')) {
+    console.log(`  · Connessione alla WebView caduta (${e?.code ?? msg.split('\n')[0]}): si prosegue`);
+    return;
+  }
+  console.error(`Errore non gestito: ${msg.split('\n')[0]}`);
+  finish();
+  process.exit(1);
+});
 
 /**
  * Avvia l'app e aggancia la sua WebView. Dopo un force-stop la WebView nuova ha
@@ -83,8 +115,8 @@ async function openApp() {
     // A 45 s: l'app forse non è partita davvero, si rilancia.
     if (!relaunched && Date.now() - start > 45_000) {
       relaunched = true;
-      await device.shell(`am force-stop ${PKG}`).catch(() => {});
-      await sleep(1500);
+      await stopApp();
+      await sleep(700);
       await launch();
     }
     await sleep(1000);
@@ -190,7 +222,7 @@ async function cleanupApp() {
       await sleep(1000);
       console.log('  · Annullata una preparazione rimasta aperta');
       // dietro può esserci ancora un impasto in corso: lo si ritrova riaprendo l'app
-      await device.shell(`am force-stop ${PKG}`);
+      await stopApp();
       page = await openApp();
       continue;
     }
@@ -205,7 +237,7 @@ async function cleanupApp() {
   }
 }
 
-let page = await openApp();
+page = await openApp();
 await cleanupApp();
 if (await inDashboard()) {
   console.error('C\'è una sessione che lo script non è riuscito a chiudere. Terminala dall\'app (Termina) e rilancia il test.');
@@ -220,7 +252,7 @@ async function runScenario(name, fn) {
     check(`Scenario ${name} interrotto`, false, String(e?.message ?? e).split('\n')[0]);
     await shot(page, device, `errore-${name}`).catch(() => {});
     // si riparte da un'app appena aperta: lo stato a metà scenario è imprevedibile
-    try { await device.shell(`am force-stop ${PKG}`); page = await openApp(); await cleanupApp(); }
+    try { await stopApp(); page = await openApp(); await cleanupApp(); }
     catch (e2) { console.error(`  Pulizia non riuscita: ${String(e2?.message ?? e2).split('\n')[0]}`); }
   }
 }
@@ -266,7 +298,7 @@ async function scenarioNuovo() {
 
   console.log(`\n3 · App chiusa per ${WAIT_S}s e riaperta`);
   const matBefore = active1?.mat ?? null;
-  await device.shell(`am force-stop ${PKG}`);
+  await stopApp();
   await sleep(WAIT_S * 1000);
   page = await openApp();
   await shot(page, device, 'nuovo-03-dopo-riapertura');
@@ -294,7 +326,7 @@ async function scenarioNuovo() {
     check('Nello Storico: "interrotta" e senza voto', /interrotta/i.test(first) && !/Com'è venuta/.test(first), first.slice(0, 80));
     const db3 = await readDb(page);
     check('Nessuna sessione attiva nel DB dopo Termina', !(db3 ?? []).some(s => s.status === 'active' && s.hasSnapshot));
-    await device.shell(`am force-stop ${PKG}`);
+    await stopApp();
     page = await openApp();
     const hdr = await page.locator('header').filter({ hasText: /Trascorso/i }).count();
     check('Riaprendo l\'app la sessione chiusa non riappare', hdr === 0);
@@ -400,7 +432,7 @@ async function scenarioPianifica() {
   const bakeBefore = ((await headerText()).match(/COTTURA\s*(~?\d{2}:\d{2})/i) || [])[1] ?? null;
 
   console.log(`\nP5 · App chiusa per ${WAIT_S}s e riaperta (in frigo)`);
-  await device.shell(`am force-stop ${PKG}`);
+  await stopApp();
   await sleep(WAIT_S * 1000);
   page = await openApp();
   await shot(page, device, 'pian-05-riapertura');
@@ -426,7 +458,7 @@ async function scenarioPianifica() {
     const shifted = (await headerText()).match(/COTTURA\s*~?(\d{2}:\d{2})/i)?.[1] ?? null;
     const exp = bakeAfter ? ((toMin(bakeAfter.replace('~', '')) + 120) % 1440) : NaN;
     check('Rotta: la dashboard mostra la nuova cottura (+2 h)', shifted != null && toMin(shifted) === exp, `prima ${bakeAfter}, dopo ${shifted}`);
-    await device.shell(`am force-stop ${PKG}`);
+    await stopApp();
     page = await openApp();
     const kept = (await headerText()).match(/COTTURA\s*~?(\d{2}:\d{2})/i)?.[1] ?? null;
     check('Rotta: la nuova cottura resta dopo la riapertura', kept != null && kept === shifted, `dopo la riapertura ${kept}`);
@@ -547,7 +579,7 @@ async function scenarioPrefermento() {
   check('Preparazione salvata in IndexedDB', (dbS ?? []).some(s => s.status === 'planning' && s.stage));
 
   console.log(`\nF2 · App chiusa per ${WAIT_S}s e riaperta`);
-  await device.shell(`am force-stop ${PKG}`);
+  await stopApp();
   await sleep(WAIT_S * 1000);
   page = await openApp();
   await shot(page, device, 'pref-03-dopo-riapertura');
@@ -558,7 +590,7 @@ async function scenarioPrefermento() {
   await runWizard(page);
   const rowSel = () => page.getByRole('button', { name: /Biga in corso/ });
   check('In dashboard la biga resta raggiungibile', await rowSel().count() > 0);
-  await device.shell(`am force-stop ${PKG}`);
+  await stopApp();
   page = await openApp();
   check('Dopo la riapertura: impasto e biga entrambi presenti', /Trascorso/i.test(await headerText()) && await rowSel().count() > 0);
   await rowSel().first().click(); await sleep(1000);
@@ -627,7 +659,7 @@ async function scenarioPrefermento() {
       tx.oncomplete = () => r();
     };
   }));
-  await device.shell(`am force-stop ${PKG}`);
+  await stopApp();
   page = await openApp();
   const hint = clean(await page.locator('body').innerText());
   await shot(page, device, 'pref-07-frigo-in-anticipo');
@@ -655,8 +687,7 @@ if (SCENARIO === 'prefermento' || SCENARIO === 'tutti') {
   await runScenario('prefermento', scenarioPrefermento);
 }
 
+finish();
 const failed = results.filter(r => !r.ok);
-fs.writeFileSync(path.join(OUT, 'risultati.json'), JSON.stringify(results, null, 2));
-console.log(`\n${results.length - failed.length}/${results.length} controlli superati. Screenshot e risultati in ${OUT}`);
 await device.close();
 process.exit(failed.length ? 1 : 0);
