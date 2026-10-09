@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fmtDay, fmtClockDay, calendarDayDiff } from '../lib/fmtTime';
+import { fmtDay, fmtClockDay, calendarDayDiff, fmtSeconds } from '../lib/fmtTime';
 
 const now = new Date('2026-10-05T23:50:00');
 
@@ -27,5 +27,14 @@ describe('fmtClockDay', () => {
     expect(fmtClockDay(new Date('2026-10-05T20:30:00'), now)).toBe('20:30');
     expect(fmtClockDay(new Date('2026-10-06T09:46:00'), now)).toBe('09:46 domani');
     expect(fmtClockDay(new Date('2026-10-08T09:46:00').getTime(), now.getTime())).toBe('09:46 gio');
+  });
+});
+
+describe('fmtSeconds', () => {
+  it('secondi sotto i 3 minuti, poi minuti', () => {
+    expect(fmtSeconds(76)).toBe('76 s');
+    expect(fmtSeconds(179)).toBe('179 s');
+    expect(fmtSeconds(600)).toBe('10 min');
+    expect(fmtSeconds(690)).toBe('11 min 30');
   });
 });

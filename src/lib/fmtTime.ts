@@ -37,3 +37,11 @@ export function fmtClockDay(d: Date | number, now: Date | number = Date.now()): 
   const t = fmtHM(d);
   return day ? `${t} ${day}` : t;
 }
+
+/** Durate brevi: "76 s" sotto i 3 minuti, poi "10 min" / "11 min 30". */
+export function fmtSeconds(s: number): string {
+  const r = Math.round(s);
+  if (r < 180) return `${r} s`;
+  const m = Math.floor(r / 60), sec = r % 60;
+  return sec ? `${m} min ${String(sec).padStart(2, '0')}` : `${m} min`;
+}

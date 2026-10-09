@@ -20,16 +20,13 @@ import { computeDashboardEffectiveW, computeCurrentPH } from '../../engine';
 import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { SnapButtons } from '../ui';
 import { seedPhase } from '../../lib/timeline';
+import { fmtSeconds } from '../../lib/fmtTime';
+import { getPref, setPref } from '../../lib/prefs';
+
+const OVEN_PREF_KEY = 'ovenProfile';
 
 // ─── Costante Hill exponent (allineata all'engine) ────────────────────────────
 const HILL_N = 5;
-
-// ─── Formato mm:ss per il tempo di cottura consigliato ────────────────────────
-function fmtMmSs(s: number): string {
-  const m = Math.floor(s / 60);
-  const r = Math.round(s % 60);
-  return `${m}:${String(r).padStart(2, '0')}`;
-}
 
 function hillW(W0: number, tCrit: number, hours: number): number {
   if (tCrit <= 0) return W0 * 0.5;
@@ -99,7 +96,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
       }}>
         <span style={{
           display: 'block', width: 22, height: 22, borderRadius: 11,
-          background: '#fff', position: 'absolute', top: 3,
+          background: 'var(--pm4-flour)', position: 'absolute', top: 3,
           left: value ? 23 : 3, transition: 'left 0.2s',
         }} />
       </span>
@@ -113,8 +110,10 @@ export function BakeView() {
   const session = state.activeSession;
   const ts = state.tickState;
 
-  const [profile, setProfile] = useState<OvenProfile>(() =>
-    (session?.ovenProfile as OvenProfile | undefined) ?? DEFAULT_PROFILE,
+  // Il forno della sessione, altrimenti quello usato l'ultima volta; mai un forno
+  // scelto al posto tuo (un verdetto su un "Domestico" mai scelto confonde).
+  const [profile, setProfile] = useState<OvenProfile | null>(() =>
+    (session?.ovenProfile as OvenProfile | undefined) ?? getPref<OvenProfile | null>(OVEN_PREF_KEY, null),
   );
   // Accordion diagnostica: chiuso di default (la guida primaria è il CONSIGLIATO)
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -122,18 +121,19 @@ export function BakeView() {
   // ── Persistenza (pattern identico a setTempAmbient) ──────────────────────
   function saveProfile(p: OvenProfile) {
     setProfile(p);
+    setPref(OVEN_PREF_KEY, p);
     if (!session) return;
     dispatch({ type: 'SESSION_UPDATE', patch: { ovenProfile: p } });
     db.sessions.update(session.id, { ovenProfile: p }).catch(() => {});
   }
 
   function patch(update: Partial<OvenProfile>) {
-    saveProfile({ ...profile, ...update });
+    saveProfile({ ...(profile ?? DEFAULT_PROFILE), ...update });
   }
 
   // ── W proiettato a targetBakeAt ───────────────────────────────────────────
   const { W_proj, ovenTempEstimate, validation } = useMemo(() => {
-    if (!session || !ts) return { W_proj: null, ovenTempEstimate: null, validation: null };
+    if (!session || !ts || !profile) return { W_proj: null, ovenTempEstimate: null, validation: null };
 
     const pH = computeCurrentPH(
       session.initialPH ?? 5.8,
@@ -178,8 +178,8 @@ export function BakeView() {
     );
   }
 
-  const isConchiglia = profile.archetipo === 'fornetto_conchiglia';
-  const knobLevel = profile.knobLevel ?? 3;
+  const isConchiglia = profile?.archetipo === 'fornetto_conchiglia';
+  const knobLevel = profile?.knobLevel ?? 3;
 
   // v2.4.21: cuore impasto proiettato a cottura — avviso se < 18°C (impasto freddo).
   const coreTempAtBake = ts ? (() => {
@@ -216,6 +216,41 @@ export function BakeView() {
 
       <div style={{ padding: '16px 16px 0' }}>
 
+        {/* Senza un forno scelto niente verdetto: prima la domanda. */}
+        {!profile && (
+          <p style={{ margin: '0 0 12px', fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 700, color: 'var(--pm4-flour)' }}>
+            Che forno usi?
+          </p>
+        )}
+
+        {/* ── Archetipo ── */}
+        <div className="pm4-panel" style={{ padding: '13px 14px 14px', marginBottom: 12 }}>
+          <div style={{ ...LABEL_MONO, marginBottom: 10 }}>ARCHETIPO</div>
+          <SnapButtons<OvenArchetype>
+            options={(Object.keys(OVEN_ARCHETYPES) as OvenArchetype[]).map(k => ({
+              value: k,
+              label: ARCHETYPE_LABELS[k],
+              desc: `${OVEN_ARCHETYPES[k].tMaxC}°C max`,
+            }))}
+            value={profile?.archetipo}
+            onChange={v => patch({ archetipo: v, knobLevel: undefined })}
+          />
+        </div>
+
+        {/* ── Piano cottura ── */}
+        <div className="pm4-panel" style={{ padding: '13px 14px 14px', marginBottom: 12 }}>
+          <div style={{ ...LABEL_MONO, marginBottom: 10 }}>PIANO COTTURA</div>
+          <SnapButtons<StoneMaterial>
+            options={(Object.keys(STONE_EFFUSIVITY) as StoneMaterial[]).map(k => ({
+              value: k,
+              label: STONE_LABELS[k].label,
+              desc: STONE_LABELS[k].desc,
+            }))}
+            value={profile?.stone}
+            onChange={v => patch({ stone: v })}
+          />
+        </div>
+
         {/* ── 1. FATTIBILE / NON FATTIBILE (badge grande) + advice ── */}
         {validation && (
           <div className="pm4-panel" style={{
@@ -234,7 +269,7 @@ export function BakeView() {
                 {REASON_LABEL[validation.reason ?? ''] ?? validation.reason}
               </div>
             )}
-            {validation.advice.map((line, i) => (
+            {validation.advice.map(line => line.replace(/,?\s*\(3\)\s*cambia stile[^.]*\./, '.')).map((line, i) => (
               <p key={i} style={{
                 margin: '0 0 6px', fontFamily: 'var(--font-mono)', fontSize: 11,
                 color: 'var(--pm4-tan)', lineHeight: 1.5,
@@ -277,7 +312,7 @@ export function BakeView() {
               </div>
               <div className="pm4-cell">
                 <div style={LABEL_MONO}>TEMPO</div>
-                <div style={VALUE_MONO}>{fmtMmSs(validation.recommendation.bakeTimeS)}</div>
+                <div style={VALUE_MONO}>{fmtSeconds(validation.recommendation.bakeTimeS)}</div>
               </div>
               {validation.recommendation.cieloC != null && (
                 <div className="pm4-cell">
@@ -298,44 +333,17 @@ export function BakeView() {
             }}>
               {/* Gli identificatori del motore (es. cordierite_refrattaria) diventano nomi leggibili. */}
               {validation.recommendation.stoneNote.replace(/\b[a-z]+(?:_[a-z]+)+\b/g,
-                id => (STONE_LABELS as Record<string, { label: string }>)[id]?.label ?? id.replace(/_/g, ' '))}
+                id => (STONE_LABELS as Record<string, { label: string }>)[id]?.label ?? id.replace(/_/g, ' '))
+                .replace(/~(\d+)s\b/, '~$1 s')}
             </p>
-            <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
+            <div style={{ ...LABEL_MONO, fontSize: 11, marginTop: 8, color: 'var(--pm4-faint)' }}>
               ⚠ Valori indicativi: ipotesi non ancora validata
             </div>
           </div>
         )}
 
-        {/* ── Archetipo ── */}
-        <div className="pm4-panel" style={{ padding: '13px 14px 14px', marginBottom: 12 }}>
-          <div style={{ ...LABEL_MONO, marginBottom: 10 }}>ARCHETIPO</div>
-          <SnapButtons<OvenArchetype>
-            options={(Object.keys(OVEN_ARCHETYPES) as OvenArchetype[]).map(k => ({
-              value: k,
-              label: ARCHETYPE_LABELS[k],
-              desc: `${OVEN_ARCHETYPES[k].tMaxC}°C max`,
-            }))}
-            value={profile.archetipo}
-            onChange={v => patch({ archetipo: v, knobLevel: undefined })}
-          />
-        </div>
-
-        {/* ── Piano cottura ── */}
-        <div className="pm4-panel" style={{ padding: '13px 14px 14px', marginBottom: 12 }}>
-          <div style={{ ...LABEL_MONO, marginBottom: 10 }}>PIANO COTTURA</div>
-          <SnapButtons<StoneMaterial>
-            options={(Object.keys(STONE_EFFUSIVITY) as StoneMaterial[]).map(k => ({
-              value: k,
-              label: STONE_LABELS[k].label,
-              desc: STONE_LABELS[k].desc,
-            }))}
-            value={profile.stone}
-            onChange={v => patch({ stone: v })}
-          />
-        </div>
-
         {/* ── Dual-zone + Knob + Pirometro ── */}
-        <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12 }}>
+        {profile && <div className="pm4-panel" style={{ padding: '13px 14px', marginBottom: 12 }}>
           <div style={SECTION}>
 
             {/* Dual-zone */}
@@ -360,7 +368,7 @@ export function BakeView() {
                   aria-valuetext={`livello ${knobLevel}, ${KNOB_TEMP_MAP_SCALE5[knobLevel as keyof typeof KNOB_TEMP_MAP_SCALE5]} gradi`}
                   style={{ width: '100%', height: 22, borderRadius: 11, accentColor: 'var(--accent-brand)' }}
                 />
-                <div style={{ display: 'flex', justifyContent: 'space-between', ...LABEL_MONO, fontSize: 10, marginTop: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...LABEL_MONO, fontSize: 11, marginTop: 4 }}>
                   {[1, 2, 3, 4, 5].map(n => (
                     <span key={n}>{KNOB_TEMP_MAP_SCALE5[n as keyof typeof KNOB_TEMP_MAP_SCALE5]}°</span>
                   ))}
@@ -370,7 +378,7 @@ export function BakeView() {
 
             {/* Pirometro */}
             <div style={ROW}>
-              <span style={LABEL_MONO}>PIROMETRO (MODDED)</span>
+              <span style={LABEL_MONO}>PIROMETRO · FORNO MODIFICATO</span>
               <Toggle value={!!profile.is_modded} onChange={v => patch({ is_modded: v, measuredTmaxC: v ? (profile.measuredTmaxC ?? 300) : undefined })} label="Pirometro / forno modificato" />
             </div>
             {profile.is_modded && (
@@ -391,7 +399,7 @@ export function BakeView() {
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* ── 3. Dettagli tecnici / arresti cinetici (accordion, chiuso) ── */}
         {validation && (
@@ -422,7 +430,7 @@ export function BakeView() {
                       {W_proj != null ? Math.round(W_proj) : '—'}
                     </div>
                     {session.bakeTargetElapsedH != null && (
-                      <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 2, color: 'var(--pm4-umber)' }}>
+                      <div style={{ ...LABEL_MONO, fontSize: 11, marginTop: 2, color: 'var(--pm4-umber)' }}>
                         t = {session.bakeTargetElapsedH.toFixed(1)}h da inizio
                       </div>
                     )}
@@ -438,11 +446,11 @@ export function BakeView() {
                   <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', borderBottom: '1px solid var(--pm4-line)' }}>
                     <span style={{ ...LABEL_MONO }}>{row.label}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-flour)' }}>
-                      {row.tC}°C <span style={{ color: 'var(--pm4-faint)', fontSize: 10 }}>— {row.note}</span>
+                      {row.tC}°C <span style={{ color: 'var(--pm4-faint)', fontSize: 11 }}>— {row.note}</span>
                     </span>
                   </div>
                 ))}
-                <div style={{ ...LABEL_MONO, fontSize: 10, marginTop: 8, color: 'var(--pm4-faint)' }}>
+                <div style={{ ...LABEL_MONO, fontSize: 11, marginTop: 8, color: 'var(--pm4-faint)' }}>
                   ⚠ Soglie indicative: ipotesi non ancora validata
                 </div>
               </div>
