@@ -49,7 +49,7 @@ export function buildPiecewiseData(
   session: {
     apprettoProtocol: string;
     puntataH: number; staglioH: number; apprettoH: number;
-    tcHours?: number; fridgeTempC?: number;
+    tcHours?: number; temperingH?: number; fridgeTempC?: number;
     agentEaKj: number; agentType: string;
     agentMuMax: number; agentLambda: number; agentAsymptote: number;
     initialMaturationOffset?: number;
@@ -100,6 +100,20 @@ export function buildPiecewiseData(
 
   type Seg = { durationH: number; tempC: number; label: string; color: string; phase: string };
 
+  // Riscaldo dopo il frigo: la T sale con Newton, in 5 gradini.
+  const warmupRamp = (wH: number): Seg[] => {
+    if (!(wH > 0)) return [];
+    const tauSec2 = computeTauSec(false);
+    return Array.from({ length: 5 }, (_, i) => {
+      const tMid = (i + 0.5) * (wH / 5) * 3600;
+      const T    = warmAmbient + (fridgeT - warmAmbient) * Math.exp(-tMid / tauSec2);
+      return { durationH: wH / 5, tempC: T,
+        label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' };
+    });
+  };
+  // "Tutto in frigo": riscaldo solo per le sessioni create con il riscaldo.
+  const tcWarmH = session.temperingH ?? 0;
+
   const baseSegs: Seg[] = timeline && timeline.length > 0
     ? timeline.map(seg => ({
         durationH: seg.endElapsedH != null
@@ -120,6 +134,7 @@ export function buildPiecewiseData(
     : proto === 'tc' ? [
       { durationH: tcH,               tempC: fridgeT,     label: 'Freddo totale', color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
       { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',       color: 'var(--text-muted)',   phase: 'balled_room'  },
+      ...warmupRamp(tcWarmH),
     ]
     : proto === 'tc_puntata' ? [
       { durationH: tcH,               tempC: fridgeT,     label: 'Puntata TC',    color: 'var(--state-cold)',   phase: 'bulk_fridge'  },
@@ -130,15 +145,7 @@ export function buildPiecewiseData(
       { durationH: session.puntataH,  tempC: warmAmbient, label: 'Puntata TA',  color: 'var(--accent-brand)', phase: 'bulk_room'     },
       { durationH: session.staglioH,  tempC: warmAmbient, label: 'Staglio',     color: 'var(--text-muted)',   phase: 'balled_room'   },
       { durationH: tcH,               tempC: fridgeT,     label: 'Appretto TC', color: 'var(--state-cold)',   phase: 'balled_fridge' },
-      ...(session.apprettoH > 0 ? (() => {
-        const tauSec2 = computeTauSec(false);
-        return Array.from({ length: 5 }, (_, i) => {
-          const tMid = (i + 0.5) * (session.apprettoH / 5) * 3600;
-          const T    = warmAmbient + (fridgeT - warmAmbient) * Math.exp(-tMid / tauSec2);
-          return { durationH: session.apprettoH / 5, tempC: T,
-            label: 'Riscaldo TA', color: 'var(--state-approaching)', phase: 'proofing' as const };
-        });
-      })() : []),
+      ...warmupRamp(session.apprettoH),
     ];
 
   if (!timeline && currentPhase && elapsedH != null && elapsedH > 0) {
@@ -490,7 +497,7 @@ export function GompertzChartV4({ session, ts, horizonH = null, bakeForecastH = 
   const totalH = proto === 'ta'
     ? (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : proto === 'tc'
-    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5)
+    ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.temperingH ?? 0)
     : proto === 'tc_puntata'
     ? (session.tcHours ?? 12) + (session.staglioH ?? 0.5) + (session.apprettoH ?? 4)
     : (session.puntataH ?? 8) + (session.staglioH ?? 0.5) + (session.tcHours ?? 12) + (session.apprettoH ?? 0);

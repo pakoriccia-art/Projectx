@@ -234,3 +234,14 @@ describe('TEMPERING — presente solo se temperingH > 0 dopo appretto TC', () =>
     expect(KEYS(ps)).toEqual(['puntata', 'staglio', 'appretto', 'cottura']);
   });
 });
+
+describe('TC tutto in frigo con il riscaldo finale', () => {
+  const tl = [...timelineTcOnly(), seg('proofing', 26.5, 28.5, 22)];
+  it('il riscaldo è l\'appretto a TA', () => {
+    for (const opts of [{}, { temperingH: 2 }]) {
+      const ps = deriveCanonicalPhases(tl, START, START, opts);
+      expect(KEYS(ps)).toEqual(['puntata', 'staglio', 'appretto', 'cottura']);
+      expect(ps[2].env).toBe('TA');
+    }
+  });
+});

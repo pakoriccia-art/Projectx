@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { currentSegment, retimeTimeline, seedPhase, timelineEndH } from '../lib/timeline';
-import type { PhaseSegment, Session } from '../db/db';
+import { buildInitialTimeline, type PhaseSegment, type Session } from '../db/db';
 
 const seg = (phaseType: string, s: number, e: number, status: PhaseSegment['status']): PhaseSegment =>
   ({ id: phaseType, phaseType, startElapsedH: s, endElapsedH: e, ambientTempC: 20, status });
@@ -73,5 +73,20 @@ describe('seedPhase', () => {
   });
   it('tick salvato in TA ma la timeline è in frigo: frigo', () => {
     expect(seedPhase(tc, { phase: 'bulk_room', tempAmbient: 21 })).toEqual({ phase: 'bulk_fridge', tempAmbient: 4 });
+  });
+});
+
+describe('buildInitialTimeline — TC tutto in frigo', () => {
+  const base = { apprettoProtocol: 'tc', tcHours: 12, staglioH: 0.5, fridgeTempC: 4, tLaboratorio: 21, startedAt: new Date() };
+  it('con il riscaldo: frigo, staglio, appretto a TA', () => {
+    const tl = buildInitialTimeline({ ...base, temperingH: 2, apprettoH: 2 });
+    expect(tl.map(s => s.phaseType)).toEqual(['bulk_fridge', 'balled_room', 'proofing']);
+    expect(tl[2].startElapsedH).toBeCloseTo(12.5);
+    expect(tl[2].endElapsedH).toBeCloseTo(14.5);
+    expect(tl[2].ambientTempC).toBe(21);
+  });
+  it('sessioni salvate prima del riscaldo (apprettoH 4, temperingH 0): niente riscaldo', () => {
+    const tl = buildInitialTimeline({ ...base, apprettoH: 4, temperingH: 0 });
+    expect(tl.map(s => s.phaseType)).toEqual(['bulk_fridge', 'balled_room']);
   });
 });

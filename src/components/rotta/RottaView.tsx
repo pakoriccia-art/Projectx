@@ -38,6 +38,8 @@ function RottaContent() {
 
   const proto = session.apprettoProtocol ?? 'ta';
   const isTcProto = proto !== 'ta';
+  // Protocolli che finiscono con il riscaldo fuori dal frigo (apprettoH = temperingH).
+  const needsWarmup = proto === 'tc' || proto === 'tc_appreto';
 
   // La cottura del piano è la fine della timeline (meno la finestra di servizio):
   // le durate e lo spostamento la ritemporizzano, la dashboard legge quella.
@@ -121,6 +123,7 @@ function RottaContent() {
       puntataH:       localPuntataH,
       staglioH:       localStaglioH,
       apprettoH:      localApprettoH,
+      ...(needsWarmup ? { temperingH: localApprettoH } : {}),
       alertThreshold: thresholdChanged ? localThreshold : session.alertThreshold,
       ...(thresholdChanged ? { alertThresholdFromPlan: false } : {}),
       thermalTimeline: newTimeline,

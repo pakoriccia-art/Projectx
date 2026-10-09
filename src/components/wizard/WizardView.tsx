@@ -25,7 +25,7 @@ export function normalizeTimelineStatus(tl: PhaseSegment[], nowElapsedH = 0): Ph
 }
 import {
   Card, Btn, SnapButtons, NumInput, SliderInput, StepHeader, S, FormSection, Row2, Metric,
-  Badge, ExpandableReward, Advisory,
+  Badge, ExpandableReward, Advisory, fmtHours,
 } from '../ui';
 import {
   normalizeFlourGroup, computeCombinedInitialState,
@@ -37,6 +37,8 @@ import {
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
+import { draftOverrunH } from '../../lib/plannerFit';
+import { warmupHForSession, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
 import { fridgePhaseIsSanctioned } from '../../engine/outOfProtocol';
 import { engineReadyH, apprettoCorrectionH, fmtBakeClock } from '../../lib/bakeForecast';
 import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPrefermentStages } from '../../services/sessionService';
@@ -146,12 +148,6 @@ function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: 
   return Math.max(W0 * 0.6, W0 * decay);
 }
 
-// ─── Costanti termofisiche (specchio di FermentationPlannerView) ─────────────
-const TH_CP_WATER  = 4186;   // J/(kg·K) — calore specifico acqua
-const TH_CP_FLOUR  = 1840;   // J/(kg·K) — calore specifico farina
-const TH_RHO_DOUGH = 1050;   // kg/m³    — densità impasto
-const TH_H_AIR     = 8;      // W/(m²·K) — convezione naturale aria in ambiente chiuso
-
 /** Inverse analitica di Gompertz (Zwietering 1990): ADU al quale maturation = targetPct% */
 function invertGompertzWizard(targetPct: number, muMax: number, lambda: number, asymptote = 100): number {
   const safeRatio = Math.max(1e-4, Math.min(targetPct / asymptote, 1 - 1e-4));
@@ -226,35 +222,6 @@ function puntataMaxHForStyle(
   const rAmb = ((kEffective as Function)(tAmb, Ea, agentType) as number) / kRef;
   const aduTarget = invertGompertzWizard(profile.puntataMatPct_target, muMax, lambda);
   return rAmb > 1e-12 ? Math.max(0, (aduTarget - initialAdu) / rAmb) : Infinity;
-}
-
-// ─── Calcolo tempo di riscaldo: da T frigo a 18°C (servizio) con legge di Newton ─
-// Specula thermalTimeConstantSphere del motore (costanti identiche: CP_WATER=4186, CP_FLOUR=1840,
-// RHO_DOUGH=1050, H_AIR=8). Restituisce le ORE per portare il core del panetto a 18°C a tAmb.
-// Ritorna 0 se tAmb ≤ 18°C (ambiente freddo → riscaldo impossibile) o fridgeTempC ≥ 18°C.
-/**
- * Ore necessarie affinché il panetto raggiunga 18°C partendo da fridgeTempC,
- * usando Newton's law of cooling con geometria sferica.
- * tauMultiplier ≥ 1.0 amplifica l'inerzia termica in base al contenitore
- * (es. closed_box = 2.5×, plastic_bag = 2.2×) — speculare all'engine
- * applyContainerResistance() usato nel tick loop.
- */
-function computeWarmupH(
-  panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number,
-  tauMultiplier = 1.0,
-): number {
-  const T_SERVICE = 18;                                    // °C — temperatura servizio target
-  if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
-  const h   = Math.max(0.01, hydrationPct / 100);
-  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);   // J/(kg·K) — calore specifico impasto
-  const V   = panMassKg / TH_RHO_DOUGH;                   // m³ — volume panetto
-  const r   = Math.cbrt((3 * V) / (4 * Math.PI));         // m — raggio sfera equivalente
-  const A   = 4 * Math.PI * r * r;                        // m² — superficie
-  // τ moltiplicato per tauMultiplier del contenitore (inerzia extra da coperchio/borsa)
-  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier; // s — τ sferica con resistenza contenitore
-  const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
-  if (ratio <= 0) return 0;
-  return Math.max(0, (tau * Math.log(ratio)) / 3600);     // ore
 }
 
 export function buildSession(draft: WizardDraft): Session {
@@ -334,14 +301,11 @@ export function buildSession(draft: WizardDraft): Session {
   const fromPlanner = draft.navigationSource === 'planner';
   const plannerAuthoritative = hasPrecomputedTimeline || fromPlanner;
 
-  const _warmup = (_proto === 'tc_appreto' && !plannerAuthoritative) ? (() => {
-    const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
-    const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
-    const tauMult = cPreset?.tauMultiplier ?? 1.0;
-    return computeWarmupH(panMassKg, draft.hydration ?? 65, draft.fridgeTempC ?? 4, 22, tauMult);
-  })() : 0;
-  const _a = _proto === 'tc_appreto'
+  // Anche "TC · Tutto in frigo" finisce con il riscaldo fuori dal frigo: senza,
+  // dopo 30 min di staglio il cuore arriva a cottura a ~9 °C.
+  const needsWarmup = _proto === 'tc_appreto' || _proto === 'tc';
+  const _warmup = (needsWarmup && !plannerAuthoritative) ? warmupHForSession(draft, 22) : 0;
+  const _a = needsWarmup
     ? (fromPlanner && !hasPrecomputedTimeline ? (draft.temperingH ?? draft.apprettoH ?? 0) : _warmup)
     : (draft.apprettoH ?? 4);
 
@@ -370,7 +334,7 @@ export function buildSession(draft: WizardDraft): Session {
 
   const totalH =
     _proto === 'ta'           ? _p + _s + _a
-    : _proto === 'tc'         ? _tc + _s
+    : _proto === 'tc'         ? _tc + _s + _a
     : _proto === 'tc_puntata' ? _tc + _s + _a
     : /* tc_appreto */          _p + _s + _tc + _a;
   const bakeAt = draft.targetBakeAt ?? new Date(Date.now() + totalH * 3_600_000);
@@ -432,10 +396,18 @@ export function buildSession(draft: WizardDraft): Session {
     // Service-Window planner: timeline precomputata (onorata da startSession) + soglia bolle
     thermalTimeline:         draft.thermalTimeline,
     bubbleThresholdPct:      draft.bubbleThresholdPct ?? 92,
-    // temperingH: dal planner (draft.temperingH) o calcolato da buildSession per tc_appreto
-    temperingH:              draft.temperingH ?? (_proto === 'tc_appreto' ? _a : 0),
+    // temperingH: dal planner (draft.temperingH) o calcolato da buildSession per tc e tc_appreto
+    temperingH:              draft.temperingH ?? (needsWarmup ? _a : 0),
     serviceWindowH:          draft.serviceWindowH,
   } as unknown as Session;
+}
+
+/** Il piano non sta nell'orario di cottura scelto: la frase da mostrare, o null. */
+export function overrunMessage(draft: WizardDraft, now = Date.now()): string | null {
+  const over = draftOverrunH(draft, now);
+  return over != null && over > 0
+    ? `Il piano non sta nell'orario: finisce ${fmtHours(over)} dopo il Forno. Torna al Planner.`
+    : null;
 }
 
 /** Prefermento da preparare adesso: prima la fase "in corso", poi l'impasto. */
@@ -1486,6 +1458,29 @@ function PuntataAlert({ puntataH, ambientTempC, style }: { puntataH: number; amb
   );
 }
 
+/** Riscaldo TA finale (tc, tc_appreto): calcolato, non regolabile qui. */
+function WarmupBox({ fridgeT, warmupH }: { fridgeT: number; warmupH: number }) {
+  return (
+    <FormSection title="🌡 Riscaldo TA finale" accent="var(--state-approaching)">
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '10px 14px', background: 'rgba(253,203,110,0.08)',
+        borderRadius: 'var(--radius-sm)', border: '1px solid rgba(253,203,110,0.18)',
+      }}>
+        <span style={{ ...S.label, color: 'var(--state-approaching)' }}>
+          Da {fridgeT}°C → 18°C (servizio)
+        </span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--state-approaching)' }}>
+          {warmupH > 0.05 ? fmtHours(warmupH) : '< 5 min'}
+        </span>
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+        Calcolato con legge di Newton · τ sferica · T ambiente 22°C assunta
+      </span>
+    </FormSection>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STEP 7 — Tempistiche
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1498,16 +1493,10 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const freddo  = draft.tcHours ?? 12;
   const fridgeT = draft.fridgeTempC ?? 4;
 
-  // Riscaldo TA finale (solo tc_appreto): ore per portare il panetto da frigo a 18°C
+  // Riscaldo TA finale (tc e tc_appreto): ore per portare il panetto da frigo a 18°C
   // T ambiente assunta 22°C (default cucina) poiché il wizard non raccoglie tAmb.
   // Applica tauMultiplier del contenitore selezionato (inerzia termica).
-  const warmupHDisplay = proto === 'tc_appreto' ? (() => {
-    const totalDoughG = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
-    const panMassKg   = totalDoughG / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    const cPreset = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
-    const tauMult = cPreset?.tauMultiplier ?? 1.0;
-    return computeWarmupH(panMassKg, draft.hydration ?? 65, fridgeT, 22, tauMult);
-  })() : 0;
+  const warmupHDisplay = (proto === 'tc_appreto' || proto === 'tc') ? warmupHForSession(draft, 22) : 0;
 
   // Puntata TA ottimale calcolata (solo tc_appreto) — usata come default quando
   // l'utente non ha ancora spostato il cursore (draft.puntataH == null).
@@ -1539,7 +1528,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   // Durata totale per protocollo
   const totalH =
     proto === 'ta'           ? puntata + staglio + appreto
-    : proto === 'tc'         ? freddo + staglio
+    : proto === 'tc'         ? freddo + staglio + warmupHDisplay
     : proto === 'tc_puntata' ? freddo + staglio + appreto
     : /* tc_appreto */         puntataHOptimalDisplay + staglio + freddo + warmupHDisplay;
 
@@ -1588,13 +1577,14 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       {/* ── TC: tutto in frigo ── */}
       {proto === 'tc' && (
         <FormSection title="❄ Tutto in frigo" accent="var(--state-cold)">
-          <SliderInput label="Freddo totale (puntata + appreto)" value={freddo}
+          <SliderInput label="Freddo (puntata + appretto in frigo)" value={freddo}
             onChange={v => update({ tcHours: v })} min={2} max={72} step={1} unit="h"
             color="var(--state-cold)" />
           <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>
       )}
+      {proto === 'tc' && <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} />}
 
       {/* ── TC Puntata: frigo → TA ── */}
       {proto === 'tc_puntata' && <>
@@ -1641,23 +1631,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           <SliderInput label="Durata appretto" value={freddo} onChange={v => update({ tcHours: v })}
             min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
         </FormSection>
-        <FormSection title="🌡 Riscaldo TA finale" accent="var(--state-approaching)">
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '10px 14px', background: 'rgba(253,203,110,0.08)',
-            borderRadius: 'var(--radius-sm)', border: '1px solid rgba(253,203,110,0.18)',
-          }}>
-            <span style={{ ...S.label, color: 'var(--state-approaching)' }}>
-              Da {fridgeT}°C → 18°C (servizio)
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--state-approaching)' }}>
-              {warmupHDisplay > 0.05 ? `${warmupHDisplay.toFixed(1)}h` : '< 5 min'}
-            </span>
-          </div>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-            Calcolato con legge di Newton · τ sferica · T ambiente 22°C assunta
-          </span>
-        </FormSection>
+        <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} />
       </>}
 
       {(() => {
@@ -1850,14 +1824,13 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const totalDoughG = flour * (1 + hydration / 100 + salt / 100);
   const panWeight   = panetti > 0 ? Math.round(totalDoughG / panetti) : 0;
 
-  // Per tc_appreto: tempo di riscaldo TA finale e puntata ottimale (con inerzia contenitore)
+  // Per tc e tc_appreto: tempo di riscaldo TA finale; per tc_appreto anche la puntata ottimale
   const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
   const cPresetStep8   = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
   const tauMultStep8   = cPresetStep8?.tauMultiplier ?? 1.0;
   const fromPlannerStep8 = draft.navigationSource === 'planner';
-  const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto'
-    ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0)
-      : computeWarmupH(panMassKgStep8, hydration, draft.fridgeTempC ?? 4, 22, tauMultStep8))
+  const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto' || draft.apprettoProtocol === 'tc'
+    ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0) : warmupHForSession(draft, 22))
     : 0;
   // Puntata ottimale per step 8: muMax semplificato (senza prefermento, per anteprima)
   const puntataHStep8  = draft.apprettoProtocol === 'tc_appreto' ? (() => {
@@ -1936,6 +1909,12 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           </Card>
         );
       })()}
+
+      {overrunMessage(draft) && (
+        <p role="alert" style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: 1.5, color: 'var(--pm4-ember-lo)' }}>
+          {overrunMessage(draft)}
+        </p>
+      )}
 
       {/* ── Quando inforni: lo stesso orario che mostrerà la dashboard ── */}
       {!fromPlannerStep8 && (() => {
@@ -2059,7 +2038,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           {draft.apprettoProtocol !== 'tc' && draft.apprettoProtocol !== 'tc_appreto' && (
             <Metric label="Appretto" value={draft.apprettoH ?? '–'} unit="h" />
           )}
-          {draft.apprettoProtocol === 'tc_appreto' && (
+          {(draft.apprettoProtocol === 'tc_appreto' || draft.apprettoProtocol === 'tc') && (
             <Metric label="Riscaldo TA" value={warmupHStep8.toFixed(1)} unit="h" color="var(--state-approaching)" />
           )}
           {isTcProto && (
@@ -2257,7 +2236,7 @@ export function WizardView() {
     // sia in buildSession (proto 'ta', puntata 8h, staglio 0.5h, ...): il passo
     // è sempre strutturalmente valido. Nessun solver gira a questo passo.
     if (step === 7) return true;
-    if (step === 8) return !recipeProblem(draft);
+    if (step === 8) return !recipeProblem(draft) && !overrunMessage(draft);
     return true;
   };
 
@@ -2267,6 +2246,7 @@ export function WizardView() {
     if (step === 2) return 'Scegli il tipo di impasto per continuare';
     const pb = recipeProblem(draft);
     if (pb && (step === 8 || (step === 3 && pb.kind === 'flour'))) return pb.message;
+    if (step === 8) return overrunMessage(draft) ?? '';
     if (step === 3) return draft.mainFlourGroup ? 'Aggiungi almeno un pre-fermento' : 'Scegli la farina per continuare';
     if (step === 4) return 'Imposta idratazione e sale';
     if (step === 5) return draft.agentType ? 'Imposta la dose di lievito' : 'Scegli l\'agente lievitante per continuare';

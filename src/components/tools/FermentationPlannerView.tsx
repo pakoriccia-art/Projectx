@@ -27,6 +27,8 @@ import {
 } from '../../engine';
 import { scaleMuMaxByDose, doseFactorSaturated } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
+import { planFit, fitShortfallH, suggestedBakeAtMs, toDateInputs, type PlanFit } from '../../lib/plannerFit';
+import { computeWarmupH, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
 import { PrefermentCreditCard } from '../wizard/PrefermentCreditCard';
@@ -47,7 +49,7 @@ interface PrefConfig {
   durationH:     number;
 }
 
-interface PlanResult {
+export interface PlanResult {
   protocol:  Protocol;
   totalH:    number;
   puntataH?: number;
@@ -60,7 +62,10 @@ interface PlanResult {
   desc:      string;
   stars:     number;       // 1-5
   matAtTarget?: number;   // maturazione% stimata all'orario target (se impostato)
-  warmupH?:  number;      // ore riscaldo TA finale (solo tc_appreto)
+  warmupH?:  number;      // ore riscaldo TA finale (tc e tc_appreto)
+  /** Sta nell'orario scelto? late = servono più ore di quelle disponibili. */
+  fit:       PlanFit;
+  shortfallH?: number;    // ore che mancano (solo late)
 }
 
 // ─── Validazione input planner ───────────────────────────────────────────────
@@ -117,32 +122,6 @@ function computeEffectiveDoseAndAdu(
   return { effectiveDose: mainDose + yeastBoost, initialAdu };
 }
 
-// ─── Costanti modello termico (specchiate dall'engine, identiche a thermalTimeConstantSphere) ─
-const TH_CP_WATER  = 4186;   // J/(kg·K)
-const TH_CP_FLOUR  = 1840;   // J/(kg·K)
-const TH_RHO_DOUGH = 1050;   // kg/m³
-const TH_H_AIR     = 8;      // W/(m²·K) — convezione naturale aria in ambiente chiuso
-
-/**
- * Ore per portare il core del panetto da fridgeTempC a 18°C (servizio) a tAmb.
- * Usa legge di Newton + τ sferica (thermalTimeConstantSphere del motore).
- * Ritorna 0 se tAmb ≤ 18°C (riscaldo impossibile) o fridgeTempC ≥ 18°C (già caldo).
- */
-function computeWarmupH(panMassKg: number, hydrationPct: number, fridgeTempC: number, tAmb: number, tauMultiplier = 1.0): number {
-  const T_SERVICE = 18;
-  if (tAmb <= T_SERVICE || fridgeTempC >= T_SERVICE) return 0;
-  const h   = Math.max(0.01, hydrationPct / 100);
-  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
-  const V   = panMassKg / TH_RHO_DOUGH;
-  const r   = Math.cbrt((3 * V) / (4 * Math.PI));
-  const A   = 4 * Math.PI * r * r;
-  // τ con la resistenza del contenitore, come wizard e tick della dashboard
-  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;   // secondi
-  const ratio = (fridgeTempC - tAmb) / (T_SERVICE - tAmb);
-  if (ratio <= 0) return 0;
-  return Math.max(0, (tau * Math.log(ratio)) / 3600);  // ore
-}
-
 /**
  * ADU accumulato durante la risalita termica (stemperamento) da fridgeTempC verso tAmb.
  * Integrazione numerica di Riemann (N=20 passi) su T(t) = tAmb + (fridgeT−tAmb)·exp(−t/τ).
@@ -190,7 +169,7 @@ function assessW(W: number, warmH: number, coldH: number): { viability: Viabilit
 }
 
 // ─── Calcolo principale: timing ottimale per tutti e 4 i protocolli ──────────
-function computeAllProtocols(params: {
+export function computeAllProtocols(params: {
   W: number;
   agentType: string; agentDosePct: number;
   aParams: { Ea: number; muMax: number; lambda: number };
@@ -221,6 +200,11 @@ function computeAllProtocols(params: {
   const rFri = kRef > 1e-12 ? kFri / kRef : 1;
 
   const results: PlanResult[] = [];
+  // Ci sta nell'orario scelto? Un piano che non ci sta perde le stelle.
+  const fitOf = (totalH: number): Pick<PlanResult, 'fit' | 'shortfallH'> => {
+    const fit = planFit(totalH, params.targetTotalH);
+    return fit === 'late' ? { fit, shortfallH: fitShortfallH(totalH, params.targetTotalH) } : { fit };
+  };
 
   // ── TA ──────────────────────────────────────────────────────────────────────
   {
@@ -243,28 +227,34 @@ function computeAllProtocols(params: {
       label: 'Tutto TA',
       desc:  `Puntata ${fmtHours(puntataH)} · staglio ${fmtHours(staglioH)} · appretto ${fmtHours(apprettoH)}`,
       stars: W >= 280 ? 2 : 3,
+      ...fitOf(totalH),
     });
   }
 
   // ── TC (tutto in frigo) ──────────────────────────────────────────────────────
   {
-    const coldH   = rFri > 0 ? aduNeeded / rFri : Infinity;
-    const totalH  = coldH + staglioH;
+    // Dopo il frigo serve il riscaldo (come TC Appretto): la sua rampa matura un po'.
+    const wH      = params.warmupH ?? 0;
+    const rampAdu = params.rampAdu ?? 0;
+    const coldH   = rFri > 0 ? Math.max(0.01, aduNeeded - rampAdu) / rFri : Infinity;
+    const totalH  = coldH + staglioH + wH;
     const { viability, note } = assessW(W, 0, coldH);
     // matAtTarget: quanto sarà la maturazione all'orario target scelto?
     let matAtTargetTC: number | undefined;
     if (params.targetTotalH !== undefined && isFinite(coldH)) {
-      const aduAtT = initialAdu + rFri * Math.max(0, params.targetTotalH - staglioH);
+      const aduAtT = initialAdu + rFri * Math.max(0, params.targetTotalH - staglioH - wH) + rampAdu;
       const raw = (gompertz as Function)(aduAtT, muMax, aParams.lambda, 100) as number;
       matAtTargetTC = isNaN(raw) ? undefined : Math.min(100, Math.max(0, raw));
     }
     results.push({
       protocol: 'tc', totalH, tcHours: coldH, staglioH,
+      warmupH: wH > 0.05 ? wH : undefined,
       viability, viabilityNote: note,
       matAtTarget: matAtTargetTC,
       label: 'TC totale',
-      desc:  `In frigo ${fmtHours(coldH)} · staglio ${fmtHours(staglioH)}`,
+      desc:  `In frigo ${fmtHours(coldH)} · staglio ${fmtHours(staglioH)}${wH > 0.05 ? ` · riscaldo ${fmtHours(wH)}` : ''}`,
       stars: coldH > 8 ? (viability === 'ok' ? 4 : 2) : 2,
+      ...fitOf(totalH),
     });
   }
 
@@ -318,6 +308,7 @@ function computeAllProtocols(params: {
       label: 'TC Puntata',
       desc: `Puntata in frigo ${fmtHours(coldH_mixed)} · staglio ${fmtHours(staglioH)} · appretto ${fmtHours(warmH_mixed)}`,
       stars: viability === 'ok' ? 4 : 2,
+      fit: 'ok',
     });
   }
 
@@ -342,11 +333,17 @@ function computeAllProtocols(params: {
       label: 'TC Appretto',
       desc: `Puntata ${fmtHours(warmH_appreto)} · staglio ${fmtHours(staglioH)} · appretto in frigo ${fmtHours(coldH_appreto)}${warmupSuffix}`,
       stars: viability === 'ok' ? 3 : 2,
+      fit: 'ok',
     });
   }
 
-  // Ordina: ok prima, poi risky, poi no; dentro ogni gruppo per stelle desc
+  // Chi non ci sta: niente stelle.
+  for (const r of results) if (r.fit === 'late') r.stars = 0;
+
+  // Ordina: chi non ci sta in fondo; poi ok, risky, no; dentro ogni gruppo per stelle desc
   return results.sort((a, b) => {
+    const lDiff = Number(a.fit === 'late') - Number(b.fit === 'late');
+    if (lDiff !== 0) return lDiff;
     const order: Record<Viability, number> = { ok: 0, risky: 1, no: 2 };
     const vDiff = order[a.viability] - order[b.viability];
     if (vDiff !== 0) return vDiff;
@@ -371,6 +368,16 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
     // Segmenti per il protocollo
     const proto = result.protocol;
     const s = result.staglioH;
+    // Riscaldo dopo il frigo (tc, tc_appreto): 5 sub-passi con T(t) = tAmb+(fridgeT-tAmb)·exp(-t/τ_approx)
+    // τ_approx: sfera ~280g, hyd 65% → ~10800s (approssimazione fissa per la curva)
+    const TAU_APPROX_S = 10800;
+    const rampSegs = result.warmupH
+      ? Array.from({ length: 5 }, (_, i) => {
+          const t = (i + 0.5) * (result.warmupH! / 5) * 3600;
+          const T = tAmb + (fridgeT - tAmb) * Math.exp(-t / TAU_APPROX_S);
+          return { durationH: result.warmupH! / 5, tempC: T };
+        })
+      : [];
     const segs: { durationH: number; tempC: number }[] =
       proto === 'ta' ? [
         { durationH: result.puntataH ?? 0, tempC: tAmb },
@@ -380,30 +387,19 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
       : proto === 'tc' ? [
         { durationH: result.tcHours ?? 0, tempC: fridgeT },
         { durationH: s, tempC: tAmb },
+        ...rampSegs,
       ]
       : proto === 'tc_puntata' ? [
         { durationH: result.tcHours ?? 0, tempC: fridgeT },
         { durationH: s, tempC: tAmb },
         { durationH: result.apprettoH ?? 0, tempC: tAmb },
       ]
-      : (() => {
-          // Ramp tc_appreto: 5 sub-passi con T(t) = tAmb+(fridgeT-tAmb)·exp(-t/τ_approx)
-          // τ_approx: sfera ~280g, hyd 65% → ~10800s (approssimazione fissa per la curva)
-          const TAU_APPROX_S = 10800;
-          const rampSegs = result.warmupH
-            ? Array.from({ length: 5 }, (_, i) => {
-                const t = (i + 0.5) * (result.warmupH! / 5) * 3600;
-                const T = tAmb + (fridgeT - tAmb) * Math.exp(-t / TAU_APPROX_S);
-                return { durationH: result.warmupH! / 5, tempC: T };
-              })
-            : [];
-          return [
-            { durationH: result.puntataH ?? 0, tempC: tAmb },
-            { durationH: s,                    tempC: tAmb },
-            { durationH: result.tcHours ?? 0,  tempC: fridgeT },
-            ...rampSegs,
-          ];
-        })();
+      : [
+          { durationH: result.puntataH ?? 0, tempC: tAmb },
+          { durationH: s,                    tempC: tAmb },
+          { durationH: result.tcHours ?? 0,  tempC: fridgeT },
+          ...rampSegs,
+        ];
 
     for (const seg of segs) {
       const kT = (kEffective as Function)(seg.tempC, aParams.Ea, agentType) as number;
@@ -484,9 +480,9 @@ function outcomeOf(r: PlanResult): { label: string; color: string } | null {
                : { label: 'Oltre il target', color: 'var(--pm4-ember)' };
 }
 
-/** Il protocollo consigliato: fattibile, più vicino al target, poi per stelle. */
-function pickRecommended(results: PlanResult[]): PlanResult | null {
-  const usable = results.filter(r => r.viability !== 'no');
+/** Il protocollo consigliato: fattibile e nell'orario, più vicino al target, poi per stelle. */
+export function pickRecommended(results: PlanResult[]): PlanResult | null {
+  const usable = results.filter(r => r.viability !== 'no' && r.fit !== 'late');
   if (usable.length === 0) return null;
   return [...usable].sort((a, b) => {
     // Arrotondati al punto percentuale: un rumore in virgola mobile non deve
@@ -564,16 +560,20 @@ function PlanSummaryCard({ result, nowMs, onUse, disabled, disabledReason }: {
   );
 }
 
-function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse, plannerErrors, recommended, disabled }: {
+function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMax, onUse, plannerErrors, recommended, disabled, nowMs, hoursUntilBake, onShiftBake }: {
   result: PlanResult; aParams: { Ea: number; muMax: number; lambda: number };
   agentType: string; tAmb: number; fridgeT: number; initialAdu: number; muMax: number;
   onUse: () => void; plannerErrors?: string[];
+  nowMs: number; hoursUntilBake?: number;
+  /** Sposta l'orario di cottura (piano che non ci sta). */
+  onShiftBake: (ms: number) => void;
   /** Il protocollo già proposto in "Il tuo piano": qui solo come riferimento. */
   recommended?: boolean;
   disabled?: boolean;
 }) {
   const stars = '★'.repeat(result.stars) + '☆'.repeat(Math.max(0, 5 - result.stars));
-  const outcome = outcomeOf(result);
+  const late = result.fit === 'late';
+  const outcome = late ? null : outcomeOf(result);
   const blocked = disabled || !!(plannerErrors && plannerErrors.length > 0);
   // La W è un vincolo, non l'esito: compare solo quando è un problema.
   const wNote = result.viability === 'risky' ? '⚠ W al limite' : result.viability === 'no' ? '✗ W troppo bassa' : null;
@@ -589,7 +589,7 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
             {result.label}{recommended && <span style={{ color: 'var(--pm4-ember-lo)', fontSize: 11, marginLeft: 8 }}>consigliato</span>}
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--pm4-umber)', marginTop: 2 }}>
-            <span aria-label={`${result.stars} su 5`}>{stars}</span> · {fmtHours(result.totalH)} in tutto
+            {!late && <><span aria-label={`${result.stars} su 5`}>{stars}</span> · </>}{fmtHours(result.totalH)} in tutto
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -607,7 +607,27 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
         {result.desc}
       </div>
 
-      {result.matAtTarget !== undefined && (
+      {late && hoursUntilBake !== undefined && (
+        <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--pm4-ember-lo)', lineHeight: 1.5 }}>
+            Non ci sta: servono {fmtHours(result.totalH)}, ne hai {fmtHours(hoursUntilBake)}.
+          </div>
+          <button type="button" onClick={() => onShiftBake(suggestedBakeAtMs(nowMs, result.totalH))} className="pm4-btn pm4-btn-ghost" style={{
+            background: 'rgba(255,255,255,0.04)', color: 'var(--pm4-tan)',
+            border: '1px solid var(--pm4-line-strong)', borderRadius: 9,
+            padding: '9px 14px', minHeight: 44, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+          }}>
+            Sposta la cottura alle {fmtClockDay(new Date(suggestedBakeAtMs(nowMs, result.totalH)), nowMs)}
+          </button>
+        </div>
+      )}
+      {result.fit === 'early' && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, marginBottom: 6, color: 'var(--pm4-tan)' }}>
+          Pronta prima: ~{fmtClockDay(new Date(nowMs + result.totalH * 3_600_000), nowMs)}
+        </div>
+      )}
+
+      {!late && result.matAtTarget !== undefined && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, marginBottom: 6, color: 'var(--pm4-tan)' }}>
           Maturazione all'orario scelto: <strong style={{ color: outcome?.color ?? 'var(--pm4-flour)' }}>{result.matAtTarget.toFixed(0)}%</strong>
           <span style={{ color: 'var(--pm4-umber)' }}> (target {BAKE_TARGET_PCT}%)</span>
@@ -620,7 +640,7 @@ function ProtocolCard({ result, aParams, agentType, tAmb, fridgeT, initialAdu, m
         </div>
       )}
 
-      {result.viability !== 'no' && (
+      {result.viability !== 'no' && !late && (
         <>
           {plannerErrors && plannerErrors.length > 0 && (
             <div role="alert" style={{
@@ -1439,8 +1459,16 @@ export function FermentationPlannerView() {
     : dateInPast ? "L'orario di cottura scelto è già passato: scegline uno futuro."
     : plannerErrors.length > 0 ? plannerErrors[0] : undefined;
 
+  // "Sposta la cottura alle…": il piano che non ci stava ora ci sta.
+  const shiftBakeTo = (ms: number) => {
+    const { date, time } = toDateInputs(ms);
+    setTargetDate(date);
+    setTargetTime(time);
+  };
+
   // Lancia wizard con i parametri del protocollo scelto → direttamente al riepilogo (step 8)
   const useResult = (r: PlanResult) => {
+    if (r.fit === 'late') return;
     // FlourGroup sintetico dal W selezionato nel planner (blend o singolo)
     const selectedEntry = FLOUR_DATABASE.find(f => f.id === selectedFlourId);
     const flourArr = useBlend && blendFlours.length > 0
@@ -1469,8 +1497,8 @@ export function FermentationPlannerView() {
       apprettoProtocol: r.protocol,
       puntataH:         r.puntataH  ?? 8,
       staglioH:         r.staglioH,
-      apprettoH:        r.protocol === 'tc_appreto' ? (r.warmupH ?? 0) : (r.apprettoH ?? 4),
-      temperingH:       r.protocol === 'tc_appreto' ? (r.warmupH ?? 0) : undefined,
+      apprettoH:        r.protocol === 'tc_appreto' || r.protocol === 'tc' ? (r.warmupH ?? 0) : (r.apprettoH ?? 4),
+      temperingH:       r.protocol === 'tc_appreto' || r.protocol === 'tc' ? (r.warmupH ?? 0) : undefined,
       // la soglia con cui il planner ha costruito i protocolli: la dashboard userà questa
       alertThreshold:   BAKE_TARGET_PCT,
       tcHours:          r.tcHours,
@@ -2153,6 +2181,9 @@ export function FermentationPlannerView() {
                 muMax={muMax}
                 onUse={() => useResult(r)}
                 plannerErrors={plannerErrors}
+                nowMs={nowMs}
+                hoursUntilBake={hoursUntilBake}
+                onShiftBake={shiftBakeTo}
               />
             ))}
           </div>
