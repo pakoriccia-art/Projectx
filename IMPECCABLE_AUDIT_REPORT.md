@@ -587,3 +587,77 @@ Altri P2, da non perdere: il monitor è un vicolo cieco per 48 ore (il wordmark 
 7. Il monitor sa dire "Infornata alle 20:30 · prima del pronto (−12h 58m)": perché lo Storico mostra "USURA W 0%" invece di quella frase?
 
 Non visto: lo stato FREDDO del semaforo (mai raggiunto per il P0), COLLASSO e CRITICO, il modale fuori protocollo, le notifiche locali, lo Storico con più sessioni, il Servizio con data impostata. Font reali non caricati nel sandbox: larghezze misurate con i fallback.
+
+## Passaggio 36: P0 e P1 della critique, più Home e Storico
+
+Correzione dei due P0 e dei due P1 del passaggio 35, più la Home con l'impasto in corso e lo Storico. Il motore (`engine/`, `src/engine/`) non è stato toccato.
+
+**A · "TC tutto in frigo" misurata come TA (P0).**
+- `seedPhase` (`src/lib/timeline.ts`) prende fase e T ambiente dal segmento in corso della timeline effettiva, con il gate fuori protocollo.
+- La usano tick, dashboard, Rotta, Forno, la ripresa della sessione e il primo log: una sessione TC parte in frigo a 4 °C.
+- Le sessioni già salvate come TA ripartono in frigo.
+- Lo snapshot del tick si salva anche uscendo dalla dashboard.
+- In frigo non c'è più "regge fino a", e non si offre "Ho infornato" (né "Ho infornato, chiudi") finché l'impasto non è infornabile.
+
+**C0 + C2 · Riscaldo per "TC tutto in frigo" (P1).**
+- `src/lib/warmup.ts` è l'unico calcolo del riscaldo: prima era copiato in Wizard e Planner.
+- Il calcolo usa la T laboratorio della sessione (prima 22 °C fissi) ed è arrotondato in su al quarto d'ora.
+- Il protocollo `tc` finisce con un appretto a TA (`proofing`), letto dalle fasi canoniche come "APPRETTO · TA".
+- Il riscaldo è applicato in wizard (passi 7 e 8), `buildInitialTimeline`, grafico, Planner ("TC totale … · riscaldo") e Rotta.
+- Le sessioni salvate prima del riscaldo hanno `temperingH` 0 e restano come sono.
+- Corretto il refuso "APPRETO".
+
+**B · Planner (P0).**
+- `src/lib/plannerFit.ts` classifica ogni piano: `ok`, `early` o `late`, con tolleranza di 15 min.
+- Un piano `late` perde stelle e "Usa questo", finisce in fondo e non è mai consigliato. Mostra "Non ci sta: servono X, ne hai Y" e "Sposta la cottura alle …", che imposta data e ora.
+- Un piano `early` dice "Pronta prima: ~…" e tiene la CTA.
+- Il passo 8 del wizard si blocca se il piano finisce dopo il Forno.
+
+**C1 · Passo 7 (P1).**
+- Con tutto TA l'appretto, finché non lo tocchi, è quello che fa infornare al pronto del motore (`suggestedApprettoH`).
+- Etichetta "Appretto (dal modello: inforni al pronto)" e "Ripristina dal modello".
+- Sui valori di default non compare più l'avviso "acerbo".
+
+**C3 · Chip "❄ inforni a ~9°" (P1).**
+- Il chip diventa un bottone verso Aggiusta rotta ("Aggiungi il riscaldo →").
+- Per `tc` e `tc_appreto` Rotta ha la card "Riscaldo TA (fuori dal frigo)" con il valore consigliato, "Usa il consigliato" e il cuore previsto a cottura. Alle sessioni vecchie appende l'appretto a TA.
+- Con l'impasto in frigo lo slider della temperatura regola la cucina (T laboratorio), non il tick.
+
+**D · Forno (P1).**
+- Senza forno della sessione o dell'ultima volta (`src/lib/prefs.ts`) la vista chiede "Che forno usi?" e non dà verdetti.
+- Archetipo e piano stanno prima del verdetto.
+- I tempi sono in "76 s" (`fmtSeconds`).
+- Tolta la clausola "(3) cambia stile".
+- "PIROMETRO · FORNO MODIFICATO", pomello color farina, testi a 11 px.
+- L'avviso "impasto freddo" usa lo stesso calcolo della dashboard.
+
+**E · Home e guardie.**
+- `bakeForecastFor` (`src/lib/bakeForecast.ts`) calcola l'orario di cottura per dashboard e Home.
+- La Home mostra "🍕 Napoletana · inforni alle ~…" verso la dashboard, con lo stesso orario.
+- "Nuovo impasto" è disabilitato con "Prima termina l'impasto in corso."
+- Testi in italiano, senza "ENGINE … FERMENTATION SCIENCE" né "Capacitor".
+- Il wordmark della dashboard torna alla Home.
+- Wizard, Prefermento, Planner e Storico non avviano un secondo impasto sopra quello in corso, che resterebbe orfano nel DB.
+
+**F · Storico.**
+- Ordine della card: titolo, racconto ("Infornata 20:30 · 45 min dopo il pronto (pronta dalle 19:45)", la stessa frase della dashboard via `src/lib/bakedStory.ts`), voto, numeri, cestino in fondo.
+- Il cestino ora arriva dopo il voto anche in tabulazione.
+
+### Verifica
+
+- `npm run typecheck` pulito.
+- `npm test`: 286 test vitest e suite engine e stress verdi.
+- Finto telefono, scenario `tutti`: 74/74.
+- Browser a 390 e 360 px: 27/27 controlli su:
+  - wizard TC: chip PUNTATA · TC, strip PUNTATA·TC/STAGLIO/APPRETTO·TA, niente "regge fino a", "Ho infornato" né chip freddo;
+  - Home con impasto in corso: card, "Nuovo impasto" disabilitato, wordmark → Home → dashboard;
+  - sessione TC vecchia: chip → Rotta → "Usa il consigliato" → cuore ~19° → chip sparito;
+  - Forno: prima apertura senza verdetto, "51 s";
+  - passo 7 TA senza "acerbo";
+  - Storico: racconto prima dei numeri;
+  - Planner con la cottura tra 47 h: "TC totale" con "Non ci sta", poi "Sposta la cottura" imposta data e ora;
+  - nessuno scroll orizzontale.
+- Rilevatore sui file toccati: da 89 a 88 segnalazioni (un colore fuori palette in meno nel Forno, un font del Forno riportato sulla scala di DESIGN.md).
+- Da fare: rilanciare `scripts\test-telefono.ps1` sul telefono vero (atteso 74/74).
+
+**Da sapere.** Con la cassetta chiusa e la cucina a 20 °C il modello chiede circa 8h 30m di riscaldo per un panetto da 250 g. È il valore del modello termico già usato per "TC Appretto", ora mostrato anche per "TC tutto in frigo".

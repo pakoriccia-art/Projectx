@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Metric, S, SliderInput, fmtHours, speakHours } from '../ui';
 import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS, getStyleProfile } from '../../engine';
-import { resolveThreshold } from '../../lib/bakeReadiness';
+import { isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
 import { buildInitialTimeline, db } from '../../db/db';
 import { retimeTimeline, seedPhase, timelineEndH, type DurationKey } from '../../lib/timeline';
 import { fmtBakeClock } from '../../lib/bakeForecast';
@@ -27,7 +27,11 @@ function RottaContent() {
   const ts      = state.tickState;
 
   // Stato locale (prima di applicare)
-  const [localT, setLocalT]               = useState(ts?.tempAmbient ?? seedPhase(session).tempAmbient);
+  // In frigo la T del tick è quella del frigo: lo slider regola la cucina (le fasi
+  // calde che verranno), cioè la T laboratorio della sessione.
+  const inFridge = isFridgePhase(ts?.phase ?? seedPhase(session).phase);
+  const kitchenT = session.tLaboratorio ?? 22;
+  const [localT, setLocalT]               = useState(inFridge ? kitchenT : (ts?.tempAmbient ?? seedPhase(session).tempAmbient));
   const [localTcH, setLocalTcH]           = useState(session.tcHours ?? 0);
   const [localFridgeT, setLocalFridgeT]   = useState(session.fridgeTempC ?? 4);
   // la stessa soglia della dashboard: quella della sessione, altrimenti dello stile
@@ -55,7 +59,9 @@ function RottaContent() {
   const initialAppretto = needsWarmup
     ? (warmSeg && warmSeg.id !== 'warmup-added' ? Math.max(0, (warmSeg.endElapsedH ?? warmSeg.startElapsedH) - warmSeg.startElapsedH) : 0)
     : (session.apprettoH ?? 4);
-  const suggestedWarmupH = needsWarmup ? warmupHForSession(session, session.tLaboratorio ?? 22) : 0;
+  // Il riscaldo si fa in cucina: con la T scelta qui se l'impasto è ancora in frigo.
+  const warmT = inFridge ? localT : kitchenT;
+  const suggestedWarmupH = needsWarmup ? warmupHForSession(session, warmT) : 0;
 
   const [localPuntataH,  setLocalPuntataH]  = useState(session.puntataH  ?? 8);
   const [localStaglioH,  setLocalStaglioH]  = useState(session.staglioH  ?? 0.5);
@@ -85,7 +91,7 @@ function RottaContent() {
   const newBakeAt = new Date(planBakeMs(newTimeline));
 
   // Ritmo relativo a 25°C: adesso (T ambiente della sessione) contro la T proposta.
-  const tAmbNow  = ts?.tempAmbient ?? seedPhase(session).tempAmbient;
+  const tAmbNow  = inFridge ? kitchenT : (ts?.tempAmbient ?? seedPhase(session).tempAmbient);
   const kAt      = (t: number) => (kEffective as Function)(t, session.agentEaKj, session.agentType) as number;
   const kRef     = kAt(25);
   const kRatioCurr = kRef > 0 ? kAt(tAmbNow) / kRef : 0;
@@ -139,6 +145,7 @@ function RottaContent() {
   const apply = () => {
     if (!dirty) return;
     const patch = {
+      ...(inFridge && localT !== kitchenT ? { tLaboratorio: localT } : {}),
       tcHours:        isTcProto ? localTcH : undefined,
       fridgeTempC:    isTcProto ? localFridgeT : undefined,
       puntataH:       localPuntataH,
@@ -152,7 +159,7 @@ function RottaContent() {
       // il nuovo obiettivo è il piano ritemporizzato: niente "obiettivo −2h" fantasma
       ...(isTcProto ? { targetBakeAt: newBakeAt } : {}),
     };
-    dispatch({ type: 'TICK',           patch: { tempAmbient: localT } as any });
+    if (!inFridge) dispatch({ type: 'TICK', patch: { tempAmbient: localT } as any });
     dispatch({ type: 'SESSION_UPDATE', patch });
     // subito nel DB: chiudendo l'app la rotta non si perde
     if (session.id != null) db.sessions.update(session.id, patch as any).catch(console.error);
@@ -168,7 +175,7 @@ function RottaContent() {
     timeline: newTimeline, nowElapsedH,
     bakeH: timelineEndH(newTimeline) - serviceH,
     currentDoughTempC: ts?.tempDough ?? seedPhase(session).tempAmbient,
-    ambientTempC: session.tLaboratorio ?? 22,
+    ambientTempC: warmT,
     session: session as any,
   }) : null;
   const warmupCard = needsWarmup && (
@@ -178,7 +185,7 @@ function RottaContent() {
         <span style={valueStyle('var(--state-approaching)')}>{localApprettoH > 0 ? fmtHours(localApprettoH) : '0'}</span>
       </div>
       <input
-        id="rotta-warmup" type="range" min={0} max={8} step={0.25}
+        id="rotta-warmup" type="range" min={0} max={Math.max(8, Math.ceil(suggestedWarmupH))} step={0.25}
         value={localApprettoH} aria-valuetext={localApprettoH > 0 ? speakHours(localApprettoH) : 'nessun riscaldo'}
         onChange={e => setLocalApprettoH(parseFloat(e.target.value))}
         style={{ width: '100%', accentColor: 'var(--state-approaching)', marginBottom: 10 }}
@@ -208,7 +215,7 @@ function RottaContent() {
   const tempCard = (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-        <label htmlFor="rotta-tamb" style={S.label}>Temperatura ambiente</label>
+        <label htmlFor="rotta-tamb" style={S.label}>{inFridge ? 'Temperatura della cucina' : 'Temperatura ambiente'}</label>
         <span style={valueStyle('var(--text-primary)')}>{localT}°C</span>
       </div>
       <input

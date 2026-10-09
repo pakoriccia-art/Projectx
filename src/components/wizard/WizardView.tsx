@@ -312,7 +312,7 @@ function buildSessionRaw(draft: WizardDraft): Session {
   const _tc = draft.tcHours ?? 12;
 
   // Per tc_appreto: apprettoH = tempo di riscaldo calcolato dinamicamente (frigo → 18°C servizio)
-  // T ambiente 22°C assunta — il wizard non raccoglie tAmb.
+  // T ambiente: quella del laboratorio (passo dell'acqua), la stessa che userà la dashboard.
   // Il tauMultiplier del contenitore viene applicato per riflettere l'inerzia del contenitore
   // scelto (es. closed_box → τ × 2.5): coerente con applyContainerResistance() nel tick loop.
   // Se è presente una timeline precomputata (Service-Window planner), lo schedule
@@ -326,7 +326,7 @@ function buildSessionRaw(draft: WizardDraft): Session {
   // Anche "TC · Tutto in frigo" finisce con il riscaldo fuori dal frigo: senza,
   // dopo 30 min di staglio il cuore arriva a cottura a ~9 °C.
   const needsWarmup = _proto === 'tc_appreto' || _proto === 'tc';
-  const _warmup = (needsWarmup && !plannerAuthoritative) ? warmupHForSession(draft, 22) : 0;
+  const _warmup = (needsWarmup && !plannerAuthoritative) ? warmupHForSession(draft, draft.tLaboratorio ?? 20) : 0;
   const _a = needsWarmup
     ? (fromPlanner && !hasPrecomputedTimeline ? (draft.temperingH ?? draft.apprettoH ?? 0) : _warmup)
     : (draft.apprettoH ?? 4);
@@ -1481,7 +1481,7 @@ function PuntataAlert({ puntataH, ambientTempC, style }: { puntataH: number; amb
 }
 
 /** Riscaldo TA finale (tc, tc_appreto): calcolato, non regolabile qui. */
-function WarmupBox({ fridgeT, warmupH }: { fridgeT: number; warmupH: number }) {
+function WarmupBox({ fridgeT, warmupH, tAmb }: { fridgeT: number; warmupH: number; tAmb: number }) {
   return (
     <FormSection title="🌡 Riscaldo TA finale" accent="var(--state-approaching)">
       <div style={{
@@ -1497,7 +1497,7 @@ function WarmupBox({ fridgeT, warmupH }: { fridgeT: number; warmupH: number }) {
         </span>
       </div>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-        Calcolato con legge di Newton · τ sferica · T ambiente 22°C assunta
+        Calcolato con legge di Newton · τ sferica · T ambiente {tAmb}°C
       </span>
     </FormSection>
   );
@@ -1518,9 +1518,9 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const fridgeT = draft.fridgeTempC ?? 4;
 
   // Riscaldo TA finale (tc e tc_appreto): ore per portare il panetto da frigo a 18°C
-  // T ambiente assunta 22°C (default cucina) poiché il wizard non raccoglie tAmb.
+  // T ambiente: quella del laboratorio, la stessa che userà la dashboard.
   // Applica tauMultiplier del contenitore selezionato (inerzia termica).
-  const warmupHDisplay = (proto === 'tc_appreto' || proto === 'tc') ? warmupHForSession(draft, 22) : 0;
+  const warmupHDisplay = (proto === 'tc_appreto' || proto === 'tc') ? warmupHForSession(draft, draft.tLaboratorio ?? 20) : 0;
 
   // Puntata TA ottimale calcolata (solo tc_appreto) — usata come default quando
   // l'utente non ha ancora spostato il cursore (draft.puntataH == null).
@@ -1617,7 +1617,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             min={0.1} max={2} step={0.1} unit="h" />
         </FormSection>
       )}
-      {proto === 'tc' && <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} />}
+      {proto === 'tc' && <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} tAmb={draft.tLaboratorio ?? 20} />}
 
       {/* ── TC Puntata: frigo → TA ── */}
       {proto === 'tc_puntata' && <>
@@ -1664,7 +1664,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           <SliderInput label="Durata appretto" value={freddo} onChange={v => update({ tcHours: v })}
             min={2} max={72} step={1} unit="h" color="var(--state-cold)" />
         </FormSection>
-        <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} />
+        <WarmupBox fridgeT={fridgeT} warmupH={warmupHDisplay} tAmb={draft.tLaboratorio ?? 20} />
       </>}
 
       {(() => {
@@ -1863,7 +1863,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const tauMultStep8   = cPresetStep8?.tauMultiplier ?? 1.0;
   const fromPlannerStep8 = draft.navigationSource === 'planner';
   const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto' || draft.apprettoProtocol === 'tc'
-    ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0) : warmupHForSession(draft, 22))
+    ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0) : warmupHForSession(draft, draft.tLaboratorio ?? 20))
     : 0;
   // Puntata ottimale per step 8: muMax semplificato (senza prefermento, per anteprima)
   const puntataHStep8  = draft.apprettoProtocol === 'tc_appreto' ? (() => {

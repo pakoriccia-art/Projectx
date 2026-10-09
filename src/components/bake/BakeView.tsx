@@ -20,6 +20,8 @@ import { computeDashboardEffectiveW, computeCurrentPH } from '../../engine';
 import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { SnapButtons } from '../ui';
 import { seedPhase } from '../../lib/timeline';
+import { bakeForecastFor } from '../../lib/bakeForecast';
+import { isFridgePhase } from '../../lib/bakeReadiness';
 import { fmtSeconds } from '../../lib/fmtTime';
 import { getPref, setPref } from '../../lib/prefs';
 
@@ -182,15 +184,18 @@ export function BakeView() {
   const knobLevel = profile?.knobLevel ?? 3;
 
   // v2.4.21: cuore impasto proiettato a cottura — avviso se < 18°C (impasto freddo).
+  // Stesso calcolo della dashboard: cottura del piano e, se l'impasto è in frigo,
+  // la cucina (non il frigo) per le fasi calde che verranno.
   const coreTempAtBake = ts ? (() => {
-    const startedAt  = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
-    const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date((session.targetBakeAt as any) ?? Date.now() + 86_400_000);
-    const elapsedH   = Math.max(0, (Date.now() - startedAt.getTime()) / 3_600_000);
-    const ambientTempC = ts.tempAmbient ?? seedPhase(session).tempAmbient;
+    const startedAt = new Date(session.startedAt ?? Date.now()).getTime();
+    const fc = bakeForecastFor(session, ts);
+    const tempAmb = ts.tempAmbient ?? seedPhase(session).tempAmbient;
     return projectCoreTempAtBakeC({
-      timeline: session.thermalTimeline, nowElapsedH: elapsedH,
-      bakeH: (targetBake.getTime() - startedAt.getTime()) / 3_600_000,
-      currentDoughTempC: ts.tempDough ?? ambientTempC, ambientTempC, session: session as any,
+      timeline: fc.effectiveTimeline, nowElapsedH: Math.max(0, (Date.now() - startedAt) / 3_600_000),
+      bakeH: (fc.planBakeMs - startedAt) / 3_600_000,
+      currentDoughTempC: ts.tempDough ?? tempAmb,
+      ambientTempC: isFridgePhase(fc.phase) ? (session.tLaboratorio ?? 22) : tempAmb,
+      session: session as any,
     });
   })() : null;
   const coldAtBake = coreTempAtBake != null && coreTempAtBake < CORE_TEMP_AT_BAKE_MIN_C;
@@ -218,7 +223,7 @@ export function BakeView() {
 
         {/* Senza un forno scelto niente verdetto: prima la domanda. */}
         {!profile && (
-          <p style={{ margin: '0 0 12px', fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 700, color: 'var(--pm4-flour)' }}>
+          <p style={{ margin: '0 0 12px', fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, color: 'var(--pm4-flour)' }}>
             Che forno usi?
           </p>
         )}

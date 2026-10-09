@@ -1165,9 +1165,9 @@ export function DashboardV4() {
               <button ref={bakeBtnRef} onClick={markBaked} className="pm-btn-primary" style={{ ...BTN_PRIMARY, minHeight: 52, fontSize: 15 }}>
                 🍕 Ho infornato
               </button>
-            ) : (
+            ) : bakeable && (
               // prima del pronto si può infornare lo stesso (servizio anticipato, forno libero):
-              // secondario, con conferma
+              // secondario, con conferma. In frigo o con il cuore freddo non si offre.
               <button ref={earlyBakeRef} onClick={() => { focusNext.current = 'footerTitle'; setConfirmEarlyBake(true); }}
                 className="pm4-btn pm4-btn-ghost" style={BTN_GHOST}>
                 Ho infornato

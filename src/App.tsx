@@ -235,7 +235,7 @@ function HomeView() {
           🍕 Nuovo impasto
         </button>
         {live && (
-          <p id="home-new-blocked" style={{ margin: '-4px 0 0', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--pm4-tan)', textAlign: 'center' }}>
+          <p id="home-new-blocked" style={{ margin: '-4px 0 0', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--pm4-tan)', textAlign: 'center' }}>
             Prima termina l'impasto in corso.
           </p>
         )}
