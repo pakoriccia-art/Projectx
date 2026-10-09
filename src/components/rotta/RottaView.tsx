@@ -11,6 +11,8 @@ import { resolveThreshold } from '../../lib/bakeReadiness';
 import { buildInitialTimeline, db } from '../../db/db';
 import { retimeTimeline, seedPhase, timelineEndH, type DurationKey } from '../../lib/timeline';
 import { fmtBakeClock } from '../../lib/bakeForecast';
+import { warmupHForSession } from '../../lib/warmup';
+import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 
 const AGENT_SHORT: Record<string, string> = {
   fresh_yeast:       'LBF',
@@ -32,14 +34,32 @@ function RottaContent() {
   const sessionThreshold = resolveThreshold(session.alertThreshold, (getStyleProfile as Function)(session.style)?.alertThreshold);
   const [localThreshold, setThreshold]    = useState(sessionThreshold);
   const [bakeShiftH, setBakeShiftH]       = useState(0);
-  const [localPuntataH,  setLocalPuntataH]  = useState(session.puntataH  ?? 8);
-  const [localStaglioH,  setLocalStaglioH]  = useState(session.staglioH  ?? 0.5);
-  const [localApprettoH, setLocalApprettoH] = useState(session.apprettoH ?? 4);
-
   const proto = session.apprettoProtocol ?? 'ta';
   const isTcProto = proto !== 'ta';
   // Protocolli che finiscono con il riscaldo fuori dal frigo (apprettoH = temperingH).
   const needsWarmup = proto === 'tc' || proto === 'tc_appreto';
+  // Le sessioni "tutto in frigo" create prima del riscaldo non hanno l'appretto a
+  // TA: lo si appende (durata quasi nulla) e lo slider del riscaldo lo governa.
+  const savedTimeline = session.thermalTimeline ?? buildInitialTimeline(session as any);
+  const hasWarmSeg = savedTimeline.some(sg => sg.phaseType === 'proofing');
+  const baseTimeline = useMemo(() => {
+    if (!needsWarmup || hasWarmSeg || savedTimeline.length === 0) return savedTimeline;
+    const end = timelineEndH(savedTimeline);
+    return [...savedTimeline, {
+      id: 'warmup-added', phaseType: 'proofing', startElapsedH: end, endElapsedH: end + 0.01,
+      ambientTempC: session.tLaboratorio ?? 22, status: 'planned' as const,
+    }];
+  }, [savedTimeline, needsWarmup, hasWarmSeg, session.tLaboratorio]);
+  const warmSeg = baseTimeline.find(sg => sg.phaseType === 'proofing' && sg.status !== 'completed');
+  // Riscaldo attuale: la durata dell'appretto a TA nella timeline (0 se appena appeso).
+  const initialAppretto = needsWarmup
+    ? (warmSeg && warmSeg.id !== 'warmup-added' ? Math.max(0, (warmSeg.endElapsedH ?? warmSeg.startElapsedH) - warmSeg.startElapsedH) : 0)
+    : (session.apprettoH ?? 4);
+  const suggestedWarmupH = needsWarmup ? warmupHForSession(session, session.tLaboratorio ?? 22) : 0;
+
+  const [localPuntataH,  setLocalPuntataH]  = useState(session.puntataH  ?? 8);
+  const [localStaglioH,  setLocalStaglioH]  = useState(session.staglioH  ?? 0.5);
+  const [localApprettoH, setLocalApprettoH] = useState(initialAppretto);
 
   // La cottura del piano è la fine della timeline (meno la finestra di servizio):
   // le durate e lo spostamento la ritemporizzano, la dashboard legge quella.
@@ -50,13 +70,14 @@ function RottaContent() {
     const c: Partial<Record<DurationKey, number>> = {};
     if (localPuntataH  !== (session.puntataH  ?? 8))   c.puntataH  = localPuntataH;
     if (localStaglioH  !== (session.staglioH  ?? 0.5)) c.staglioH  = localStaglioH;
-    if (localApprettoH !== (session.apprettoH ?? 4))   c.apprettoH = localApprettoH;
+    if (Math.abs(localApprettoH - initialAppretto) > 1e-6) c.apprettoH = localApprettoH;
     if (isTcProto && localTcH !== (session.tcHours ?? 0)) c.tcHours = localTcH;
     return c;
-  }, [localPuntataH, localStaglioH, localApprettoH, localTcH, isTcProto, session]);
-  const baseTimeline = session.thermalTimeline ?? buildInitialTimeline(session as any);
+  }, [localPuntataH, localStaglioH, localApprettoH, localTcH, isTcProto, session, initialAppretto]);
   const newTimeline = useMemo(
-    () => retimeTimeline(baseTimeline, changes, nowElapsedH, isTcProto ? bakeShiftH : 0),
+    () => retimeTimeline(baseTimeline, changes, nowElapsedH, isTcProto ? bakeShiftH : 0)
+      // riscaldo appeso e lasciato a zero: non entra nella timeline salvata
+      .filter(sg => !(sg.id === 'warmup-added' && (sg.endElapsedH ?? sg.startElapsedH) - sg.startElapsedH < 0.02)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [baseTimeline, changes, bakeShiftH, isTcProto]);
   const planBakeMs = (tl: typeof baseTimeline) => startMs + (timelineEndH(tl) - serviceH) * 3_600_000;
@@ -141,6 +162,48 @@ function RottaContent() {
   const mono = { fontFamily: 'var(--font-mono)' } as const;
   const valueStyle = (color: string) => ({ ...mono, fontSize: '0.9rem', fontWeight: 700, color });
   const note = { ...mono, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 } as const;
+
+  // Cuore dell'impasto a cottura con il riscaldo scelto (sotto 18° è freddo).
+  const coreAtBake = needsWarmup ? projectCoreTempAtBakeC({
+    timeline: newTimeline, nowElapsedH,
+    bakeH: timelineEndH(newTimeline) - serviceH,
+    currentDoughTempC: ts?.tempDough ?? seedPhase(session).tempAmbient,
+    ambientTempC: session.tLaboratorio ?? 22,
+    session: session as any,
+  }) : null;
+  const warmupCard = needsWarmup && (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <label htmlFor="rotta-warmup" style={S.label}>Riscaldo TA (fuori dal frigo)</label>
+        <span style={valueStyle('var(--state-approaching)')}>{localApprettoH > 0 ? fmtHours(localApprettoH) : '0'}</span>
+      </div>
+      <input
+        id="rotta-warmup" type="range" min={0} max={8} step={0.25}
+        value={localApprettoH} aria-valuetext={localApprettoH > 0 ? speakHours(localApprettoH) : 'nessun riscaldo'}
+        onChange={e => setLocalApprettoH(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--state-approaching)', marginBottom: 10 }}
+      />
+      <div style={{ ...note, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }} aria-live="polite">
+        {coreAtBake != null && (
+          <span>
+            Cuore a cottura: <strong style={{ color: coreAtBake < CORE_TEMP_AT_BAKE_MIN_C ? 'var(--state-cold)' : 'var(--text-primary)' }}>~{coreAtBake.toFixed(0)}°</strong>
+            {coreAtBake < CORE_TEMP_AT_BAKE_MIN_C ? ` (freddo, sotto i ${CORE_TEMP_AT_BAKE_MIN_C}°)` : ''}.
+          </span>
+        )}
+        {suggestedWarmupH > 0 && (
+          <span>Consigliato {fmtHours(suggestedWarmupH)}.</span>
+        )}
+        {suggestedWarmupH > 0 && Math.abs(localApprettoH - suggestedWarmupH) > 1e-6 && (
+          <button type="button" onClick={() => setLocalApprettoH(suggestedWarmupH)} style={{
+            background: 'none', border: '1px solid var(--pm4-line-strong)', borderRadius: 6, color: 'var(--text-primary)',
+            ...mono, fontSize: 12, fontWeight: 700, padding: '6px 10px', minHeight: 44, cursor: 'pointer',
+          }}>
+            Usa il consigliato
+          </button>
+        )}
+      </div>
+    </Card>
+  );
 
   const tempCard = (
     <Card>
@@ -263,6 +326,7 @@ function RottaContent() {
                 : <>Allunga o accorcia l'ultima fase.</>}
             </div>
           </Card>
+          {warmupCard}
           {tempCard}
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>

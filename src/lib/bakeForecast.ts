@@ -43,6 +43,16 @@ export function apprettoCorrectionH(planH: number, readyH: number | null, appret
   return next === apprettoH ? null : next - apprettoH;
 }
 
+/**
+ * Appretto che fa coincidere la fine del piano con il pronto del motore
+ * (mezz'ore, tra 0,5 e 12 h); null senza previsione. Il pronto non dipende
+ * dalle durate: nessuna circolarità.
+ */
+export function suggestedApprettoH(readyH: number | null, puntataH: number, staglioH: number): number | null {
+  if (readyH == null || !Number.isFinite(readyH)) return null;
+  return Math.min(12, Math.max(0.5, Math.round((readyH - puntataH - staglioH) * 2) / 2));
+}
+
 /** "~09:46" oggi, "~09:46 domani", "~09:46 mer", "~09:46 12 ott". */
 export function fmtBakeClock(ms: number, now = Date.now()): string {
   return `~${fmtClockDay(ms, now)}`;

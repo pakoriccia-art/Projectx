@@ -24,6 +24,10 @@ interface LiveHeaderProps {
   coldBakeWarning?:   string;
   /** Azione suggerita sui ribbon strutturali (→ Aggiusta Rotta). */
   onAdjust?:          () => void;
+  /** Impasto freddo a cottura: porta dove si aggiunge il riscaldo (Aggiusta Rotta). */
+  onColdBake?:        () => void;
+  /** Il wordmark torna alla Home (l'impasto resta in corso). */
+  onHome?:            () => void;
   /**
    * Cottura PREVISTA (stessa sorgente del blocco centrale): 'ORA' a pronto,
    * altrimenti l'orario. Il piano resta come riferimento secondario.
@@ -62,7 +66,7 @@ const HEADER_S: React.CSSProperties = {
 
 export function LiveHeader({
   style, startedAt, targetBakeAt, currentPhase, alertLevel, alertMessage,
-  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, bakeForecast, planDelta,
+  currentPhaseLabel, currentPhaseCold, coldBakeWarning, onAdjust, onColdBake, onHome, bakeForecast, planDelta,
 }: LiveHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -88,10 +92,20 @@ export function LiveHeader({
     <header style={HEADER_S}>
       {/* brand + segnale live */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '1.4rem', letterSpacing: '-0.02em', color: 'var(--pm4-flour)' }}>
-          Pizza<span style={{ color: 'var(--pm4-ember)' }}>Matrix</span>
-          <span style={{ color: 'var(--pm4-ember)' }}>.</span>
-        </span>
+        {(() => {
+          const mark = <>
+            Pizza<span style={{ color: 'var(--pm4-ember)' }}>Matrix</span>
+            <span style={{ color: 'var(--pm4-ember)' }}>.</span>
+          </>;
+          const font: React.CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 900, fontSize: '1.4rem', letterSpacing: '-0.02em', color: 'var(--pm4-flour)' };
+          return onHome ? (
+            <button type="button" onClick={onHome} aria-label="Torna alla Home, l'impasto resta in corso" style={{
+              ...font, background: 'none', border: 'none', padding: 0, margin: 0, minHeight: 44, cursor: 'pointer', textAlign: 'left',
+            }}>
+              {mark}
+            </button>
+          ) : <span style={font}>{mark}</span>;
+        })()}
         <span style={{ ...K, color: 'var(--pm4-tan)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="pm4-live" /> live · {timeStr}
         </span>
@@ -148,18 +162,25 @@ export function LiveHeader({
       )}
 
       {/* ribbon advisory "impasto freddo a cottura" (v2.4.21) — separato dagli alert */}
-      {coldBakeWarning && (
-        <div style={{
-          marginTop: 10, display: 'flex', alignItems: 'center', gap: 9,
+      {coldBakeWarning && (() => {
+        const box: React.CSSProperties = {
+          marginTop: 10, display: 'flex', alignItems: 'center', gap: 9, width: '100%',
           padding: '8px 12px', borderRadius: 8,
           background: 'linear-gradient(90deg, rgba(116,185,255,0.12), transparent)',
           border: '1px solid rgba(116,185,255,0.4)', color: 'var(--state-cold)',
-          fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em',
-        }}>
+          fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.01em', textAlign: 'left',
+        };
+        const body = <>
           <span aria-hidden="true">❄</span>
-          <span>{coldBakeWarning}</span>
-        </div>
-      )}
+          <span style={{ flex: 1 }}>{coldBakeWarning}</span>
+        </>;
+        return onColdBake ? (
+          <button type="button" onClick={onColdBake} style={{ ...box, minHeight: 44, cursor: 'pointer' }}>
+            {body}
+            <span style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>Aggiungi il riscaldo →</span>
+          </button>
+        ) : <div style={box}>{body}</div>;
+      })()}
     </header>
   );
 }

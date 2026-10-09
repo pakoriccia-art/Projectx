@@ -805,6 +805,8 @@ export function DashboardV4() {
         currentPhaseCold={bakedAt ? false : canonicalCurrent ? canonicalCurrent.env === 'TC' : undefined}
         coldBakeWarning={coldBakeMsg}
         onAdjust={() => dispatch({ type: 'NAV', view: 'rotta' })}
+        onColdBake={() => dispatch({ type: 'NAV', view: 'rotta' })}
+        onHome={() => dispatch({ type: 'NAV', view: 'home' })}
         bakeForecast={bakedAt ? fmtClock(bakedAt) : bakeForecast}
         planDelta={null}
       />

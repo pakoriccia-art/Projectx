@@ -90,3 +90,15 @@ describe('buildInitialTimeline — TC tutto in frigo', () => {
     expect(tl.map(s => s.phaseType)).toEqual(['bulk_fridge', 'balled_room']);
   });
 });
+
+describe('retimeTimeline — riscaldo appeso a una sessione TC vecchia', () => {
+  it('lo slider del riscaldo allunga la fine del piano', () => {
+    const old: PhaseSegment[] = [
+      { id: 'f', phaseType: 'bulk_fridge', startElapsedH: 0, endElapsedH: 12, ambientTempC: 4, status: 'current' },
+      { id: 's', phaseType: 'balled_room', startElapsedH: 12, endElapsedH: 12.5, ambientTempC: 21, status: 'planned' },
+      { id: 'warmup-added', phaseType: 'proofing', startElapsedH: 12.5, endElapsedH: 12.51, ambientTempC: 21, status: 'planned' },
+    ];
+    const out = retimeTimeline(old, { apprettoH: 3 }, 2);
+    expect(timelineEndH(out)).toBeCloseTo(15.5);
+  });
+});

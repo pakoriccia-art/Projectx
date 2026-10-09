@@ -40,7 +40,7 @@ import { WizardInputSchema } from '../../lib/schemas';
 import { draftOverrunH } from '../../lib/plannerFit';
 import { warmupHForSession, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
 import { fridgePhaseIsSanctioned } from '../../engine/outOfProtocol';
-import { engineReadyH, apprettoCorrectionH, fmtBakeClock } from '../../lib/bakeForecast';
+import { engineReadyH, apprettoCorrectionH, fmtBakeClock, suggestedApprettoH } from '../../lib/bakeForecast';
 import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPrefermentStages } from '../../services/sessionService';
 import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
@@ -224,7 +224,28 @@ function puntataMaxHForStyle(
   return rAmb > 1e-12 ? Math.max(0, (aduTarget - initialAdu) / rAmb) : Infinity;
 }
 
+/**
+ * Appretto del draft: quello scelto, altrimenti (tutto TA) quello che fa
+ * infornare al pronto del motore; 4 h se il motore non lo sa dire.
+ */
+export function resolvedApprettoH(draft: WizardDraft): number {
+  if (draft.apprettoH != null) return draft.apprettoH;
+  if ((draft.apprettoProtocol ?? 'ta') !== 'ta') return 4;
+  try {
+    const s0 = buildSessionRaw({ ...draft, apprettoH: 4 });
+    return suggestedApprettoH(engineReadyH(s0), s0.puntataH ?? 8, s0.staglioH ?? 0.5) ?? 4;
+  } catch {
+    return 4;
+  }
+}
+
 export function buildSession(draft: WizardDraft): Session {
+  return buildSessionRaw((draft.apprettoProtocol ?? 'ta') === 'ta' && draft.apprettoH == null
+    ? { ...draft, apprettoH: resolvedApprettoH(draft) }
+    : draft);
+}
+
+function buildSessionRaw(draft: WizardDraft): Session {
   // ── Validazione Zod .strict() (guardia data-layer per tutti i campi wizard) ──
   const parsed = WizardInputSchema.safeParse(draft);
   if (!parsed.success) {
@@ -1489,7 +1510,9 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const proto   = draft.apprettoProtocol ?? 'ta';
   const puntata = draft.puntataH ?? 8;
   const staglio = draft.staglioH ?? 0.5;
-  const appreto = draft.apprettoH ?? 4;
+  // Tutto TA: finché non lo tocchi, l'appretto è quello che fa infornare al pronto.
+  const appreto = resolvedApprettoH(draft);
+  const apprettoFromModel = proto === 'ta' && draft.apprettoH == null;
   const freddo  = draft.tcHours ?? 12;
   const fridgeT = draft.fridgeTempC ?? 4;
 
@@ -1569,8 +1592,17 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
             min={0.5} max={24} step={0.5} unit="h" />
           <SliderInput label="Staglio" value={staglio} onChange={v => update({ staglioH: v })}
             min={0.1} max={2} step={0.1} unit="h" />
-          <SliderInput label="Appretto" value={appreto} onChange={v => update({ apprettoH: v })}
+          <SliderInput label={apprettoFromModel ? 'Appretto (dal modello: inforni al pronto)' : 'Appretto'}
+            value={appreto} onChange={v => update({ apprettoH: v })}
             min={0.5} max={12} step={0.5} unit="h" />
+          {!apprettoFromModel && (
+            <button
+              onClick={() => update({ apprettoH: undefined })}
+              style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 2, minHeight: 44, textAlign: 'left' }}
+            >
+              Ripristina dal modello
+            </button>
+          )}
         </FormSection>
       )}
 
@@ -2036,7 +2068,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
           )}
           <Metric label="Staglio" value={draft.staglioH ?? '–'} unit="h" />
           {draft.apprettoProtocol !== 'tc' && draft.apprettoProtocol !== 'tc_appreto' && (
-            <Metric label="Appretto" value={draft.apprettoH ?? '–'} unit="h" />
+            <Metric label="Appretto" value={draft.apprettoProtocol === 'tc_puntata' ? (draft.apprettoH ?? 4) : resolvedApprettoH(draft)} unit="h" />
           )}
           {(draft.apprettoProtocol === 'tc_appreto' || draft.apprettoProtocol === 'tc') && (
             <Metric label="Riscaldo TA" value={warmupHStep8.toFixed(1)} unit="h" color="var(--state-approaching)" />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apprettoCorrectionH, fmtBakeClock, engineReadyH } from '../lib/bakeForecast';
+import { apprettoCorrectionH, fmtBakeClock, engineReadyH, suggestedApprettoH } from '../lib/bakeForecast';
 
 describe('apprettoCorrectionH', () => {
   it('nessuna correzione sotto la mezz\'ora', () => {
@@ -34,5 +34,18 @@ describe('engineReadyH', () => {
     const h26 = engineReadyH({ ...base, tLaboratorio: 26 })!;
     expect(h20).toBeGreaterThan(0);
     expect(h26).toBeLessThan(h20);
+  });
+});
+
+describe('suggestedApprettoH', () => {
+  it('pronto meno puntata e staglio, a mezz\'ore', () => {
+    expect(suggestedApprettoH(14.9, 8, 0.5)).toBe(6.5);
+  });
+  it('tra 0,5 e 12 h', () => {
+    expect(suggestedApprettoH(8, 8, 0.5)).toBe(0.5);
+    expect(suggestedApprettoH(40, 8, 0.5)).toBe(12);
+  });
+  it('senza previsione: null', () => {
+    expect(suggestedApprettoH(null, 8, 0.5)).toBeNull();
   });
 });
