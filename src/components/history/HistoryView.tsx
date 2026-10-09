@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { calendarDayDiff } from '../../lib/fmtTime';
+import { bakedStoryText } from '../../lib/bakedStory';
 import { useApp } from '../../context/AppContext';
 import { loadSessionHistory, deleteSession, rateSession } from '../../services/sessionService';
 import type { Session } from '../../db/db';
@@ -142,7 +143,6 @@ function SessionCard({
   const end = session.endedAt instanceof Date
     ? session.endedAt : session.endedAt ? new Date(session.endedAt) : null;
   const baked = session.bakedAt ? new Date(session.bakedAt) : null;
-  const readySince = session.readyAt ? new Date(session.readyAt) : null;
   const durationH = (baked ?? end) ? ((baked ?? end)!.getTime() - start.getTime()) / 3_600_000 : null;
 
   const W0 = session.effectiveW_initial ?? null;
@@ -157,7 +157,7 @@ function SessionCard({
   return (
     <article className="pm4-panel" data-session-id={session.id} tabIndex={-1} style={{ outline: 'none', padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}
       aria-label={`${styleName}, ${dateStr}`}>
-      {/* Titolo: stile · stato · esito · elimina */}
+      {/* Titolo: stile · stato · esito */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--pm4-flour)' }}>
           {styleName}
@@ -175,49 +175,13 @@ function SessionCard({
             🍕 {OUTCOME_LABEL[session.outcomeRating]} · cambia
           </button>
         )}
-        <button ref={deleteBtnRef} type="button" onClick={() => setConfirmDelete(true)}
-          aria-label={`Elimina la sessione ${styleName} del ${dateStr}`}
-          style={{ marginLeft: 'auto', width: 44, height: 44, margin: '-8px -10px -8px auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pm4-umber)', fontSize: 16 }}>
-          <span aria-hidden="true">🗑</span>
-        </button>
       </div>
 
-      {confirmDelete && (
-        <div role="alertdialog" aria-label="Conferma eliminazione"
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusAfter.current = 'delete'; setConfirmDelete(false); } }}
-          style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-          <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
-          <button ref={cancelDeleteRef} type="button" onClick={() => { focusAfter.current = 'delete'; setConfirmDelete(false); }} style={{ ...BTN, flex: 1 }}>Annulla</button>
-          <button type="button" onClick={() => { setConfirmDelete(false); onDelete(session); }}
-            className="pm4-btn-danger-quiet"
-            style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
-            Elimina
-          </button>
-        </div>
-      )}
-
-      {/* Racconto: inizio → infornata · pronta dalle · durata */}
+      {/* Racconto: com'è andata, prima dei numeri */}
       <div style={{ ...MONO, fontSize: 12, color: 'var(--pm4-tan)', lineHeight: 1.5 }}>
         {dateStr} · {hhmm(start)}
-        {baked && <> → infornata {clockFrom(baked, start)}</>}
-        {baked && readySince && <> · pronta dalle {clockFrom(readySince, start)} ({fmtDelay(bakeDelayMin(session)!)})</>}
+        {baked && <> · <span style={{ color: 'var(--pm4-flour)' }}>Infornata {clockFrom(baked, start)}</span> · {bakedStoryText(session, d => clockFrom(d, start))}</>}
         {durationH != null && <> · {fmtDuration(durationH)}</>}
-      </div>
-
-      <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <Cell k="Maturaz." v={matPct != null ? <>{matPct.toFixed(0)}<small>%</small></> : '—'} />
-        <Cell k="Usura W" v={wWear != null ? <>{wWear.toFixed(0)}<small>%</small></> : '—'} />
-        <Cell k="Farina" v={<>{session.totalFlourGrams}<small>g</small></>} />
-        <Cell k="Agente" v={agent} />
-      </div>
-
-      <div style={{ ...MONO, display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--pm4-umber)' }}>
-        <span>Idratazione {session.hydration}%</span>
-        <span>Sale {session.salt}%</span>
-        {session.alertsCount != null && session.alertsCount > 0 && (
-          <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} {session.alertsCount === 1 ? 'avviso' : 'avvisi'}</span>
-        )}
-        {session.userNotes && <span style={{ color: 'var(--pm4-tan)', fontStyle: 'italic' }}>{session.userNotes}</span>}
       </div>
 
       {/* Voto a posteriori: si dà dopo l'assaggio, e si può cambiare */}
@@ -239,12 +203,47 @@ function SessionCard({
           </div>
         </div>
       )}
+
+      <div className="pm4-cells" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <Cell k="Maturaz." v={matPct != null ? <>{matPct.toFixed(0)}<small>%</small></> : '—'} />
+        <Cell k="Usura W" v={wWear != null ? <>{wWear.toFixed(0)}<small>%</small></> : '—'} />
+        <Cell k="Farina" v={<>{session.totalFlourGrams}<small>g</small></>} />
+        <Cell k="Agente" v={agent} />
+      </div>
+
+      <div style={{ ...MONO, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 11, color: 'var(--pm4-umber)' }}>
+        <span>Idratazione {session.hydration}%</span>
+        <span>Sale {session.salt}%</span>
+        {session.alertsCount != null && session.alertsCount > 0 && (
+          <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} {session.alertsCount === 1 ? 'avviso' : 'avvisi'}</span>
+        )}
+        {session.userNotes && <span style={{ color: 'var(--pm4-tan)', fontStyle: 'italic' }}>{session.userNotes}</span>}
+        <button ref={deleteBtnRef} type="button" onClick={() => setConfirmDelete(true)}
+          aria-label={`Elimina la sessione ${styleName} del ${dateStr}`}
+          style={{ marginLeft: 'auto', width: 44, height: 44, margin: '-14px -10px -14px auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pm4-umber)', fontSize: 16 }}>
+          <span aria-hidden="true">🗑</span>
+        </button>
+      </div>
+      {confirmDelete && (
+        <div role="alertdialog" aria-label="Conferma eliminazione"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusAfter.current = 'delete'; setConfirmDelete(false); } }}
+          style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+          <span style={{ ...MONO, fontSize: 12, color: 'var(--pm4-flour)', flex: '1 1 100%' }}>Eliminare questa sessione?</span>
+          <button ref={cancelDeleteRef} type="button" onClick={() => { focusAfter.current = 'delete'; setConfirmDelete(false); }} style={{ ...BTN, flex: 1 }}>Annulla</button>
+          <button type="button" onClick={() => { setConfirmDelete(false); onDelete(session); }}
+            className="pm4-btn-danger-quiet"
+            style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
+            Elimina
+          </button>
+        </div>
+      )}
     </article>
   );
 }
 
 export function HistoryView() {
-  const { dispatch } = useApp();
+  const { state, dispatch } = useApp();
+  const live = !!state.activeSession;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
@@ -367,19 +366,28 @@ export function HistoryView() {
       <button
         type="button"
         onClick={() => {
+          if (live) return;
           dispatch({ type: 'WIZARD_RESET' });
           dispatch({ type: 'NAV', view: 'wizard' });
         }}
+        disabled={live}
+        aria-describedby={live ? 'history-new-blocked' : undefined}
         className="pm-btn-primary"
         style={{
           background: 'var(--accent-brand)', color: 'var(--bg-primary)',
           border: 'none', borderRadius: 10, minHeight: 48,
-          padding: '14px 20px', ...MONO, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+          padding: '14px 20px', ...MONO, fontWeight: 700, fontSize: 14,
+          cursor: live ? 'not-allowed' : 'pointer', opacity: live ? 0.45 : 1,
           marginTop: 8,
         }}
       >
         🍕 Nuovo impasto
       </button>
+      {live && (
+        <p id="history-new-blocked" style={{ margin: 0, ...MONO, fontSize: 12, color: 'var(--pm4-tan)', textAlign: 'center' }}>
+          Prima termina l'impasto in corso.
+        </p>
+      )}
 
       {/* Annulla eliminazione (10s) */}
       {pendingDelete && (

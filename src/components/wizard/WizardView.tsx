@@ -38,6 +38,7 @@ import {
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 import { draftOverrunH } from '../../lib/plannerFit';
+import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
 import { warmupHForSession, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
 import { fridgePhaseIsSanctioned } from '../../engine/outOfProtocol';
 import { engineReadyH, apprettoCorrectionH, fmtBakeClock, suggestedApprettoH } from '../../lib/bakeForecast';
@@ -2223,6 +2224,8 @@ export function WizardView() {
           void startStage();
           return;
         }
+        // Un secondo avvio lascerebbe orfano nel DB l'impasto in corso.
+        if (state.activeSession) { setBuildError(LIVE_SESSION_MSG); return; }
         launchSession(draft, dispatch);
       } catch (e) {
         // L'utente legge una frase, il dettaglio tecnico (Zod) resta in console.

@@ -27,6 +27,7 @@ import {
 } from '../../engine';
 import { scaleMuMaxByDose, doseFactorSaturated } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
+import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
 import { planFit, fitShortfallH, suggestedBakeAtMs, toDateInputs, type PlanFit } from '../../lib/plannerFit';
 import { computeWarmupH, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
@@ -1306,7 +1307,7 @@ function usePlannerState<T>(key: string, init: T) {
 }
 
 export function FermentationPlannerView() {
-  const { dispatch } = useApp();
+  const { state: appState, dispatch } = useApp();
 
   // Parametri farina + agente
   const [W,           setW]           = usePlannerState('W', 280);
@@ -1454,8 +1455,10 @@ export function FermentationPlannerView() {
   const dateInPast = !!targetDate && hoursUntilBake === undefined;
   // Senza un orario il piano è solo indicativo: niente avvio finché non si sceglie quando infornare.
   const dateMissing = !targetDate;
-  const bakeBlocked = dateMissing || dateInPast || plannerErrors.length > 0;
-  const bakeBlockedReason = dateMissing ? 'Scegli giorno e ora della cottura: il piano si costruisce su quell\'orario.'
+  const liveSession = !!appState.activeSession;
+  const bakeBlocked = liveSession || dateMissing || dateInPast || plannerErrors.length > 0;
+  const bakeBlockedReason = liveSession ? LIVE_SESSION_MSG
+    : dateMissing ? 'Scegli giorno e ora della cottura: il piano si costruisce su quell\'orario.'
     : dateInPast ? "L'orario di cottura scelto è già passato: scegline uno futuro."
     : plannerErrors.length > 0 ? plannerErrors[0] : undefined;
 

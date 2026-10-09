@@ -14,6 +14,7 @@ import { fmtClockDay } from '../../lib/fmtTime';
 import { useApp, type WizardDraft } from '../../context/AppContext';
 import { Btn, Card, SnapButtons } from '../ui';
 import { launchSession } from '../wizard/WizardView';
+import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
 import { deleteAllPrefermentStages, deletePrefermentStage, updatePrefermentStage } from '../../services/sessionService';
 import type { PrefermentStage } from '../../db/db';
 import {
@@ -193,6 +194,7 @@ export function PrefermentStageView() {
 
   const startDough = (moveService: boolean) => {
     setError(null);
+    if (state.activeSession) { setError(LIVE_SESSION_MSG); return; }
     const t = Date.now();
     // Ore vere e temperatura equivalente vissute da ciascun prefermento.
     const finalDraft: WizardDraft = {

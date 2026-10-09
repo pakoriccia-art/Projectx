@@ -58,6 +58,8 @@ const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'Rot
 const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
 const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
 const PrefermentStageView = lazyView(() => import('./components/preferment/PrefermentStageView'), 'PrefermentStageView');
+import { bakeForecastFor } from './lib/bakeForecast';
+import { fmtClockDay } from './lib/fmtTime';
 import { stageBannerText, stageStatus } from './lib/preferment';
 import { useSessionPersistence }     from './hooks/useSessionPersistence';
 import { useSessionRestore }         from './hooks/useSessionRestore';
@@ -127,6 +129,15 @@ function AppEffects() {
 function HomeView() {
   const { state, dispatch } = useApp();
   const stage = state.prefermentStage;
+  const live = state.activeSession;
+  // L'impasto in corso: lo stesso orario della dashboard (il tick qui è fermo).
+  const liveBake = live ? (() => {
+    try {
+      const fc = bakeForecastFor(live, state.tickState);
+      const ready = fc.bakeable && !fc.usePlan && fc.etaH === 0;
+      return ready ? 'inforna ora' : `inforni alle ~${fmtClockDay(fc.readyAtMs)}`;
+    } catch { return null; }
+  })() : null;
   return (
     <div style={{
       minHeight: '100dvh',
@@ -156,24 +167,27 @@ function HomeView() {
           letterSpacing: '0.12em',
           marginTop: 6,
         }}>
-          ENGINE v2.4.0 · FERMENTATION SCIENCE
+          Previsione e monitor live della fermentazione
         </div>
-      </div>
-
-      {/* Tagline */}
-      <div style={{
-        fontFamily: 'var(--font-body)',
-        fontSize: '0.9rem',
-        color: 'var(--text-secondary)',
-        textAlign: 'center',
-        maxWidth: 280,
-        lineHeight: 1.6,
-      }}>
-        Modello predittivo Gompertz · Hill W-decay · CTM×Arrhenius · pH dinamico
       </div>
 
       {/* CTAs */}
       <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {live && (
+          <button
+            onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}
+            aria-label="Impasto in corso: apri la dashboard"
+            className="pm-btn-secondary"
+            style={{
+              background: 'rgba(255,140,50,0.08)', color: 'var(--pm4-flour)',
+              border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-md)',
+              padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
+            }}
+          >
+            🍕 {String(live.style ?? '').replace(/^./, c => c.toUpperCase())}{liveBake ? ` · ${liveBake}` : ''} →
+          </button>
+        )}
         {stage && (() => {
           const b = stageBannerText(stageStatus(stage));
           return (
@@ -196,11 +210,16 @@ function HomeView() {
         })()}
         <button
           onClick={() => {
+            if (live) return;
             dispatch({ type: 'WIZARD_RESET' });
             dispatch({ type: 'NAV', view: 'wizard' });
           }}
+          disabled={!!live}
+          aria-describedby={live ? 'home-new-blocked' : undefined}
           className="pm-btn-primary"
           style={{
+            opacity: live ? 0.45 : 1,
+            cursor: live ? 'not-allowed' : 'pointer',
             background: 'var(--accent-brand)',
             color: 'var(--bg-primary)',
             border: 'none',
@@ -210,12 +229,16 @@ function HomeView() {
             fontFamily: 'var(--font-mono)',
             fontWeight: 700,
             fontSize: '1rem',
-            cursor: 'pointer',
             width: '100%',
           }}
         >
           🍕 Nuovo impasto
         </button>
+        {live && (
+          <p id="home-new-blocked" style={{ margin: '-4px 0 0', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--pm4-tan)', textAlign: 'center' }}>
+            Prima termina l'impasto in corso.
+          </p>
+        )}
 
         <button
           onClick={() => dispatch({ type: 'NAV', view: 'history' })}
@@ -266,7 +289,7 @@ function HomeView() {
         color: 'var(--text-muted)',
         letterSpacing: '0.08em',
       }}>
-        v2.4.0 · Capacitor Android + Web
+        v2.4.0
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ import { useApp } from '../../context/AppContext';
 import { useTickEngine, type PhaseSnapshot } from '../../hooks/useTickEngine';
 import {
   getStyleProfile, computeStyleAwareAlertLevel, computeDashboardEffectiveW,
-  computeCurrentPH, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS,
+  computeCurrentPH,
 } from '../../engine';
 import { applyPhaseTransition, buildInitialTimeline, db, type Session } from '../../db/db';
 import type { DashboardWResult, AlertLevelResult } from '../../engine';
@@ -33,9 +33,11 @@ import { SemaforoCard, SEMAFORO_COLORS, CollapseModal, type SemaforoState } from
 import { OutOfProtocolModal } from './OutOfProtocolModal';
 import { LiveHeader } from './LiveHeader';
 import { nextPlannedSegment, phaseActionText, planDeltaText } from '../../lib/phaseDue';
-import { canBakeNow, isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
+import { isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
 import { fmtDay, fmtHM } from '../../lib/fmtTime';
 import { seedPhase } from '../../lib/timeline';
+import { bakeForecastFor } from '../../lib/bakeForecast';
+import { bakedStoryText } from '../../lib/bakedStory';
 import { scheduleAt, cancelNotification, NOTIF_ID } from '../../hooks/useCapacitorNotifications';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -500,8 +502,9 @@ export function DashboardV4() {
     : matStateIndependent(enzymaticMatPct, threshold);
   // "Pronto" = infornabile: in frigo, o freddo dopo il frigo, la maturazione può
   // essere al target ma non si inforna.
-  const hadFridge = (session.thermalTimeline ?? []).some((sg: any) => isFridgePhase(sg?.phaseType) && sg.status !== 'planned');
-  const bakeable  = canBakeNow({ phase, tDoughC: T_dough, hadFridge });
+  // Quando inforni: lo stesso calcolo della card in Home (lib/bakeForecast).
+  const forecast  = bakeForecastFor(session, ts);
+  const { bakeable } = forecast;
   const matState: SemaforoState = !bakeable && (matByThreshold === 'PRONTO' || matByThreshold === 'QUASI')
     ? 'FREDDO' : matByThreshold;
   const wState   = wStateFromRatio(tRatio);
@@ -559,24 +562,10 @@ export function DashboardV4() {
   // ── "Quando inforno?" — ETA al picco di maturazione (orologio enzimatico) ──────
   // Lettura del motore (sweetSpotMaturation, proiezione a T costante), stessa soglia
   // del semaforo. In fase fredda la proiezione a T frigo è fuorviante: vale il piano.
-  const isColdPhase = phase === 'bulk_fridge' || phase === 'balled_fridge';
-  const enzAduNow = ts?.enzymaticAdu ?? (
-    (session.initialMaturationOffset ?? 0) > 0
-      ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, (session.initialMaturationOffset ?? 0) * 100) as number
-      : 0);
-  let etaH: number | null = null;
-  try {
-    const spot = (sweetSpotMaturation as Function)({ ...session, alertThreshold: threshold }, enzAduNow, ambientTempC) as
-      { status: string; hoursUntilPeak: number } | null;
-    etaH = spot ? (spot.status === 'past_peak' ? 0 : Math.max(0, spot.hoursUntilPeak)) : null;
-  } catch { etaH = null; }
+  const { isColdPhase, etaH, fridgeAhead, usePlan } = forecast;
   const nowDate   = new Date();
   const isReady   = bakeable && (matState === 'PRONTO' || (etaH === 0 && enzymaticMatPct >= threshold));
-  // In frigo, in riscaldo o con un frigo ancora in programma la proiezione a T
-  // costante non vale (presume tutto a temperatura ambiente): comanda il piano.
-  const fridgeAhead = (effectiveTimeline ?? []).some((sg: any) => isFridgePhase(sg?.phaseType) && sg.status === 'planned');
-  const usePlan   = isColdPhase || !bakeable || fridgeAhead || etaH == null || etaH > 240;
-  const readyAt   = usePlan ? planBake : new Date(nowDate.getTime() + (etaH ?? 0) * 3_600_000);
+  const readyAt   = usePlan ? planBake : new Date(forecast.readyAtMs);
   const readyInH  = Math.max(0, (readyAt.getTime() - nowDate.getTime()) / 3_600_000);
   // Finestra residua = istante di sbollatura (ore trascorse, stessa base della sim) − adesso.
   const collapseAtH = collapseInfo && collapseInfo.reachesPeak !== false ? collapseInfo.collapseTime : null;
@@ -723,19 +712,7 @@ export function DashboardV4() {
   // ── "Ho infornato": registra l'ora reale, mostra il riepilogo, il voto dopo ──
   // Il voto si dà quando la pizza è assaggiata: promemoria a +30 min, voto nello Storico.
   const bakedAt = session.bakedAt ? new Date(session.bakedAt) : null;
-  const readySince = session.readyAt ? new Date(session.readyAt) : null;
-  const bakedStory = (() => {
-    if (!bakedAt) return '';
-    if (!readySince) {
-      // il confronto è con l'orario che la dashboard mostrava, non col piano delle fasi
-      const pred = session.predictedBakeAt ? new Date(session.predictedBakeAt) : null;
-      if (!pred) return 'infornata prima del pronto previsto';
-      const early = Math.round((pred.getTime() - bakedAt.getTime()) / 60_000);
-      return early >= 15 ? `prima del pronto: previsto ${fmtClock(pred, nowDate)} (−${fmtDuration(early / 60)})` : 'infornata al pronto previsto';
-    }
-    const diffMin = Math.round((bakedAt.getTime() - readySince.getTime()) / 60_000);
-    return `pronta dalle ${fmtClock(readySince, nowDate)} · ${diffMin <= 1 ? 'subito' : `+${fmtDuration(diffMin / 60)}`}`;
-  })();
+  const bakedStory = bakedStoryText({ bakedAt: bakedAt ?? undefined, readyAt: session.readyAt, predictedBakeAt: session.predictedBakeAt }, d => fmtClock(d, nowDate));
   const markBaked = () => {
     setConfirmEarlyBake(false);
     const at = new Date();

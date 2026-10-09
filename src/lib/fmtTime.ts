@@ -45,3 +45,18 @@ export function fmtSeconds(s: number): string {
   const m = Math.floor(r / 60), sec = r % 60;
   return sec ? `${m} min ${String(sec).padStart(2, '0')}` : `${m} min`;
 }
+
+/** Durate leggibili: "7h 47m", "30 min", mai ore decimali. */
+export function fmtHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+  if (hh === 0) return `${mm} min`;
+  return mm > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${hh}h`;
+}
+/** La stessa durata per lo screen reader: "7 ore e 47 minuti". */
+export function speakHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+  const parts = [hh ? `${hh} ${hh === 1 ? 'ora' : 'ore'}` : '', mm ? `${mm} ${mm === 1 ? 'minuto' : 'minuti'}` : ''].filter(Boolean);
+  return parts.join(' e ') || '0 minuti';
+}

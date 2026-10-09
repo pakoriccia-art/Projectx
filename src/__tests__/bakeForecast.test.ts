@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apprettoCorrectionH, fmtBakeClock, engineReadyH, suggestedApprettoH } from '../lib/bakeForecast';
+import { apprettoCorrectionH, fmtBakeClock, engineReadyH, suggestedApprettoH, bakeForecastFor } from '../lib/bakeForecast';
 
 describe('apprettoCorrectionH', () => {
   it('nessuna correzione sotto la mezz\'ora', () => {
@@ -47,5 +47,40 @@ describe('suggestedApprettoH', () => {
   });
   it('senza previsione: null', () => {
     expect(suggestedApprettoH(null, 8, 0.5)).toBeNull();
+  });
+});
+
+describe('bakeForecastFor', () => {
+  const H = 3_600_000;
+  const now = new Date('2026-10-05T10:00:00').getTime();
+  const seg = (phaseType: string, s: number, e: number, t: number, status: 'planned' | 'current' | 'completed') =>
+    ({ id: phaseType, phaseType, startElapsedH: s, endElapsedH: e, ambientTempC: t, status });
+  const ta = {
+    apprettoProtocol: 'ta', style: 'napoletana', alertThreshold: 85, initialMaturationOffset: 0, tLaboratorio: 22,
+    agentType: 'fresh_yeast', startedAt: new Date(now - 4 * H), targetBakeAt: new Date(now + 10 * H),
+    thermalTimeline: [seg('bulk_room', 0, 8, 22, 'current'), seg('balled_room', 8, 8.5, 22, 'planned'), seg('proofing', 8.5, 14, 22, 'planned')],
+  } as any;
+
+  it('tutto TA a metà: comanda il motore', () => {
+    const fc = bakeForecastFor(ta, { phase: 'bulk_room', tempAmbient: 22, tempDough: 22, maturationPct: 60, enzymaticAdu: 3, lastTickAt: now } as any, now);
+    expect(fc.usePlan).toBe(false);
+    expect(fc.readyAtMs).toBe(now + (fc.etaH ?? 0) * H);
+  });
+
+  it('in frigo e senza tick: comanda il piano', () => {
+    const tc = { ...ta, apprettoProtocol: 'tc', style: 'contemporanea', outOfProtocolPhaseConfirmed: true,
+      thermalTimeline: [seg('bulk_fridge', 0, 12, 4, 'current'), seg('balled_room', 12, 12.5, 22, 'planned'), seg('proofing', 12.5, 15, 22, 'planned')] };
+    const fc = bakeForecastFor(tc, null, now);
+    expect(fc.isColdPhase).toBe(true);
+    expect(fc.usePlan).toBe(true);
+    expect(fc.readyAtMs).toBe(fc.planBakeMs);
+  });
+
+  it('fuori dalla dashboard il tick è fermo: conta l\'ultimo tick, non adesso', () => {
+    const ts = { phase: 'bulk_room', tempAmbient: 22, tempDough: 22, maturationPct: 60, enzymaticAdu: 3, lastTickAt: now - 2 * H } as any;
+    const a = bakeForecastFor(ta, ts, now);
+    const b = bakeForecastFor(ta, ts, now + 30 * 60_000);
+    expect(a.usePlan).toBe(false);
+    expect(b.readyAtMs).toBe(a.readyAtMs);
   });
 });
