@@ -3,7 +3,9 @@
  * Stesso schema di applyPhaseTransition: i segmenti completati non si toccano,
  * quello in corso tiene il suo inizio, i pianificati si rimettono in fila.
  */
-import type { PhaseSegment } from '../db/db';
+import type { PhaseSegment, Session } from '../db/db';
+import { buildEffectiveTimeline } from '../engine/outOfProtocol';
+import { isFridgePhase } from './bakeReadiness';
 
 /** Fase della timeline → durata del wizard che la governa. */
 export type DurationKey = 'puntataH' | 'staglioH' | 'apprettoH' | 'tcHours';
@@ -51,4 +53,37 @@ export function retimeTimeline(
     cursor = end;
     return { ...s, startElapsedH: start, endElapsedH: end };
   });
+}
+
+/**
+ * Segmento in corso della timeline: quello `current`, altrimenti (tutti
+ * pianificati, sessione appena avviata) il primo per inizio.
+ */
+export function currentSegment(tl: PhaseSegment[] | undefined): { phase: string; ambientTempC?: number } | null {
+  if (!Array.isArray(tl) || tl.length === 0) return null;
+  const cur = tl.find(s => s.status === 'current')
+    ?? (tl.every(s => s.status === 'planned')
+      ? tl.slice().sort((a, b) => a.startElapsedH - b.startElapsedH)[0]
+      : undefined);
+  return cur ? { phase: cur.phaseType, ambientTempC: cur.ambientTempC } : null;
+}
+
+/**
+ * Fase e T ambiente di partenza del tick, dalla timeline effettiva (con il gate
+ * fuori protocollo). Una sessione TC parte in frigo, non a T laboratorio.
+ * In fase calda conserva la T del tick precedente se la fase è la stessa
+ * (Aggiusta rotta la imposta solo nel tick).
+ */
+export function seedPhase(
+  session: Session,
+  prev?: { phase?: string; tempAmbient?: number } | null,
+): { phase: string; tempAmbient: number } {
+  const tLab = session.tLaboratorio ?? 22;
+  const seg = currentSegment(buildEffectiveTimeline(session, !!session.outOfProtocolPhaseConfirmed));
+  const phase = seg?.phase ?? prev?.phase ?? 'bulk_room';
+  if (isFridgePhase(phase)) {
+    return { phase, tempAmbient: seg?.ambientTempC ?? session.fridgeTempC ?? 4 };
+  }
+  if (prev?.phase === phase && prev.tempAmbient != null) return { phase, tempAmbient: prev.tempAmbient };
+  return { phase, tempAmbient: seg?.ambientTempC ?? tLab };
 }

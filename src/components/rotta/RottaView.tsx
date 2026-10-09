@@ -9,7 +9,7 @@ import { Card, Metric, S, SliderInput, fmtHours, speakHours } from '../ui';
 import { kEffective, sweetSpotMaturation, findAduAt, ENZYMATIC_CLOCK_PARAMS, getStyleProfile } from '../../engine';
 import { resolveThreshold } from '../../lib/bakeReadiness';
 import { buildInitialTimeline, db } from '../../db/db';
-import { retimeTimeline, timelineEndH, type DurationKey } from '../../lib/timeline';
+import { retimeTimeline, seedPhase, timelineEndH, type DurationKey } from '../../lib/timeline';
 import { fmtBakeClock } from '../../lib/bakeForecast';
 
 const AGENT_SHORT: Record<string, string> = {
@@ -25,7 +25,7 @@ function RottaContent() {
   const ts      = state.tickState;
 
   // Stato locale (prima di applicare)
-  const [localT, setLocalT]               = useState(ts?.tempAmbient ?? 22);
+  const [localT, setLocalT]               = useState(ts?.tempAmbient ?? seedPhase(session).tempAmbient);
   const [localTcH, setLocalTcH]           = useState(session.tcHours ?? 0);
   const [localFridgeT, setLocalFridgeT]   = useState(session.fridgeTempC ?? 4);
   // la stessa soglia della dashboard: quella della sessione, altrimenti dello stile
@@ -62,7 +62,7 @@ function RottaContent() {
   const newBakeAt = new Date(planBakeMs(newTimeline));
 
   // Ritmo relativo a 25°C: adesso (T ambiente della sessione) contro la T proposta.
-  const tAmbNow  = ts?.tempAmbient ?? 22;
+  const tAmbNow  = ts?.tempAmbient ?? seedPhase(session).tempAmbient;
   const kAt      = (t: number) => (kEffective as Function)(t, session.agentEaKj, session.agentType) as number;
   const kRef     = kAt(25);
   const kRatioCurr = kRef > 0 ? kAt(tAmbNow) / kRef : 0;

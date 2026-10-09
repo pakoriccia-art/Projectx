@@ -15,9 +15,11 @@ vi.mock('@capacitor/local-notifications', () => ({
 }));
 
 // ─── Mock Dexie (IndexedDB non disponibile in jsdom) ─────────────────────────
-vi.mock('../db/db', () => {
+// Le funzioni pure (buildInitialTimeline, …) restano quelle vere.
+vi.mock('../db/db', async (importOriginal) => {
   const sessions: object[] = [];
   return {
+    ...(await importOriginal<typeof import('../db/db')>()),
     db: {
       sessions: {
         put:      vi.fn().mockResolvedValue(1),

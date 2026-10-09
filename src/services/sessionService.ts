@@ -5,6 +5,8 @@
 import { db, buildInitialTimeline } from '../db/db';
 import type { Session, ProcessLogEntry, PrefermentStage } from '../db/db';
 import type { TickState } from '../context/AppContext';
+import { seedPhase } from '../lib/timeline';
+import { ddtForStyle } from '../data/styleConstraints';
 
 /**
  * Avvia una sessione: persiste la Session con status='active' e scrive
@@ -30,14 +32,16 @@ export async function startSession(session: Session): Promise<number> {
   // Two-clock seeding: l'offset prefermento semina la MATURAZIONE (la biga ha già
   // maturato), non la lievitazione. L'ADU lievito parte da 0 (impasto degassato).
   const initialMatPct = (session.initialMaturationOffset ?? 0) * 100;
+  // Fase e T ambiente dal primo segmento: una sessione TC parte in frigo.
+  const seed = seedPhase({ ...sessionWithId, thermalTimeline });
   const entry: ProcessLogEntry = {
     sessionId:        id,
     recordedAt:       session.startedAt ?? new Date(),
     hlcTimestamp:     `${Date.now()}-0-0`,
     deviceId:         'local',
-    tempAmbient:      session.tLaboratorio ?? 22,
-    tempDough:        session.tLaboratorio ?? 22,
-    doughLocation:    'bulk_room',
+    tempAmbient:      seed.tempAmbient,
+    tempDough:        ddtForStyle(session.style) ?? session.tLaboratorio ?? 22,
+    doughLocation:    seed.phase as ProcessLogEntry['doughLocation'],
     tempSource:       'estimated',
     cumulativeAdu:    0,
     deltaAdu:         0,

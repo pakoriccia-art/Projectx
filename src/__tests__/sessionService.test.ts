@@ -121,3 +121,17 @@ describe('deleteSession', () => {
     expect(db.alerts.where).toHaveBeenCalledWith('sessionId');
   });
 });
+
+describe('startSession — primo log dalla timeline', () => {
+  it('sessione TC: il primo log è in frigo a 4°', async () => {
+    const tl: PhaseSegment[] = [
+      { id: 'f', phaseType: 'bulk_fridge', startElapsedH: 0,  endElapsedH: 12,   ambientTempC: 4,  status: 'current' },
+      { id: 's', phaseType: 'balled_room', startElapsedH: 12, endElapsedH: 12.5, ambientTempC: 22, status: 'planned' },
+    ];
+    const sess = { ...mockSession, id: undefined, style: 'contemporanea', apprettoProtocol: 'tc', thermalTimeline: tl } as Session;
+    await startSession(sess);
+    const entry = (db.process_log.add as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry.doughLocation).toBe('bulk_fridge');
+    expect(entry.tempAmbient).toBe(4);
+  });
+});

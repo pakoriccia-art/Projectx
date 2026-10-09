@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { retimeTimeline, timelineEndH } from '../lib/timeline';
-import type { PhaseSegment } from '../db/db';
+import { currentSegment, retimeTimeline, seedPhase, timelineEndH } from '../lib/timeline';
+import type { PhaseSegment, Session } from '../db/db';
 
 const seg = (phaseType: string, s: number, e: number, status: PhaseSegment['status']): PhaseSegment =>
   ({ id: phaseType, phaseType, startElapsedH: s, endElapsedH: e, ambientTempC: 20, status });
@@ -40,5 +40,38 @@ describe('retimeTimeline', () => {
     const r = retimeTimeline(tl, { staglioH: 0.1 }, 2.4);
     expect(r[1].endElapsedH).toBeCloseTo(2.5);
     expect(r[2].startElapsedH).toBeCloseTo(2.5);
+  });
+});
+
+describe('currentSegment', () => {
+  it('prende il segmento current', () => {
+    expect(currentSegment(tl)).toEqual({ phase: 'balled_room', ambientTempC: 20 });
+  });
+  it('tutti pianificati: il primo per inizio', () => {
+    const planned = [seg('balled_room', 12, 12.5, 'planned'), seg('bulk_fridge', 0, 12, 'planned')];
+    expect(currentSegment(planned)?.phase).toBe('bulk_fridge');
+  });
+  it('timeline vuota o assente: null', () => {
+    expect(currentSegment([])).toBeNull();
+    expect(currentSegment(undefined)).toBeNull();
+  });
+});
+
+describe('seedPhase', () => {
+  const tcTl: PhaseSegment[] = [
+    { id: 'f', phaseType: 'bulk_fridge', startElapsedH: 0, endElapsedH: 12, ambientTempC: 4, status: 'planned' },
+    { id: 's', phaseType: 'balled_room', startElapsedH: 12, endElapsedH: 12.5, ambientTempC: 21, status: 'planned' },
+  ];
+  const tc = { style: 'contemporanea', apprettoProtocol: 'tc', tLaboratorio: 21, fridgeTempC: 4, thermalTimeline: tcTl } as unknown as Session;
+
+  it('sessione TC appena avviata: frigo a 4°', () => {
+    expect(seedPhase(tc)).toEqual({ phase: 'bulk_fridge', tempAmbient: 4 });
+  });
+  it('stessa fase calda del tick precedente: tiene la sua T', () => {
+    const warm = { ...tc, thermalTimeline: [{ ...tcTl[1], status: 'current' }] } as Session;
+    expect(seedPhase(warm, { phase: 'balled_room', tempAmbient: 26 })).toEqual({ phase: 'balled_room', tempAmbient: 26 });
+  });
+  it('tick salvato in TA ma la timeline è in frigo: frigo', () => {
+    expect(seedPhase(tc, { phase: 'bulk_room', tempAmbient: 21 })).toEqual({ phase: 'bulk_fridge', tempAmbient: 4 });
   });
 });

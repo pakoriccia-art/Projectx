@@ -19,6 +19,7 @@ import {
 import { computeDashboardEffectiveW, computeCurrentPH } from '../../engine';
 import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { SnapButtons } from '../ui';
+import { seedPhase } from '../../lib/timeline';
 
 // ─── Costante Hill exponent (allineata all'engine) ────────────────────────────
 const HILL_N = 5;
@@ -185,7 +186,7 @@ export function BakeView() {
     const startedAt  = session.startedAt instanceof Date ? session.startedAt : new Date(session.startedAt ?? Date.now());
     const targetBake = session.targetBakeAt instanceof Date ? session.targetBakeAt : new Date((session.targetBakeAt as any) ?? Date.now() + 86_400_000);
     const elapsedH   = Math.max(0, (Date.now() - startedAt.getTime()) / 3_600_000);
-    const ambientTempC = ts.tempAmbient ?? session.tLaboratorio ?? 22;
+    const ambientTempC = ts.tempAmbient ?? seedPhase(session).tempAmbient;
     return projectCoreTempAtBakeC({
       timeline: session.thermalTimeline, nowElapsedH: elapsedH,
       bakeH: (targetBake.getTime() - startedAt.getTime()) / 3_600_000,

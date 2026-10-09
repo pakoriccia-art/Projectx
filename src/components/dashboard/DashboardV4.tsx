@@ -35,6 +35,7 @@ import { LiveHeader } from './LiveHeader';
 import { nextPlannedSegment, phaseActionText, planDeltaText } from '../../lib/phaseDue';
 import { canBakeNow, isFridgePhase, resolveThreshold } from '../../lib/bakeReadiness';
 import { fmtDay, fmtHM } from '../../lib/fmtTime';
+import { seedPhase } from '../../lib/timeline';
 import { scheduleAt, cancelNotification, NOTIF_ID } from '../../hooks/useCapacitorNotifications';
 
 const STYLE_LABELS: Record<string, string> = {
@@ -343,7 +344,7 @@ export function DashboardV4() {
     const styleProfile = getStyleProfile(session.style);
     const enzymaticMatPct = ts?.maturationPct ?? (session.initialMaturationOffset ?? 0) * 100;
     const leaveningPct = ts?.leaveningPct ?? 0;
-    const ambientTempC = ts?.tempAmbient ?? session.tLaboratorio ?? 22;
+    const ambientTempC = ts?.tempAmbient ?? seedPhase(session).tempAmbient;
     const T_dough = ts?.tempDough ?? ambientTempC;
     // pH da leavAdu (+ labAdu dual-pop per LM) — v2.4.11 §2.6.1 / v2.4.14 §2.6
     const pH = computeCurrentPH(
@@ -489,7 +490,7 @@ export function DashboardV4() {
   // Ratio mostrato dal vivo (coincide con la posizione del dot Hill = elapsedH)
   const liveRatio  = tCritHours > 0 ? elapsedH / tCritHours : 0;
 
-  const phase = ts?.phase ?? 'bulk_room';
+  const phase = ts?.phase ?? seedPhase(session).phase;
 
   // Stati semaforo
   // Allarmi strutturali dal motore; maturazione con la soglia della sessione (il

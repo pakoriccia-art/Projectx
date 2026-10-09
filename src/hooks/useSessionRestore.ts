@@ -12,6 +12,7 @@ import { db, type Session } from '../db/db';
 import { classifyOrphans } from '../lib/orphans';
 import { deleteSession, findPrefermentStage, updatePrefermentStage } from '../services/sessionService';
 import { normalizeStage } from '../lib/preferment';
+import { seedPhase } from '../lib/timeline';
 
 /**
  * Pulizia all'avvio dei record "active" orfani (doppioni del vecchio bug dell'id
@@ -65,7 +66,10 @@ export function useSessionRestore() {
         }
         const { lastTickState, ...session } = s;
         dispatch({ type: 'SESSION_START', session: session as Session });
-        dispatch({ type: 'TICK', patch: lastTickState as unknown as Partial<TickState> });
+        // Fase e T ambiente dalla timeline: le sessioni TC salvate come TA
+        // ripartono in frigo (catchUpTimes poi integra alla T giusta).
+        const prev = lastTickState as unknown as Partial<TickState> | undefined;
+        dispatch({ type: 'TICK', patch: (prev && { ...prev, ...seedPhase(session as Session, prev) }) as Partial<TickState> });
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps

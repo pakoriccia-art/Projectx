@@ -13,6 +13,7 @@ import { db, buildInitialTimeline, applyPhaseTransition, type Session } from '..
 import { logProcessEntry, PROCESS_LOG_INTERVAL_MIN } from '../services/processLog';
 import { ddtForStyle } from '../data/styleConstraints';
 import { catchUpTimes } from '../lib/catchUp';
+import { seedPhase } from '../lib/timeline';
 import {
   kEffective, gompertz, computeCurrentPH, computeLabAdu,
   computeTCrit, computeWHill, doughCoreTemp,
@@ -111,9 +112,12 @@ export function useTickEngine() {
     // impasto allo sformo, lookup puro per stile), NON dall'ambiente — v2.4.21.
     // I tick successivi leggono da ts (aggiornato ad ogni TICK dispatch).
     const prevTDough = ts?.tempDough    ?? ddtForStyle(session.style) ?? session.tLaboratorio ?? 22;
-    const tAmbient   = ts?.tempAmbient  ?? session.tLaboratorio ?? 22;
+    // Senza tick (sessione appena avviata) fase e T ambiente vengono dal segmento
+    // in corso della timeline: una sessione TC parte in frigo, non a T laboratorio.
+    const seed       = ts?.phase != null && ts?.tempAmbient != null ? null : seedPhase(session);
+    const tAmbient   = ts?.tempAmbient  ?? seed!.tempAmbient;
     const elapsedH = ts?.elapsedH       ?? 0;
-    const phase    = ts?.phase          ?? 'bulk_room';   // ← legge dal ref, non dalla closure
+    const phase    = ts?.phase          ?? seed!.phase;   // ← legge dal ref, non dalla closure
 
     // ── Seeding prefermenti (two-clock) — FIX inversione maturazione/lievitazione ─
     // initialMaturationOffset semina l'orologio MATURAZIONE (la biga ha già maturato),
@@ -319,6 +323,8 @@ export function useTickEngine() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      // Uscendo dalla dashboard (Home, Storico) l'ultimo tick resta nel DB.
+      saveSnapshot(true);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeSession?.id]); // tick è stabile, non serve come dep
@@ -365,7 +371,7 @@ export function useTickEngine() {
     // v3.1 chiama setPhase(p) senza opts → navigazione libera invariata (non regredisce).
     // PHASE_ORDER è la lista canonica condivisa (include 'baking', vedi src/engine).
     if (opts?.enforceForward) {
-      const currentPhase = tsRef.current?.phase ?? 'bulk_room';
+      const currentPhase = tsRef.current?.phase ?? seedPhase(session).phase;
       const currentIdx   = PHASE_ORDER.indexOf(currentPhase as any);
       const targetIdx    = PHASE_ORDER.indexOf(p as any);
       if (currentIdx >= 0 && targetIdx <= currentIdx) {
@@ -410,8 +416,8 @@ export function useTickEngine() {
     if (!session) return null;
     return {
       thermalTimeline: session.thermalTimeline ?? buildInitialTimeline(session),
-      phase:           tsRef.current?.phase ?? 'bulk_room',
-      tempAmbient:     tsRef.current?.tempAmbient ?? session.tLaboratorio ?? 22,
+      phase:           tsRef.current?.phase ?? seedPhase(session).phase,
+      tempAmbient:     tsRef.current?.tempAmbient ?? seedPhase(session).tempAmbient,
     };
   }, []);
 
