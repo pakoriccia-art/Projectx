@@ -255,9 +255,7 @@ export function buildPiecewiseData(
   };
 
   const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;
-  const prefFrac     = Math.min(1, (session.prefermenti ?? [])
-    .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
-  const leavLambda   = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
+  const leavLambda   = session.agentLambda;   // come il tick: la biga è nella dose
   const enzSeed      = matOffsetPct > 0
     ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
     : 0;

@@ -31,6 +31,7 @@ import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
 import { planFit, fitShortfallH, suggestedBakeAtMs, toDateInputs, type PlanFit } from '../../lib/plannerFit';
 import { computeWarmupH, panetTauS } from '../../lib/warmup';
 import { CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
+import { prefYeastGrowth, prefEnzymaticAdu } from '../../lib/preferment';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
 import { PrefermentCreditCard } from '../wizard/PrefermentCreditCard';
@@ -86,12 +87,6 @@ function validatePlannerInputs(totalFlourGrams: number, numPanetti: number, hydr
   return errors;
 }
 
-// ─── Costanti modello crescita lievito ───────────────────────────────────────
-const YEAST_DOUBLING_20C = 2.0;
-const YEAST_EA_KJ        = 75;
-const R_GAS              = 8.314e-3;
-const T_20C_K            = 293.15;
-
 // ─── Helper: inverte Gompertz per trovare ADU al target% ─────────────────────
 // Il motore usa Zwietering 1990: A*exp(-exp((muMax*e/A)*(lambda-ADU)+1))
 // Il coefficiente effettivo è muMax*e/A, NON muMax.
@@ -111,18 +106,11 @@ function computeEffectiveDoseAndAdu(
   Ea: number, agentType: string,
 ): { effectiveDose: number; initialAdu: number } {
   if (!pref) return { effectiveDose: mainDose, initialAdu: 0 };
-
-  const tempK   = pref.tempC + 273.15;
-  const doubH   = YEAST_DOUBLING_20C * Math.exp(YEAST_EA_KJ / R_GAS * (1 / tempK - 1 / T_20C_K));
-  const growth  = Math.min(40, Math.pow(2, pref.durationH / doubH));
-  const yeastBoost = pref.yeastPct * (pref.flourFraction / 100) * growth;
-
-  const kRef25 = (kEffective as Function)(25, Ea, agentType) as number;
-  const kT     = (kEffective as Function)(pref.tempC, Ea, agentType) as number;
-  const kRatio = kRef25 > 1e-12 ? kT / kRef25 : 0;
-  const initialAdu = kRatio * pref.durationH * (pref.flourFraction / 100);
-
-  return { effectiveDose: mainDose + yeastBoost, initialAdu };
+  void Ea; void agentType;
+  // Stesso calcolo del wizard (lib/preferment): il lievito cresciuto nel prefermento
+  // entra nella dose; la lievitazione dell'impasto parte da zero (two-clock).
+  const yeastBoost = pref.yeastPct * (pref.flourFraction / 100) * prefYeastGrowth(pref);
+  return { effectiveDose: mainDose + yeastBoost, initialAdu: 0 };
 }
 
 /**
@@ -1084,7 +1072,7 @@ export function solveQualityProfile(
   const aduFridge = (fArrhenius as Function)(fridgeT) as number * tcHours;
   // Accredita l'ADU enzimatico maturato durante il prefermento (proteolisi già avanzata)
   const prefEnzAdu = prefType !== 'none'
-    ? ((fArrhenius as Function)(prefTempC) as number) * prefDurH * (prefFrac / 100)
+    ? prefEnzymaticAdu([{ type: prefType, flourFraction: prefFrac, tempC: prefTempC, durationH: prefDurH }])
     : 0;
   const aduNeeded = Math.max(0.1, aduTarget - aduFridge - prefEnzAdu);
   const kAmbRate  = (fArrhenius as Function)(tAmb) as number;

@@ -33,7 +33,7 @@ import {
   scaleMuMaxByDose, doseFactorSaturated,
   AGENT_GOMPERTZ, CONTAINER_THERMAL_PRESETS, kEffective, getStyleProfile,
   KNEADING_METHODS_FRICTION, computeWaterTempDDT, type KneadingMethod,
-  computeEffectiveMixHydration,
+  computeEffectiveMixHydration, computeTCrit, computeWHill,
 } from '../../engine';
 import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
@@ -48,6 +48,7 @@ import {
   isPreparable, placeOf, placeTempC, durationOptions, defaultDuration, fractionOptions,
   prefName, prefWithArticle, prefIsFeminine, splitRecipe, prefTempAtMix, fmtGrams, type PrefPlace,
   recipeProblem, stageDurationH, MIN_FINAL_FLOUR_PCT, buildStageItems, mainPreparable, recipeFixKind, prefAl,
+  prefYeastGrowth, prefMaturationOffset, yeastRate,
 } from '../../lib/preferment';
 import { estimateEnzMatPctAtH } from '../../engine/serviceWindowSolver';
 import {
@@ -85,69 +86,52 @@ function createDefaultPref(
 }
 
 // ─── Helper: crea Session da WizardDraft ─────────────────────────────────────
-// Costanti modello crescita lievito nei prefermenti
-// Doubling time a 20°C ≈ 2h; Arrhenius Ea ≈ 75 kJ/mol (lievito Saccharomyces)
-const YEAST_DOUBLING_20C = 2.0;   // ore
-const YEAST_EA_KJ        = 75;    // kJ/mol
-const R_GAS              = 8.314e-3; // kJ/(mol·K)
-const T_20C_K            = 293.15;   // K
 
 /**
- * Stima la dose lievito efficace dell'impasto finale tenendo conto del lievito
- * già cresciuto all'interno dei prefermenti biga/poolish.
- * Restituisce anche l'ADU di "vantaggio iniziale" accumulato dai prefermenti.
+ * Dose lievito efficace dell'impasto finale: la dose propria più il lievito già
+ * cresciuto nei prefermenti (prefYeastGrowth: velocità del lievito del motore,
+ * idratazione della biga). Il vantaggio di MATURAZIONE si calcola a parte
+ * (prefMaturationOffset): la lievitazione dell'impasto parte da zero (two-clock).
  */
 function computeEffectiveDose(
-  prefermenti: { type: string; yeastPct?: number; flourFraction: number; tempC?: number; durationH?: number }[],
+  prefermenti: { type: string; yeastPct?: number; flourFraction: number; tempC?: number; durationH?: number; hydration?: number }[],
   mainDosePct: number,
-  aParams: { Ea: number },
-  aType: string,
-): { effectiveDosePct: number; prefInitialAdu: number } {
-  let yeastBoost    = 0;
-  let prefInitialAdu = 0;
-  const kRef25 = (kEffective as Function)(25, aParams.Ea, aType) as number;
-
+): number {
+  let yeastBoost = 0;
   for (const pref of prefermenti) {
     if (pref.type === 'autolysis' || !pref.yeastPct) continue;
-    const tempK  = (pref.tempC ?? 16) + 273.15;
-    const doubH  = YEAST_DOUBLING_20C * Math.exp(YEAST_EA_KJ / R_GAS * (1 / tempK - 1 / T_20C_K));
-    const growth = Math.min(40, Math.pow(2, (pref.durationH ?? 12) / doubH));
     // Contributo lievito attivo (% su farina totale)
-    yeastBoost += (pref.yeastPct ?? 0) * (pref.flourFraction / 100) * growth;
-    // ADU accumulato nel prefermento (proporzionale a frazione farina)
-    const kT    = (kEffective as Function)(pref.tempC ?? 16, aParams.Ea, aType) as number;
-    const kRatio = kRef25 > 1e-12 ? kT / kRef25 : 0;
-    prefInitialAdu += kRatio * (pref.durationH ?? 12) * (pref.flourFraction / 100);
+    yeastBoost += (pref.yeastPct ?? 0) * (pref.flourFraction / 100) * prefYeastGrowth(pref);
   }
-  return { effectiveDosePct: mainDosePct + yeastBoost, prefInitialAdu };
+  return mainDosePct + yeastBoost;
 }
 
 // ─── Stima pH prefermento da tipo/durata/temperatura ────────────────────────
 // Il motore usa p.state?.pH ?? 6.0 — senza stato stimato il pH è sempre 6.0.
-// Questa funzione approssima il pH finale del prefermento basandosi su
-// dati bibliografici (De Vuyst 2005, Chavan 2017):
-//   biga 16h/16°C → pH ~4.8-5.2; poolish 12h/18°C → pH ~3.9-4.4
+// STIMA: nessuna curva di pH pubblicata per biga o poolish con lievito di birra.
+// Dalla pratica una biga matura sta a pH ~5.0–5.4 (16–18 h a 16–18 °C); il calo
+// è lento perché l'impasto tampona (l'acidità titolabile sale più del pH).
+// La temperatura entra come velocità del lievito (Arrhenius), riferita a 16 °C.
 function estimatePrefPH(type: string, durationH: number, tempC: number): number {
   if (type === 'autolysis') return 6.0;
   if (type === 'riporto')   return 4.9;  // impasto riporto già acidificato
-  // Tasso di caduta pH: poolish (idr.100%) >  biga (idr.48%) per maggiore attività batterica
-  const kPH = type === 'poolish' ? 0.065 : 0.040;  // unità pH / ora
-  // Fattore temperatura: normalizzato a 16°C (temperatura biga di riferimento)
-  const tempFactor = Math.max(0.4, Math.min(2.5, tempC / 16));
+  // Tasso di caduta pH: poolish (idr.100%) > biga (idr.48%), più attività in impasto morbido
+  const kPH = type === 'poolish' ? 0.065 : 0.040;  // unità pH / ora a 16 °C (stima)
+  const r16 = yeastRate(16);
+  const tempFactor = r16 > 1e-9 ? Math.max(0.2, Math.min(3, yeastRate(tempC) / r16)) : 1;
   const floor = type === 'poolish' ? 3.6 : 4.4;
   return Math.max(floor, 6.0 - kPH * durationH * tempFactor);
 }
 
 // ─── Stima W decaduto nel prefermento ────────────────────────────────────────
-function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: number): number {
+// Lo stesso modello di Hill del motore (computeTCrit: Arrhenius delle proteasi,
+// pH, idratazione), non una formula a parte. Nessuno studio misura la perdita
+// di W in una biga: è il modello, non un dato.
+function estimatePrefWDecay(W0: number, type: string, durationH: number, tempC: number, pH: number, hydration: number): number {
   if (type === 'autolysis') return W0 * 0.97;  // lieve rilassamento
   if (type === 'riporto')   return W0 * 0.82;  // già ben degradato
-  // Approssimazione Hill semplificata (tCrit ≈ W0 * 0.15 ore a 16°C)
-  const tCritBase = W0 * 0.15;
-  const tFactor = Math.max(0.3, Math.min(3.0, tempC / 16));
-  const tCrit = tCritBase / tFactor;
-  const decay = 1 / (1 + Math.pow(durationH / tCrit, 3));
-  return Math.max(W0 * 0.6, W0 * decay);
+  const tCrit = (computeTCrit as (w: number, t: number, ph: number, h: number) => number)(W0, tempC, pH, hydration);
+  return (computeWHill as (w: number, tc: number, h: number) => number)(W0, tCrit, durationH);
 }
 
 /** Inverse analitica di Gompertz (Zwietering 1990): ADU al quale maturation = targetPct% */
@@ -272,9 +256,11 @@ function buildSessionRaw(draft: WizardDraft): Session {
   const prefermenti = (draft.prefermenti ?? []).map(p => {
     const fg = p.flourGroup ?? mainFG;
     const W0 = fg.effectiveW ?? 280;
+    const prefPH = estimatePrefPH(p.type, p.durationH ?? 12, p.tempC ?? 18);
     const estimatedState = p.state ?? {
-      pH:            estimatePrefPH(p.type, p.durationH ?? 12, p.tempC ?? 18),
-      W_decayed:     estimatePrefWDecay(W0, p.type, p.durationH ?? 12, p.tempC ?? 18),
+      pH:            prefPH,
+      W_decayed:     estimatePrefWDecay(W0, p.type, p.durationH ?? 12, p.tempC ?? 18, prefPH,
+                       (p as { hydration?: number }).hydration ?? (p.type === 'poolish' ? 100 : 48)),
       pl_modified:   fg.effectivePl ?? 0.55,
       amylase_index: fg.effectiveAmylaseIndex ?? 0.5,
       maturationPct: 0,
@@ -287,9 +273,7 @@ function buildSessionRaw(draft: WizardDraft): Session {
   // Senza questa correzione, 0.05% nell'impasto finale con biga al 40%
   // porta a previsioni >70h (il lievito del prefermento viene ignorato).
   const mainDose = draft.agentDosePct ?? (doseRef ?? 0.1);
-  const { effectiveDosePct, prefInitialAdu } = computeEffectiveDose(
-    prefermenti, mainDose, aParams, aType,
-  );
+  const effectiveDosePct = computeEffectiveDose(prefermenti, mainDose);
   // issue #8 — sorgente unica nell'engine. Il clamp era [0.1, 2] duplicato in
   // cinque punti fra questo file, il Planner e il solver.
   const muMax = (scaleMuMaxByDose as Function)(aParams.muMax, effectiveDosePct, doseRef) as number;
@@ -333,8 +317,9 @@ function buildSessionRaw(draft: WizardDraft): Session {
     if (draft.puntataH != null) return draft.puntataH;  // override manuale
     const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    // initialAdu include sia lievito madre che prefermento (biga/poolish)
-    const initAdu2  = ((combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10) * 10;
+    // Orologio del lievito: la lievitazione dell'impasto parte da zero (two-clock),
+    // il vantaggio del prefermento è nella dose efficace (muMax), non qui.
+    const initAdu2  = 0;
     const puntataMax2 = puntataMaxHForStyle(
       draft.style ?? 'napoletana', muMax, aParams.lambda, aParams.Ea, aType, initAdu2,
     );
@@ -402,9 +387,9 @@ function buildSessionRaw(draft: WizardDraft): Session {
     kneadDurationMin:        draft.kneadDurationMin ?? 12,       // §2.7 v2.4.24 — durata impasto
     tapWaterC:               draft.tapWaterC,                    // §2.7 v2.4.24 — acqua rubinetto
     tLaboratorio:            draft.tLaboratorio ?? 20,           // §2.7 — T ambiente impasto
-    // Offset iniziale: contributo sourdough (engine) + ADU head-start da biga/poolish
-    // prefInitialAdu è in unità ADU; /10 per normalizzare alla scala di initialMaturationOffset
-    initialMaturationOffset: (combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10,
+    // Maturazione iniziale: contributo del motore + vantaggio enzimatico dei prefermenti,
+    // sullo stesso orologio da cui riparte la sessione; mai oltre il 100%.
+    initialMaturationOffset: Math.min(1, (combined.initialMaturationOffset ?? 0) + prefMaturationOffset(prefermenti)),
     initialPH:               combined.initialPH,
     combinedInitialState:    combined,
     targetBakeAt:            bakeAt,

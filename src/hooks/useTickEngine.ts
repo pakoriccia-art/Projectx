@@ -122,17 +122,15 @@ export function useTickEngine() {
     // ── Seeding prefermenti (two-clock) — FIX inversione maturazione/lievitazione ─
     // initialMaturationOffset semina l'orologio MATURAZIONE (la biga ha già maturato),
     // NON la lievitazione (l'impasto finale è degassato all'impastamento).
-    // La biga influenza la lievitazione via CINETICA (popolazione di lievito attiva
-    // → lag ridotto), non gonfiando il livello iniziale di gas.
+    // La biga influenza la lievitazione via CINETICA: il suo lievito attivo è nella
+    // dose efficace (session.agentMuMax), non nel livello iniziale di gas.
     const matOffsetPct = (session.initialMaturationOffset ?? 0) * 100;   // [0,100]
-    const prefFrac     = Math.min(1, (session.prefermenti ?? [])
-      .reduce((s: number, p: any) => s + (p.flourFraction ?? 0) / 100, 0));
     // Seed enzimatico: ADU che produce enzymaticMatPct = matOffsetPct a t=0
     const enzSeed      = matOffsetPct > 0
       ? (findAduAt as Function)(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, matOffsetPct) as number
       : 0;
-    // Lag lievitazione ridotto dalla biga (cinetica più rapida, non livello iniziale)
-    const leavLambda   = Math.max(0.3, session.agentLambda * (1 - 0.5 * prefFrac));
+    // Lag invariato: accorciarlo per la biga contava due volte il suo lievito (v2.4.38).
+    const leavLambda   = session.agentLambda;
 
     // ── Temperatura impasto (geometria unificata v2.4.14 §2.14.4) ──────────────
     const massKg  = (currentDoughMassKg as Function)(session, phase);
@@ -185,7 +183,7 @@ export function useTickEngine() {
 
     // ── Gompertz lievitazione (orologio lievito) ────────────────────────────────
     // Parte BASSA (impasto degassato): nessun offset di maturazione iniettato.
-    // La biga accelera solo la cinetica (leavLambda ridotto), non il livello.
+    // La biga accelera solo la cinetica (muMax dalla dose efficace), non il livello.
     const matPct = (gompertz as Function)(
       newAdu,
       session.agentMuMax,

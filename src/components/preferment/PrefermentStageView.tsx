@@ -2,7 +2,7 @@
  * PizzaMatrix — prefermenti in maturazione.
  *
  * La fase prima dell'impasto finale. Ogni prefermento ha il suo orologio
- * (tempo termico con fArrhenius del motore, anche se cambia posto): il più
+ * (tempo termico del lievito, kEffective del motore, anche se cambia posto): il più
  * lungo parte subito, gli altri più tardi per essere pronti insieme. In alto
  * c'è sempre il più urgente (quello che va oltre per primo) e la finestra per
  * l'impasto finale: da quando sono tutti pronti a quando il primo va oltre.

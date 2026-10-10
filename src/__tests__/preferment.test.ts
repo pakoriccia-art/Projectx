@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   splitRecipe, prefTempAtMix, placeOf, placeTempC, durationOptions, defaultDuration,
   elapsedPrefHours, fmtGrams, isPreparable, mixedAtFromClock,
+  yeastRate, prefEnzymaticAdu, prefMaturationOffset, prefYeastGrowth,
 } from '../lib/preferment';
+import { ENZYMATIC_CLOCK_PARAMS, findAduAt } from '../engine';
 
 const biga = { id: 'b', type: 'biga', flourFraction: 50, hydration: 48, yeastPct: 0.1, tempC: 16, durationH: 16 } as any;
 const poolish = { id: 'p', type: 'poolish', flourFraction: 30, hydration: 100, yeastPct: 0.05, tempC: 20, durationH: 12 } as any;
@@ -87,7 +89,6 @@ describe('formati', () => {
 });
 
 import { recipeProblem, prefProgress, stageDurationH, equivalentTempC, waterAdvice, MIN_FINAL_FLOUR_PCT } from '../lib/preferment';
-import { fArrhenius } from '../engine';
 
 describe('recipeProblem', () => {
   it('ricetta valida: nessun problema', () => {
@@ -113,15 +114,15 @@ describe('stageDurationH', () => {
   });
 });
 
-describe('prefProgress (tempo termico con fArrhenius)', () => {
+describe('prefProgress (tempo termico del lievito)', () => {
   const t0 = new Date('2026-10-04T18:00:00').getTime();
   const st = { startedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
   it('a temperatura costante è lineare nel tempo', () => {
     expect(prefProgress(st, t0 + 8 * 3_600_000).pct).toBeCloseTo(50, 5);
     expect(prefProgress(st, t0 + 8 * 3_600_000).etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
   });
-  it('in frigo rallenta secondo il rapporto fArrhenius', () => {
-    const f = fArrhenius as (t: number) => number;
+  it('in frigo rallenta come il lievito (kEffective)', () => {
+    const f = yeastRate;
     const moved = { ...st, moves: [{ at: new Date(t0 + 8 * 3_600_000), place: 'frigo' as const, tempC: 4 }] };
     const at = t0 + 8 * 3_600_000;
     const { etaMs } = prefProgress(moved, at);
@@ -351,5 +352,32 @@ describe('mixedAtFromClock', () => {
   it('formati sbagliati', () => {
     expect(mixedAtFromClock('25:00', now)).toBeNull();
     expect(mixedAtFromClock('abc', now)).toBeNull();
+  });
+});
+
+describe('vantaggio dei prefermenti sull\'impasto finale', () => {
+  it('maturazione iniziale sempre tra 0 e 1, anche per una biga lunga e calda', () => {
+    const hot = { ...biga, flourFraction: 70, durationH: 24, tempC: 20 };
+    const off = prefMaturationOffset([hot]);
+    expect(off).toBeGreaterThan(0);
+    expect(off).toBeLessThan(1);
+    expect(prefMaturationOffset([])).toBe(0);
+  });
+  it('la sessione ritrova lo stesso orologio enzimatico (findAduAt ∘ gompertz)', () => {
+    const adu = prefEnzymaticAdu([biga]);
+    const off = prefMaturationOffset([biga]);
+    const { muMax, lambda } = ENZYMATIC_CLOCK_PARAMS as { muMax: number; lambda: number };
+    expect((findAduAt as (m: number, l: number, A: number, p: number) => number)(muMax, lambda, 100, off * 100)).toBeCloseTo(adu, 2);
+  });
+  it('l\'autolisi non porta né maturazione né lievito', () => {
+    const auto = { type: 'autolysis', flourFraction: 100, durationH: 1, tempC: 20 };
+    expect(prefEnzymaticAdu([auto])).toBe(0);
+  });
+  it('una biga più dura fa crescere meno il lievito', () => {
+    const short = { ...biga, durationH: 6 };
+    expect(prefYeastGrowth({ ...short, hydration: 44 })).toBeLessThan(prefYeastGrowth({ ...short, hydration: 55 }));
+  });
+  it('in frigo il lievito cresce meno che a 16 °C', () => {
+    expect(prefYeastGrowth({ ...biga, durationH: 8, tempC: 4 })).toBeLessThan(prefYeastGrowth({ ...biga, durationH: 8, tempC: 16 }));
   });
 });

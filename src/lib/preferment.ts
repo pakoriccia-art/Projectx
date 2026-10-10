@@ -3,13 +3,22 @@
  *
  * Aritmetica sugli input della ricetta: il motore riceve gli stessi campi di
  * sempre (tempC, durationH, flourFraction…), qui li si ricava da poche scelte e
- * si trasformano in grammi da pesare. La maturazione del prefermento in corso
- * usa solo fArrhenius del motore (chiamata, non modificata).
+ * si trasformano in grammi da pesare.
+ *
+ * Il prefermento lavora su due orologi del motore, come l'impasto:
+ * - il LIEVITO (kEffective del lievito fresco): quando è pronto (gas, volume) e
+ *   quanto lievito attivo porta all'impasto finale;
+ * - gli ENZIMI (fArrhenius, l'orologio della maturazione): quanto vantaggio di
+ *   maturazione porta all'impasto finale.
+ * Base: dipendenza dalla temperatura del lievito (Arrhenius, temperature cardinali;
+ * Salvadó et al., AEM 2011); impasto duro = lievito più lento (Codină et al. 2011).
+ * Applicata a 4–18 °C è un'estrapolazione: gli studi sugli impasti stanno a 22–35 °C.
  */
 import type { PrefermentoComponent, PrefermentStage } from '../db/db';
 import { fmtClockDay } from './fmtTime';
 import {
   fArrhenius, computeWaterTempDDT, computeEffectiveMixHydration, type KneadingMethod, type WaterTempResult,
+  kEffective, gompertz, AGENT_GOMPERTZ, ENZYMATIC_CLOCK_PARAMS, PREFERMENTO_CALIBRATION,
 } from '../engine';
 import { ddtForStyle, hydrationRangeForStyle } from '../data/styleConstraints';
 
@@ -181,6 +190,57 @@ export function stageDurationH(prefermenti: PrefermentoComponent[] | undefined):
   return prep.length ? Math.max(...prep.map(p => p.durationH ?? 12)) : 0;
 }
 
+// ─── Orologi del prefermento ────────────────────────────────────────────────
+
+const FRESH = (AGENT_GOMPERTZ as Record<string, { Ea: number }>).fresh_yeast;
+/** Velocità del lievito fresco a T, relativa a 25 °C (motore: Arrhenius + cardinali). */
+export function yeastRate(tempC: number): number {
+  const k = kEffective as (t: number, ea: number, a: string) => number;
+  const ref = k(25, FRESH.Ea, 'fresh_yeast');
+  return ref > 1e-12 ? k(tempC, FRESH.Ea, 'fresh_yeast') / ref : 0;
+}
+
+/** Prefermenti con lievito o batteri (non l'autolisi: solo farina e acqua). */
+const isFermenting = (p: { type: string }) => p.type !== 'autolysis';
+
+/**
+ * Vantaggio di maturazione [ADU enzimatici]: lo stesso orologio da cui la
+ * sessione riparte (initialMaturationOffset → findAduAt(9.5, 0.5, …)).
+ */
+export function prefEnzymaticAdu(prefermenti: { type: string; flourFraction: number; tempC?: number; durationH?: number }[] | undefined): number {
+  const f = fArrhenius as (t: number) => number;
+  return (prefermenti ?? []).filter(isFermenting)
+    .reduce((acc, p) => acc + f(p.tempC ?? 16) * (p.durationH ?? 12) * (p.flourFraction / 100), 0);
+}
+
+/** Lo stesso vantaggio come maturazione iniziale dell'impasto (0–1): mai oltre il 100%. */
+export function prefMaturationOffset(prefermenti: Parameters<typeof prefEnzymaticAdu>[0]): number {
+  const adu = prefEnzymaticAdu(prefermenti);
+  if (adu <= 0) return 0;
+  const { muMax, lambda } = ENZYMATIC_CLOCK_PARAMS as { muMax: number; lambda: number };
+  const pct = (gompertz as (a: number, m: number, l: number, A: number) => number)(adu, muMax, lambda, 100);
+  return Math.max(0, Math.min(1, pct / 100));
+}
+
+/** Raddoppio del lievito a 20 °C in un impasto morbido [h] — stima, nessuna misura per i prefermenti. */
+export const YEAST_DOUBLING_20C_H = 2.0;
+/** Tetto alla crescita del lievito nel prefermento (nutrienti, acidità) — stima. */
+export const YEAST_GROWTH_CAP = 40;
+
+/**
+ * Quante volte si moltiplica il lievito nel prefermento: raddoppio di 2 h a 20 °C,
+ * scalato con la velocità del lievito alla sua temperatura e, per la biga, con
+ * l'idratazione (impasto duro più lento: hydFactor del motore, 0.55 a 44% → 0.90 a 55%).
+ */
+export function prefYeastGrowth(p: { type: string; tempC?: number; durationH?: number; hydration?: number }): number {
+  const r20 = yeastRate(20), rT = yeastRate(p.tempC ?? 16);
+  if (rT <= 1e-9 || r20 <= 1e-9) return 1;
+  const cal = (PREFERMENTO_CALIBRATION as Record<string, { hydFactor: (h: number) => number }>)[p.type];
+  const hyd = p.type === 'biga' && cal ? cal.hydFactor(p.hydration ?? 48) : 1;
+  const doublingH = YEAST_DOUBLING_20C_H * (r20 / rT) / hyd;
+  return Math.min(YEAST_GROWTH_CAP, Math.pow(2, (p.durationH ?? 12) / doublingH));
+}
+
 export interface RecipeProblem {
   kind: 'flour' | 'water';
   message: string;
@@ -233,8 +293,8 @@ export function plannedHOf(stage: { startedAt: Date | string; plannedH?: number;
 }
 
 /**
- * Maturazione del prefermento in corso, come tempo termico: ∫fArrhenius(T)dt
- * rispetto a quello previsto (fArrhenius(T del piano) × durata del piano).
+ * Maturazione del prefermento in corso, come tempo termico del lievito: ∫v(T)dt
+ * rispetto a quello previsto (v(T del piano) × durata del piano), v = yeastRate.
  * Gli spostamenti (frigo, stanza…) cambiano la velocità da quel momento.
  */
 export function prefProgress(
@@ -245,7 +305,8 @@ export function prefProgress(
 ): { pct: number; etaMs: number } {
   const start = new Date(stage.startedAt).getTime();
   const plannedH = plannedHOf(stage);
-  const target = (fArrhenius as (t: number) => number)(stage.plannedTempC ?? 16) * plannedH;
+  // Il pronto è gas e volume: la velocità del lievito, non quella degli enzimi.
+  const target = yeastRate(stage.plannedTempC ?? 16) * plannedH;
   const moves = [...(stage.moves ?? [])]
     .map(m => ({ at: new Date(m.at).getTime(), tempC: m.tempC }))
     .filter(m => Number.isFinite(m.at) && m.at >= start)
@@ -253,7 +314,7 @@ export function prefProgress(
   const goal = target * atPct / 100;
   let t = start, temp = stage.plannedTempC ?? 16, acc = 0;
   let crossedAt: number | null = null;   // istante in cui si è raggiunto atPct, se già passato
-  const rate = (c: number) => (fArrhenius as (t: number) => number)(c);
+  const rate = (c: number) => yeastRate(c);
   const advance = (until: number) => {
     const dh = Math.max(0, until - t) / 3_600_000;
     const add = rate(temp) * dh;
@@ -296,8 +357,8 @@ export function equivalentTempC(stage: Pick<PrefermentStage, 'startedAt' | 'plan
   const hours = Math.max(1e-6, (now - new Date(stage.startedAt).getTime()) / 3_600_000);
   const { pct } = prefProgress(stage, now);
   const plannedH = plannedHOf(stage);
-  const f = fArrhenius as (t: number) => number;
-  const goalRate = (pct / 100) * f(base) * plannedH / hours;   // fArrhenius medio
+  const f = yeastRate;
+  const goalRate = (pct / 100) * f(base) * plannedH / hours;   // velocità media del lievito
   let lo = 0, hi = 40;
   for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (f(mid) < goalRate) lo = mid; else hi = mid; }
   return Math.round(((lo + hi) / 2) * 10) / 10;

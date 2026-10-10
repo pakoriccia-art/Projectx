@@ -718,3 +718,61 @@ In app, con la sessione di default (6 panetti da ~280 g, cucina a 20 °C), il ri
 - Le fonti web sono state lette dai riassunti dei motori di ricerca (il proxy bloccava le pagine): da ricontrollare sugli originali.
 - L'evaporazione non è modellata: un panetto scoperto in una stanza secca si ferma sotto i 18 °C (~15,7 °C al 50% di umidità). Coperto, l'effetto sparisce.
 - La massa del panetto ha ancora due formule (con e senza sale, 0,4% sulla τ).
+
+## Passaggio 38: biga e prefermenti, un modello coerente
+
+**Domanda dell'utente:** che base scientifica c'è dietro la biga? Due ricerche (codice e letteratura). Fonti lette dai riassunti dei motori di ricerca, perché il proxy bloccava le pagine: da ricontrollare sugli originali.
+
+**Cosa ha basi scientifiche**
+- Dipendenza dalla temperatura del lievito: Arrhenius; temperature cardinali Tmin ~3 °C, Topt ~32 °C (Salvadó et al., Appl. Environ. Microbiol. 77:2292, 2011); Ea 50–80 kJ/mol.
+- Curva di lievitazione Gompertz (Zwietering et al. 1990; Romano et al., J. Food Eng. 83:142, 2007).
+- La biga dà un impasto più tenace e meno estensibile (Balestra, Pinnavaia & Romani, J. Texture Stud. 46:262, 2015).
+- Una biga lunga a 16 °C aumenta peptidi e amminoacidi liberi (Costantini et al., Nutrients 15:2958, 2023).
+- Un impasto più duro rallenta il lievito (Codină et al. 2011).
+- Tutti gli studi sugli impasti sono tra 22 e 35 °C: per una biga a 16–18 °C o in frigo il modello è un'estrapolazione.
+
+**Pratica di mestiere, senza studi:** "biga standard" 44–45% d'acqua, 1% di lievito, 16 h a 18 °C (Giorilli, via forum); farina W > 300; pH della biga matura 5,0–5,4; segni di maturazione (cupola che cede, profumo).
+
+**Assente in letteratura:** curve di pH e acidità di una biga classica; perdita di W durante la biga; parametri di lievitazione validati sotto i 20 °C; un modello quantitativo di "biga pronta".
+
+**Cosa non andava nel codice.** Cinque euristiche che non si parlavano:
+- **Tre vantaggi iniziali diversi:**
+  - wizard: orologio del lievito, poi `/10` "per normalizzare la scala", senza tetto (biga 70%/24 h/20 °C → maturazione iniziale 110%);
+  - Planner: orologio degli enzimi;
+  - motore: sempre 0.
+- **Effetto della biga sulla lievitazione contato due volte:** dose efficace (μmax ×6,5) e lag accorciato, anche per l'autolisi che non ha lievito.
+- **Crescita del lievito nella biga:** raddoppio 2 h a 20 °C con un Ea a parte, tetto 40× quasi sempre raggiunto, nessun effetto dell'idratazione. Il motore aveva già `PREFERMENTO_CALIBRATION.hydFactor`, mai usato.
+- **Pronto della biga sulla velocità degli enzimi** (Ea 47), non del lievito.
+- **pH con un commento che citava studi sul lievito madre** (De Vuyst 2005, Chavan 2017) e valori che il codice non dava; fattore di temperatura lineare.
+- **Perdita di W con una formula del wizard diversa da quella del motore.**
+
+**Cosa è cambiato** (`src/lib/preferment.ts` è l'unica fonte)
+- **Due orologi, come l'impasto:**
+  - `yeastRate` (lievito, `kEffective` del motore) per il pronto della biga (`prefProgress`, `equivalentTempC`) e per la crescita del lievito;
+  - `prefEnzymaticAdu` (enzimi, `fArrhenius`) per il vantaggio di maturazione, usato da wizard e Planner.
+- **`prefMaturationOffset` = Gompertz dell'orologio enzimatico:** sempre tra 0 e 1; la sessione ritrova esattamente lo stesso punto (`findAduAt`). Via il `/10`.
+- **`prefYeastGrowth`:** raddoppio 2 h a 20 °C scalato con la velocità del lievito e, per la biga, con `hydFactor` del motore. Tetto 40× dichiarato come stima.
+- **Lag del lievito invariato** in tick, grafico e solver: il lievito attivo della biga è nella dose. L'autolisi non accelera più niente.
+- **pH:** temperatura con la velocità del lievito; il commento dice che è una stima e che non ci sono curve pubblicate.
+- **W:** il modello di Hill del motore (`computeTCrit`/`computeWHill`).
+- **Back-calcolo TC Appretto:** la lievitazione parte da zero, come a runtime.
+- **Codice duplicato del Planner:** usa le stesse funzioni.
+- **Corretto il testo "Alza la temperatura ambiente sopra 18°C"** del solver, rimasto dal passaggio 37: ora segue la soglia (15 °C).
+
+**Numeri prima → dopo** (lievito fresco 0,1%, W 300, napoletana):
+
+| | maturazione iniziale | μmax | pH | W | pronto dopo l'impasto |
+|---|---|---|---|---|---|
+| biga default 50%, 16 h a 16 °C | 37% → 37% | 79 → 32 | 5,57 → 5,57 | 294 → 300 | 8,0 → 7,9 h |
+| biga 70%, 24 h a 20 °C | **110%** → 88% | 116 → 116 | 4,94 → 4,78 | 252 → 300 | 0 → 0 h |
+| biga 70%, 48 h a 4 °C | 51% → 68% | 51 → 42 | 5,36 → 5,48 | 293 → 300 | 6,0 → 3,0 h |
+| poolish default 30%, 12 h a 20 °C | 24% → 21% | 28 → 28 | 5,45 → 5,34 | 297 → 300 | 10,0 → 10,5 h |
+
+In frigo la biga ora rallenta come il lievito (~3 volte a 4 °C rispetto a 16 °C), non come gli enzimi (~2 volte).
+
+### Verifica
+- `npm run typecheck`; `npm test`: vitest 292 + 257, motore, stress 285/285, fuzz 1001/1001.
+- 5 test nuovi in `src/__tests__/preferment.test.ts`: tetto al 100%, stesso orologio della sessione, autolisi neutra, biga dura più lenta, frigo più lento.
+- Finto telefono 74/74 (F1–F5 sui prefermenti compresi). Da fare: telefono vero.
+
+**Restano stime da misurare:** raddoppio del lievito nella biga, tetto 40×, velocità di caduta del pH, `hydFactor`. Il dato più utile: pH e volume di una biga ogni 2–4 h.

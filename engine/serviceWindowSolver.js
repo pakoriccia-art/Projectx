@@ -407,12 +407,13 @@ export function solveNowAnchoredWindow(input) {
   if (ambientTempC <= thermalServiceTargetC) {
     return { feasible: false, mixStart, mixStartIsNow: true,
       resolvedTargetMaturationPct: targetMaturationPct, resolvedBubbleThresholdPct: bubbleThresholdPct,
-      infeasibility: { reason: 'cannot_temper', mitigations: ['Alza la temperatura ambiente sopra 18°C'] } };
+      infeasibility: { reason: 'cannot_temper', mitigations: [`Alza la temperatura ambiente sopra ${thermalServiceTargetC}°C`] } };
   }
 
   const doseRef    = doseRefPct !== undefined ? doseRefPct : defaultDoseRef(agentType);
-  const prefFrac   = Math.min(1, (prefermenti ?? []).reduce((s, p) => s + (p.flourFraction ?? 0) / 100, 0));
-  const leavLambda = Math.max(0.3, agentLambda * (1 - 0.5 * prefFrac));
+  // Lag del lievito invariato: il lievito attivo dei prefermenti è già nella dose
+  // (prima il lag si accorciava anche, e contava due volte; v2.4.38).
+  const leavLambda = agentLambda;
   const enzSeed    = initialMaturationOffset > 0
     ? findAduAt(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, initialMaturationOffset * 100)
     : 0;
@@ -748,8 +749,9 @@ export function solveServiceWindow(input) {
   }
 
   const doseRef  = doseRefPct !== undefined ? doseRefPct : defaultDoseRef(agentType);
-  const prefFrac = Math.min(1, (prefermenti ?? []).reduce((s, p) => s + (p.flourFraction ?? 0) / 100, 0));
-  const leavLambda = Math.max(0.3, agentLambda * (1 - 0.5 * prefFrac));
+  // Lag del lievito invariato: il lievito attivo dei prefermenti è già nella dose
+  // (prima il lag si accorciava anche, e contava due volte; v2.4.38).
+  const leavLambda = agentLambda;
   const enzSeed = initialMaturationOffset > 0
     ? findAduAt(ENZYMATIC_CLOCK_PARAMS.muMax, ENZYMATIC_CLOCK_PARAMS.lambda, 100, initialMaturationOffset * 100)
     : 0;
@@ -768,7 +770,7 @@ export function solveServiceWindow(input) {
   const mitigations = (reason, maxSafe) => {
     const m = [];
     if (reason === 'cannot_temper')
-      m.push('Alza la temperatura ambiente sopra 18°C', 'Accetta un servizio sotto i 18°C (estensibilità ridotta)');
+      m.push(`Alza la temperatura ambiente sopra ${thermalServiceTargetC}°C`, 'Accetta un servizio sotto i 18°C (estensibilità ridotta)');
     if (reason === 'maturation_overshoot') {
       if (maxSafe != null) m.push(`Riduci la durata del servizio a ≤ ${maxSafe.toFixed(1)}h`);
       m.push('Sforno progressivo: tieni parte delle palline al freddo più a lungo',
