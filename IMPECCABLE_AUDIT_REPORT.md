@@ -658,7 +658,7 @@ Correzione dei due P0 e dei due P1 del passaggio 35, più la Home con l'impasto 
   - Planner con la cottura tra 47 h: "TC totale" con "Non ci sta", poi "Sposta la cottura" imposta data e ora;
   - nessuno scroll orizzontale.
 - Rilevatore sui file toccati: da 89 a 88 segnalazioni (un colore fuori palette in meno nel Forno, un font del Forno riportato sulla scala di DESIGN.md).
-- Da fare: rilanciare `scripts\test-telefono.ps1` sul telefono vero (atteso 74/74).
+- Telefono vero: 74/74 (verificato insieme al passaggio 37).
 
 **Da sapere.** Con la cassetta chiusa e la cucina a 20 °C il modello chiede circa 8h 30m di riscaldo per un panetto da 250 g. È il valore del modello termico già usato per "TC Appretto", ora mostrato anche per "TC tutto in frigo".
 
@@ -711,7 +711,8 @@ In app, con la sessione di default (6 panetti da ~280 g, cucina a 20 °C), il ri
 ### Verifica
 - `npm run typecheck`; `npm test`: vitest 287 + 257, motore, stress 285/285, fuzz 1001/1001.
 - Finto telefono 74/74; browser 27/27 (390 px).
-- Da fare: telefono vero; una misura con sonda al centro di un panetto (nudo e in cassetta). È l'unico dato che manca: in letteratura non c'è una curva affidabile.
+- Telefono vero (SM-S931B), passaggi 36 e 37 insieme: 74/74. Riscaldo del Planner 2,47 h = wizard 2,5 h; la sessione TC riprende in frigo dopo la chiusura.
+- Da fare: una misura con sonda al centro di un panetto (nudo e in cassetta). È l'unico dato che manca: in letteratura non c'è una curva affidabile.
 
 **Limiti.**
 - Le fonti web sono state lette dai riassunti dei motori di ricerca (il proxy bloccava le pagine): da ricontrollare sugli originali.
