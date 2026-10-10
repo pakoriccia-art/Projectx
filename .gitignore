@@ -1,0 +1,13 @@
+node_modules/
+dist/
+android/
+.DS_Store
+*.local
+*.map
+
+# Playwright artifacts
+playwright-report/
+test-results/
+
+# stato runtime del live-server di impeccable
+.impeccable/live/

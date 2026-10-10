@@ -1,0 +1,383 @@
+import { describe, it, expect } from 'vitest';
+import {
+  splitRecipe, prefTempAtMix, placeOf, placeTempC, durationOptions, defaultDuration,
+  elapsedPrefHours, fmtGrams, isPreparable, mixedAtFromClock,
+  yeastRate, prefEnzymaticAdu, prefMaturationOffset, prefYeastGrowth,
+} from '../lib/preferment';
+import { ENZYMATIC_CLOCK_PARAMS, findAduAt } from '../engine';
+
+const biga = { id: 'b', type: 'biga', flourFraction: 50, hydration: 48, yeastPct: 0.1, tempC: 16, durationH: 16 } as any;
+const poolish = { id: 'p', type: 'poolish', flourFraction: 30, hydration: 100, yeastPct: 0.05, tempC: 20, durationH: 12 } as any;
+
+describe('splitRecipe', () => {
+  it('biga 50%: grammi della biga e dell\'impasto finale', () => {
+    const r = splitRecipe({ totalFlourG: 1000, hydrationPct: 65, saltPct: 2.5, agentDosePct: 0.2, prefermenti: [biga] });
+    expect(r.prefs[0].flourG).toBe(500);
+    expect(r.prefs[0].waterG).toBe(240);
+    expect(r.prefs[0].yeastG).toBeCloseTo(0.5);
+    expect(r.final.flourG).toBe(500);
+    expect(r.final.waterG).toBe(410);         // 650 − 240
+    expect(r.final.saltG).toBe(25);
+    expect(r.final.yeastG).toBeCloseTo(2);
+    expect(r.minHydrationPct).toBeNull();
+  });
+  it('diretto: tutta l\'acqua nell\'impasto finale', () => {
+    const r = splitRecipe({ totalFlourG: 800, hydrationPct: 70, saltPct: 2, agentDosePct: 0.3 });
+    expect(r.prefs).toHaveLength(0);
+    expect(r.final.flourG).toBe(800);
+    expect(r.final.waterG).toBeCloseTo(560);
+  });
+  it('poolish troppo grande per l\'idratazione: segnala il minimo', () => {
+    const big = { ...poolish, flourFraction: 70 };
+    const r = splitRecipe({ totalFlourG: 1000, hydrationPct: 60, saltPct: 2, agentDosePct: 0.1, prefermenti: [big] });
+    expect(r.final.waterG).toBe(0);
+    expect(r.minHydrationPct).toBe(70);
+  });
+  it('autolisi e riporto: niente lievito nel prefermento', () => {
+    const r = splitRecipe({ totalFlourG: 1000, hydrationPct: 65, saltPct: 2, agentDosePct: 0.2,
+      prefermenti: [{ ...biga, type: 'autolysis', yeastPct: undefined, hydration: 65 }] });
+    expect(r.prefs[0].yeastG).toBeNull();
+  });
+});
+
+describe('prefTempAtMix', () => {
+  it('media pesata sulla massa, autolisi esclusa', () => {
+    const t = prefTempAtMix([{ ...biga, tempC: 4 }, { ...poolish, tempC: 20 }], 1000)!;
+    // biga 500×1.48=740 g a 4°C, poolish 300×2=600 g a 20°C
+    expect(t).toBeCloseTo((740 * 4 + 600 * 20) / 1340, 5);
+    expect(prefTempAtMix([{ ...biga, type: 'autolysis' }], 1000)).toBeUndefined();
+    expect(prefTempAtMix([], 1000)).toBeUndefined();
+  });
+});
+
+describe('luogo e durate', () => {
+  it('luogo dedotto dalla temperatura se manca', () => {
+    expect(placeOf({ tempC: 4 })).toBe('frigo');
+    expect(placeOf({ tempC: 18 })).toBe('fresco');
+    expect(placeOf({ tempC: 20 })).toBe('stanza');
+    expect(placeOf({ tempC: 20, place: 'frigo' })).toBe('frigo');
+  });
+  it('il frigo usa la temperatura della sessione', () => {
+    expect(placeTempC('frigo', 5)).toBe(5);
+    expect(placeTempC('fresco')).toBe(16);
+  });
+  it('la durata di default è tra le opzioni, in ordine crescente', () => {
+    for (const type of ['biga', 'poolish']) for (const pl of ['fresco', 'stanza', 'frigo'] as const) {
+      const opts = durationOptions(type, pl);
+      expect(opts).toContain(defaultDuration(type, pl));
+      expect([...opts].sort((a, b) => a - b)).toEqual(opts);
+      expect(Math.max(...opts)).toBeLessThanOrEqual(72);
+    }
+  });
+  it('si preparano solo biga e poolish', () => {
+    expect(isPreparable(biga)).toBe(true);
+    expect(isPreparable({ type: 'riporto' })).toBe(false);
+    expect(isPreparable({ type: 'autolysis' })).toBe(false);
+  });
+});
+
+describe('formati', () => {
+  it('ore reali al quarto d\'ora, minimo mezz\'ora', () => {
+    const t0 = new Date('2026-10-04T18:00:00');
+    expect(elapsedPrefHours(t0, t0.getTime() + 16.1 * 3_600_000)).toBe(16);
+    expect(elapsedPrefHours(t0, t0.getTime() + 10 * 60_000)).toBe(0.5);
+  });
+  it('grammi: un decimale sotto i 10 g', () => {
+    expect(fmtGrams(0.5)).toBe('0,5 g');
+    expect(fmtGrams(240.4)).toBe('240 g');
+  });
+});
+
+import { recipeProblem, prefProgress, stageDurationH, equivalentTempC, waterAdvice, MIN_FINAL_FLOUR_PCT } from '../lib/preferment';
+
+describe('recipeProblem', () => {
+  it('ricetta valida: nessun problema', () => {
+    expect(recipeProblem({ totalFlourGrams: 1000, hydration: 65, prefermenti: [biga] })).toBeNull();
+    expect(recipeProblem({ totalFlourGrams: 1000, hydration: 65 })).toBeNull();
+  });
+  it('troppa farina nei prefermenti: riduce il più grande', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 65, prefermenti: [biga, { ...poolish, flourFraction: 50 }] })!;
+    expect(pb.kind).toBe('flour');
+    expect(pb.fixValue).toBe(50 - (100 - (100 - MIN_FINAL_FLOUR_PCT)));   // 40
+  });
+  it('acqua dei prefermenti oltre il totale: idratazione minima', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 55, prefermenti: [{ ...poolish, flourFraction: 70 }] })!;
+    expect(pb.kind).toBe('water');
+    expect(pb.fixValue).toBe(70);
+  });
+});
+
+describe('stageDurationH', () => {
+  it('il prefermento biologico più lungo; autolisi esclusa', () => {
+    expect(stageDurationH([biga, poolish, { ...biga, id: 'a', type: 'autolysis', durationH: 30 }])).toBe(16);
+    expect(stageDurationH([])).toBe(0);
+  });
+});
+
+describe('prefProgress (tempo termico del lievito)', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const st = { startedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  it('a temperatura costante è lineare nel tempo', () => {
+    expect(prefProgress(st, t0 + 8 * 3_600_000).pct).toBeCloseTo(50, 5);
+    expect(prefProgress(st, t0 + 8 * 3_600_000).etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
+  });
+  it('in frigo rallenta come il lievito (kEffective)', () => {
+    const f = yeastRate;
+    const moved = { ...st, moves: [{ at: new Date(t0 + 8 * 3_600_000), place: 'frigo' as const, tempC: 4 }] };
+    const at = t0 + 8 * 3_600_000;
+    const { etaMs } = prefProgress(moved, at);
+    const expectedH = 8 * f(16) / f(4);
+    expect((etaMs - at) / 3_600_000).toBeCloseTo(expectedH, 3);
+    expect(expectedH).toBeGreaterThan(8);
+  });
+  it('orario a una maturazione data (ritardo)', () => {
+    expect(prefProgress(st, t0, 125).etaMs).toBeCloseTo(t0 + 20 * 3_600_000, -3);
+  });
+  it('preparazioni vecchie senza plannedH: durata da readyAt', () => {
+    const old = { startedAt: new Date(t0), readyAt: new Date(t0 + 10 * 3_600_000), plannedTempC: 16 };
+    expect(prefProgress(old, t0 + 5 * 3_600_000).pct).toBeCloseTo(50, 5);
+  });
+  it('temperatura equivalente: tra quella del piano e quella del frigo', () => {
+    const moved = { ...st, moves: [{ at: new Date(t0 + 8 * 3_600_000), place: 'frigo' as const, tempC: 4 }] };
+    const tEq = equivalentTempC(moved, t0 + 16 * 3_600_000);
+    expect(tEq).toBeGreaterThan(4);
+    expect(tEq).toBeLessThan(16);
+    expect(equivalentTempC(st, t0 + 16 * 3_600_000)).toBe(16);
+  });
+});
+
+describe('waterAdvice', () => {
+  it('dà una riga leggibile o null', () => {
+    const w = waterAdvice({ ddtTarget: 18, tempAmbient: 20, waterG: 240, massKg: 0.74, hydrationPct: 48, kneadDurationMin: 3 });
+    expect(w).toMatch(/acqua|ghiaccio/);
+    expect(waterAdvice({ ddtTarget: 18, tempAmbient: 20, waterG: 0, massKg: 0.5, hydrationPct: 48 })).toBeNull();
+  });
+});
+
+describe('prefProgress oltre il 100%', () => {
+  it("l'orario di pronto resta quello in cui è stato raggiunto", () => {
+    const t0 = new Date('2026-10-04T18:00:00').getTime();
+    const st = { startedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+    const r = prefProgress(st, t0 + 22 * 3_600_000);
+    expect(r.pct).toBeCloseTo(137.5, 3);
+    expect(r.etaMs).toBeCloseTo(t0 + 16 * 3_600_000, -3);
+  });
+});
+
+import {
+  buildStageItems, normalizeStage, itemProgress, itemClock, fridgeGain, lateLevel, stageStatus,
+  stageBannerText, plannedHOf,
+} from '../lib/preferment';
+
+describe('fase con più prefermenti', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const prefs = [{ ...poolish, durationH: 12, tempC: 20 }, { ...biga, durationH: 16, tempC: 16 }];
+  it('il più lungo parte subito, gli altri in modo da finire insieme', () => {
+    const items = buildStageItems(prefs as any, t0);
+    expect(items[0].type).toBe('biga');
+    expect(items[0].mixedAt?.getTime()).toBe(t0.getTime());
+    expect(items[1].type).toBe('poolish');
+    expect(items[1].startAt.getTime()).toBe(t0.getTime() + 4 * 3_600_000);
+    expect(items[1].mixedAt).toBeUndefined();
+    // impastato all'orario previsto: pronti insieme
+    const mixed = { ...items[1], mixedAt: items[1].startAt };
+    const a = itemProgress(items[0], t0.getTime()).etaMs, b = itemProgress(mixed, t0.getTime() + 4 * 3_600_000).etaMs;
+    expect(Math.abs(a - b)).toBeLessThan(60_000);
+  });
+  it('non impastato: fermo a 0, pronto da quando partirà', () => {
+    const items = buildStageItems(prefs as any, t0);
+    const p = itemProgress(items[1], t0.getTime());
+    expect(p.started).toBe(false);
+    expect(p.pct).toBe(0);
+    expect(p.etaMs).toBe(t0.getTime() + 16 * 3_600_000);
+  });
+});
+
+describe('normalizeStage (fasi delle build precedenti)', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const old: any = {
+    startedAt: t0, readyAt: new Date(t0.getTime() + 16 * 3_600_000),
+    draft: { prefermenti: [{ ...biga, durationH: 16, tempC: 16 }] },
+    moves: [{ at: new Date(t0.getTime() + 8 * 3_600_000), place: 'frigo', tempC: 4 }],
+  };
+  it('ricostruisce plannedH e un elemento con gli spostamenti', () => {
+    const st = normalizeStage(old);
+    expect(st.plannedH).toBe(16);
+    expect(st.items).toHaveLength(1);
+    expect(st.items![0].moves).toHaveLength(1);
+  });
+  it('dopo uno spostamento la maturazione non si dimezza e la T equivalente è sensata', () => {
+    const st = normalizeStage(old);
+    const at = t0.getTime() + 8 * 3_600_000;
+    expect(itemProgress(st.items![0], at).pct).toBeCloseTo(50, 3);
+    const tEq = equivalentTempC(itemClock(st.items![0]), t0.getTime() + 12 * 3_600_000);
+    expect(tEq).toBeGreaterThan(4);
+    expect(tEq).toBeLessThan(16);
+  });
+  it('plannedHOf senza plannedH usa readyAt − startedAt', () => {
+    expect(plannedHOf({ startedAt: t0, readyAt: new Date(t0.getTime() + 10 * 3_600_000) })).toBe(10);
+  });
+});
+
+describe('ritardo e frigo', () => {
+  const t0 = new Date('2026-10-04T18:00:00');
+  const bi = { id: 'b', type: 'biga', startAt: t0, mixedAt: t0, plannedH: 16, plannedTempC: 16 };
+  it('livelli', () => {
+    expect(lateLevel('biga', 50)).toBe('growing');
+    expect(lateLevel('biga', 101)).toBe('ready');
+    expect(lateLevel('biga', 138)).toBe('late');
+    expect(lateLevel('poolish', 116)).toBe('late');
+    expect(lateLevel('biga', 250)).toBe('veryLate');
+  });
+  it('il frigo sposta più avanti la soglia di ritardo', () => {
+    const g = fridgeGain(bi, t0.getTime() + 14 * 3_600_000, 4);
+    expect(g.lateAtFridge).toBeGreaterThan(g.lateAtStay);
+    expect(g.gainH).toBeGreaterThan(1);
+  });
+  it('stato e testo del banner', () => {
+    const stage: any = { startedAt: t0, readyAt: new Date(t0.getTime() + 16 * 3_600_000), plannedH: 16, plannedTempC: 16, items: [bi], draft: {} };
+    const s = stageStatus(stage, t0.getTime() + 22 * 3_600_000);
+    expect(s.level).toBe('late');
+    expect(stageBannerText(s, t0.getTime() + 22 * 3_600_000).text).toMatch(/Biga oltre da/);
+    expect(stageBannerText(stageStatus(stage, t0.getTime() + 3_600_000), t0.getTime() + 3_600_000).text).toMatch(/Biga in corso/);
+  });
+});
+
+describe('recipeProblem: alternativa al rialzo dell\'idratazione', () => {
+  it('propone la quota massima del prefermento più acquoso', () => {
+    const pb = recipeProblem({ totalFlourGrams: 1000, hydration: 60, prefermenti: [{ ...poolish, flourFraction: 70 }] })!;
+    expect(pb.kind).toBe('water');
+    expect(pb.fixFraction).toEqual({ id: 'p', value: 60 });
+  });
+  it('acqua: niente "0 g di ghiaccio"', () => {
+    const w = waterAdvice({ ddtTarget: 24, tempAmbient: 22, waterG: 240, massKg: 0.74, hydrationPct: 48, kneadDurationMin: 3, tapWaterC: 3 });
+    expect(w ?? '').not.toMatch(/^0 g/);
+  });
+});
+
+describe('stato attribuito al prefermento giusto', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  const bigaIt = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  const poolIt = { id: 'p', type: 'poolish', startAt: new Date(t0 + 4 * H), mixedAt: new Date(t0 + 4 * H), plannedH: 12, plannedTempC: 20 };
+  const mk = (items: any[]) => ({ startedAt: new Date(t0), readyAt: new Date(t0 + 16 * H), plannedH: 16, plannedTempC: 16, items, draft: {} }) as any;
+  it('il poolish va oltre per primo (115%): è lui il focus e il banner lo nomina', () => {
+    const now = t0 + 18.5 * H;   // biga ~116% (pronta), poolish ~121% (oltre)
+    const s = stageStatus(mk([bigaIt, poolIt]), now);
+    expect(s.focus.it.type).toBe('poolish');
+    expect(s.level).toBe('late');
+    expect(stageBannerText(s, now).text).toMatch(/^⚠ Poolish oltre da/);
+  });
+  it('finestra: da tutti pronti al primo che va oltre', () => {
+    const s = stageStatus(mk([bigaIt, { ...poolIt, mixedAt: undefined }]), t0 + H);
+    expect(s.window.from).toBeCloseTo(t0 + 16 * H, -3);
+    expect(s.window.to).toBeCloseTo(t0 + 4 * H + 12 * 1.15 * H, -3);
+  });
+  it('secondo non impastato all\'ora: segnalato, banner lo dice', () => {
+    const pending = { ...poolIt, mixedAt: undefined };
+    const now = t0 + 6 * H;
+    const s = stageStatus(mk([bigaIt, pending]), now);
+    expect(s.overdue?.it.type).toBe('poolish');
+    expect(s.overdue!.overdueMs).toBeCloseTo(2 * H, -3);
+    expect(stageBannerText(s, now).text).toMatch(/Poolish da impastare/);
+    expect(s.focus.it.type).toBe('biga');
+  });
+  it('tutti pronti: nomi di entrambi e "impasta entro"', () => {
+    const now = t0 + 16.2 * H;
+    const t = stageBannerText(stageStatus(mk([bigaIt, poolIt]), now), now).text;
+    expect(t).toMatch(/Biga e poolish/);
+    expect(t).toMatch(/impasta entro/);
+  });
+});
+
+import { recipeFixKind, overSign } from '../lib/preferment';
+
+describe('P2/P3 quarta critique', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  it('banner: non pronti insieme', () => {
+    const bigaIt = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+    // poolish mai impastato e lontano: sarà pronto dopo che la biga va oltre
+    const poolIt = { id: 'p', type: 'poolish', startAt: new Date(t0 + 12 * H), plannedH: 12, plannedTempC: 20 };
+    const st: any = { startedAt: new Date(t0), readyAt: new Date(t0 + 24 * H), plannedH: 16, plannedTempC: 16, items: [bigaIt, poolIt], draft: {} };
+    const now = t0 + 2 * H;
+    expect(stageBannerText(stageStatus(st, now), now).text).toMatch(/non pronti insieme/);
+  });
+  it('correzione: idratazione se nel range dello stile, altrimenti riduce il prefermento', () => {
+    const p70 = [{ ...poolish, flourFraction: 70 }];
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 55, prefermenti: p70 })).toBe('reduceWater');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 62, prefermenti: [{ ...poolish, flourFraction: 64 }] })).toBe('hydration');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 65, prefermenti: [biga, { ...poolish, flourFraction: 45 }] })).toBe('reduceFlour');
+    expect(recipeFixKind({ style: 'napoletana', totalFlourGrams: 1000, hydration: 65, prefermenti: [biga] })).toBeNull();
+  });
+  it('segno di troppo maturo come verifica', () => {
+    expect(overSign('biga')).toMatch(/^Se /);
+    expect(overSign('poolish')).toMatch(/^Se /);
+  });
+});
+
+import { fridgePlan } from '../lib/preferment';
+
+describe('fridgePlan', () => {
+  const t0 = new Date('2026-10-04T18:00:00').getTime();
+  const H = 3_600_000;
+  const biga = { id: 'b', type: 'biga', startAt: new Date(t0), mixedAt: new Date(t0), plannedH: 16, plannedTempC: 16 };
+  const pool = { id: 'p', type: 'poolish', startAt: new Date(t0 + 4 * H), plannedH: 12, plannedTempC: 20 };
+  it('biga al 56% in frigo: pronta troppo tardi rispetto al poolish → nessuna finestra', () => {
+    const now = t0 + 9 * H;   // biga ~56%, poolish in ritardo di 5 h
+    const fp = fridgePlan(biga, pool, now, 4);
+    expect(fp.mainReady).toBeGreaterThan(fp.secondLate);
+    expect(fp.window).toBeNull();
+  });
+  it('biga quasi pronta in frigo: finestra con il poolish impastato adesso', () => {
+    const now = t0 + 15.5 * H;
+    const fp = fridgePlan({ ...biga, plannedH: 16 }, { ...pool, plannedH: 2 }, now, 4);
+    expect(fp.window).not.toBeNull();
+    expect(fp.window!.from).toBeLessThanOrEqual(fp.window!.to);
+  });
+});
+
+describe('mixedAtFromClock', () => {
+  const now = new Date(2026, 9, 5, 18, 30).getTime();
+  it('un orario di oggi già passato', () => {
+    expect(mixedAtFromClock('15:00', now)).toBe(new Date(2026, 9, 5, 15, 0).getTime());
+  });
+  it('un orario più avanti di adesso è di ieri', () => {
+    expect(mixedAtFromClock('22:00', now, 24)).toBe(new Date(2026, 9, 4, 22, 0).getTime());
+  });
+  it('oltre 12 ore fa non vale', () => {
+    expect(mixedAtFromClock('22:00', now)).toBeNull();
+    expect(mixedAtFromClock('06:00', now)).toBeNull();
+  });
+  it('formati sbagliati', () => {
+    expect(mixedAtFromClock('25:00', now)).toBeNull();
+    expect(mixedAtFromClock('abc', now)).toBeNull();
+  });
+});
+
+describe('vantaggio dei prefermenti sull\'impasto finale', () => {
+  it('maturazione iniziale sempre tra 0 e 1, anche per una biga lunga e calda', () => {
+    const hot = { ...biga, flourFraction: 70, durationH: 24, tempC: 20 };
+    const off = prefMaturationOffset([hot]);
+    expect(off).toBeGreaterThan(0);
+    expect(off).toBeLessThan(1);
+    expect(prefMaturationOffset([])).toBe(0);
+  });
+  it('la sessione ritrova lo stesso orologio enzimatico (findAduAt ∘ gompertz)', () => {
+    const adu = prefEnzymaticAdu([biga]);
+    const off = prefMaturationOffset([biga]);
+    const { muMax, lambda } = ENZYMATIC_CLOCK_PARAMS as { muMax: number; lambda: number };
+    expect((findAduAt as (m: number, l: number, A: number, p: number) => number)(muMax, lambda, 100, off * 100)).toBeCloseTo(adu, 2);
+  });
+  it('l\'autolisi non porta né maturazione né lievito', () => {
+    const auto = { type: 'autolysis', flourFraction: 100, durationH: 1, tempC: 20 };
+    expect(prefEnzymaticAdu([auto])).toBe(0);
+  });
+  it('una biga più dura fa crescere meno il lievito', () => {
+    const short = { ...biga, durationH: 6 };
+    expect(prefYeastGrowth({ ...short, hydration: 44 })).toBeLessThan(prefYeastGrowth({ ...short, hydration: 55 }));
+  });
+  it('in frigo il lievito cresce meno che a 16 °C', () => {
+    expect(prefYeastGrowth({ ...biga, durationH: 8, tempC: 4 })).toBeLessThan(prefYeastGrowth({ ...biga, durationH: 8, tempC: 16 }));
+  });
+});

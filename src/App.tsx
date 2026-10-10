@@ -1,0 +1,388 @@
+/**
+ * PizzaMatrix — Root App
+ * Routing basato su AppContext (view state machine, no react-router)
+ * Hooks globali: persistenza DB, notifiche Capacitor
+ */
+import { Component, Suspense, lazy, useEffect, useLayoutEffect, type ComponentType, type ReactNode } from 'react';
+import { installFocusRescue } from './lib/focusRescue';
+import { AppProvider, useApp } from './context/AppContext';
+
+// issue #32 — le viste erano importate staticamente e finivano tutte nel bundle
+// iniziale. Il peso vero e' recharts: 519 kB / 149 kB gzip, cioe' PIU' DELLA META'
+// del payload compresso, scaricato anche da chi apre il wizard e non arriva mai a
+// un grafico. Lo switch di AppRouter e' la frontiera di splitting naturale.
+
+/**
+ * Import dinamico con recupero dai chunk obsoleti (issue #36).
+ *
+ * Con lo splitting, i nomi dei chunk contengono un hash del contenuto: dopo un
+ * deploy i vecchi non esistono piu'. Un client con l'index.html in cache — cioe'
+ * ogni PWA installata, per costruzione — chiede un chunk che il server non ha, e
+ * la vista non si apre: "Failed to fetch dynamically imported module".
+ *
+ * Non e' un errore da mostrare: e' un'app che ha bisogno di ricaricarsi. Il
+ * service worker e' in autoUpdate, quindi un reload prende index.html e chunk
+ * nuovi e coerenti fra loro.
+ *
+ * Il flag in sessionStorage impedisce il loop: se dopo il reload il chunk manca
+ * ancora, il problema e' un altro e l'errore va mostrato davvero.
+ */
+const CHUNK_RELOAD_KEY = 'pm-chunk-reload';
+
+function lazyView<K extends string, T extends Record<K, ComponentType<any>>>(
+  carica: () => Promise<T>,
+  nome: K,
+) {
+  return lazy(async (): Promise<{ default: T[K] }> => {
+    try {
+      const mod = await carica();
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY);   // caricato: la finestra si chiude
+      return { default: mod[nome] };
+    } catch (err) {
+      if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+        sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+        location.reload();
+        // Non risolve mai: la pagina si sta ricaricando. Risolvere qui farebbe
+        // lampeggiare un fallback inutile nei millisecondi prima del reload.
+        return new Promise<never>(() => {});
+      }
+      throw err;   // gia' ricaricato una volta: e' un guasto vero
+    }
+  });
+}
+
+const WizardView   = lazyView(() => import('./components/wizard/WizardView'), 'WizardView');
+const DashboardV4  = lazyView(() => import('./components/dashboard/DashboardV4'), 'DashboardV4');
+const HistoryView  = lazyView(() => import('./components/history/HistoryView'), 'HistoryView');
+const RottaView    = lazyView(() => import('./components/rotta/RottaView'), 'RottaView');
+const FermentationPlannerView = lazyView(() => import('./components/tools/FermentationPlannerView'), 'FermentationPlannerView');
+const BakeView     = lazyView(() => import('./components/bake/BakeView'), 'BakeView');
+const PrefermentStageView = lazyView(() => import('./components/preferment/PrefermentStageView'), 'PrefermentStageView');
+import { bakeForecastFor } from './lib/bakeForecast';
+import { fmtClockDay } from './lib/fmtTime';
+import { stageBannerText, stageStatus } from './lib/preferment';
+import { useSessionPersistence }     from './hooks/useSessionPersistence';
+import { useSessionRestore }         from './hooks/useSessionRestore';
+import { useCapacitorNotifications } from './hooks/useCapacitorNotifications';
+
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback?: string },
+  { error: string | null }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message ?? String(e) };
+  }
+  componentDidCatch(e: Error) {
+    console.error('[ErrorBoundary]', e);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16,
+          padding: '24px', background: 'var(--bg-base)',
+        }}>
+          <div style={{ fontSize: '2rem' }}>⚠️</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--state-critical)' }}>
+            Errore di rendering
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
+            color: 'var(--text-muted)', textAlign: 'center', maxWidth: 340,
+            background: 'rgba(214,48,49,0.1)', padding: '12px 16px',
+            borderRadius: 8, border: '1px solid rgba(214,48,49,0.3)',
+          }}>
+            {this.state.error}
+          </div>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{
+              background: 'var(--accent-brand)', color: '#0a0806',
+              border: 'none', borderRadius: 8, padding: '12px 24px',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            ← Torna alla home
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ─── Effetti globali (dentro AppProvider) ─────────────────────────────────────
+function AppEffects() {
+  useSessionRestore();
+  useSessionPersistence();
+  useCapacitorNotifications();
+  return null;
+}
+
+// ─── Home Screen ──────────────────────────────────────────────────────────────
+function HomeView() {
+  const { state, dispatch } = useApp();
+  const stage = state.prefermentStage;
+  const live = state.activeSession;
+  // L'impasto in corso: lo stesso orario della dashboard (il tick qui è fermo).
+  const liveBake = live ? (() => {
+    try {
+      const fc = bakeForecastFor(live, state.tickState);
+      const ready = fc.bakeable && !fc.usePlan && fc.etaH === 0;
+      return ready ? 'inforna ora' : `inforni alle ~${fmtClockDay(fc.readyAtMs)}`;
+    } catch { return null; }
+  })() : null;
+  return (
+    <div style={{
+      minHeight: '100dvh',
+      padding: '0 var(--padding-h)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 24,
+    }}>
+      {/* Logo */}
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: '2.6rem',
+          fontWeight: 900,
+          color: 'var(--accent-brand)',
+          letterSpacing: '-0.03em',
+          lineHeight: 1,
+        }}>
+          PizzaMatrix
+        </div>
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.72rem',
+          color: 'var(--text-muted)',
+          letterSpacing: '0.12em',
+          marginTop: 6,
+        }}>
+          Previsione e monitor live della fermentazione
+        </div>
+      </div>
+
+      {/* CTAs */}
+      <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {live && (
+          <button
+            onClick={() => dispatch({ type: 'NAV', view: 'dashboard' })}
+            aria-label="Impasto in corso: apri la dashboard"
+            className="pm-btn-secondary"
+            style={{
+              background: 'rgba(255,140,50,0.08)', color: 'var(--pm4-flour)',
+              border: '1px solid var(--accent-brand)', borderRadius: 'var(--radius-md)',
+              padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
+              fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
+            }}
+          >
+            🍕 {String(live.style ?? '').replace(/^./, c => c.toUpperCase())}{liveBake ? ` · ${liveBake}` : ''} →
+          </button>
+        )}
+        {stage && (() => {
+          const b = stageBannerText(stageStatus(stage));
+          return (
+            <button
+              onClick={() => dispatch({ type: 'NAV', view: 'preferment' })}
+              aria-label={`${b.text.replace(/^\S+\s/, '')}: apri`}
+              className="pm-btn-secondary"
+              style={{
+                background: b.tone === 'late' ? 'rgba(255,118,117,0.10)' : 'rgba(255,140,50,0.08)',
+                color: b.tone === 'late' ? 'var(--state-critical)' : 'var(--pm4-flour)',
+                border: `1px solid ${b.tone === 'late' ? 'var(--state-critical)' : 'var(--accent-brand)'}`,
+                borderRadius: 'var(--radius-md)',
+                padding: '13px 20px', minHeight: 44, fontFamily: 'var(--font-mono)',
+                fontSize: '0.9rem', cursor: 'pointer', width: '100%', textAlign: 'left',
+              }}
+            >
+              {b.text} →
+            </button>
+          );
+        })()}
+        <button
+          onClick={() => {
+            if (live) return;
+            dispatch({ type: 'WIZARD_RESET' });
+            dispatch({ type: 'NAV', view: 'wizard' });
+          }}
+          disabled={!!live}
+          aria-describedby={live ? 'home-new-blocked' : undefined}
+          className="pm-btn-primary"
+          style={{
+            opacity: live ? 0.45 : 1,
+            cursor: live ? 'not-allowed' : 'pointer',
+            background: 'var(--accent-brand)',
+            color: 'var(--bg-primary)',
+            border: 'none',
+            borderRadius: 'var(--radius-md)',
+            padding: '16px 20px',
+            minHeight: 44,
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 700,
+            fontSize: '1rem',
+            width: '100%',
+          }}
+        >
+          🍕 Nuovo impasto
+        </button>
+        {live && (
+          <p id="home-new-blocked" style={{ margin: '-4px 0 0', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--pm4-tan)', textAlign: 'center' }}>
+            Prima termina l'impasto in corso.
+          </p>
+        )}
+
+        <button
+          onClick={() => dispatch({ type: 'NAV', view: 'history' })}
+          className="pm-btn-secondary"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--pm4-tan)',
+            border: '1px solid var(--pm4-line-strong)',
+            borderRadius: 'var(--radius-md)',
+            padding: '13px 20px',
+            minHeight: 44,
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          📋 Storico sessioni
+        </button>
+
+        <button
+          onClick={() => dispatch({ type: 'NAV', view: 'planner' })}
+          className="pm-btn-secondary"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            color: 'var(--pm4-tan)',
+            border: '1px solid var(--pm4-line-strong)',
+            borderRadius: 'var(--radius-md)',
+            padding: '13px 20px',
+            minHeight: 44,
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          🧪 Pianifica fermentazione
+        </button>
+
+      </div>
+
+      {/* Version badge */}
+      <div style={{
+        position: 'absolute',
+        bottom: 'max(20px, env(safe-area-inset-bottom))',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '0.72rem',
+        color: 'var(--text-muted)',
+        letterSpacing: '0.08em',
+      }}>
+        v2.4.0
+      </div>
+    </div>
+  );
+}
+
+// ─── Titoli di vista (issue #31) ──────────────────────────────────────────────
+// Ogni vista deve avere un <h1>. Il design non prevede un titolo visibile in cima
+// — la skin BANCO usa etichette-canale, non intestazioni — quindi l'h1 è reso con
+// .sr-only: presente nell'albero di accessibilità, invisibile a schermo.
+const VIEW_TITLES: Record<string, string> = {
+  wizard:    'Nuovo impasto',
+  dashboard: 'Monitoraggio fermentazione',
+  rotta:     'Aggiusta rotta',
+  history:   'Storico sessioni',
+  tools:     'Pianifica fermentazione',
+  planner:   'Pianifica fermentazione',
+  forno:     'Cottura',
+  preferment: 'Prefermento in corso',
+  home:      'PizzaMatrix — gestione predittiva degli impasti',
+};
+
+// ─── Router ───────────────────────────────────────────────────────────────────
+function AppRouter() {
+  const { state } = useApp();
+  // Scroll-to-top ad ogni cambio view: dashboard e le altre viste scrollano sulla
+  // window/body, che altrimenti erediterebbe la posizione di scroll precedente.
+  // Lo scroller interno del wizard è gestito in WizardView (su cambio step).
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [state.view]);
+  // Un comando che si smonta (Annulla che scade, conferma chiusa, cambio vista)
+  // non lascia il focus sul body.
+  useEffect(() => installFocusRescue(), []);
+
+  const view = (() => {
+    switch (state.view) {
+      case 'wizard':    return <WizardView />;
+      case 'dashboard': return <DashboardV4 />;
+      case 'rotta':     return <RottaView />;
+      case 'history':   return <HistoryView />;
+      case 'tools':     return <FermentationPlannerView />;
+      case 'planner':   return <FermentationPlannerView />;
+      case 'forno':     return <BakeView />;
+      case 'preferment': return <PrefermentStageView />;
+      default:          return <HomeView />;
+    }
+  })();
+
+  // <main> è il landmark che permette di saltare direttamente al contenuto.
+  // Prima l'albero di accessibilità era piatto: ogni nodo `generic`, nessun
+  // punto di riferimento per navigare.
+  return (
+    <main className={state.view === 'dashboard' ? undefined : 'pm4-root'}
+      style={state.view === 'dashboard' ? undefined : { minHeight: '100dvh' }}>
+      {/* Storico e Planner hanno già un h1 visibile: uno solo per pagina. */}
+      {state.view !== 'history' && state.view !== 'planner' && <h1 className="sr-only">{VIEW_TITLES[state.view] ?? VIEW_TITLES.home}</h1>}
+      <div className="pm4-stack">
+        <ErrorBoundary>
+          <Suspense fallback={<ViewLoader />}>{view}</Suspense>
+        </ErrorBoundary>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * Fallback dei chunk lazy (issue #32). Sobrio di proposito: sulla rete locale
+ * o con service worker attivo il chunk arriva in millisecondi, e uno skeleton
+ * elaborato produrrebbe un lampo peggiore dell'attesa che maschera.
+ */
+function ViewLoader() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '60vh', gap: 10,
+        fontFamily: 'var(--font-mono)', fontSize: '0.72rem',
+        letterSpacing: '0.14em', textTransform: 'uppercase',
+        color: 'var(--text-muted)',
+      }}
+    >
+      <span className="pm4-live" aria-hidden="true" />
+      Caricamento
+    </div>
+  );
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  return (
+    <AppProvider>
+      <AppEffects />
+      <AppRouter />
+    </AppProvider>
+  );
+}

@@ -1,0 +1,389 @@
+/**
+ * PizzaMatrix — Shared UI Primitives
+ * Design system §6: tokens, typography, interaction patterns
+ */
+import { type InputHTMLAttributes, type ReactNode, useState, useEffect, useRef } from 'react';
+import { fmtHours, speakHours } from '../../lib/fmtTime';
+
+const S = {
+  // Card
+  // Card = pannello BANCO (gradiente e ombre fresate vivono in .pm4-panel);
+  // qui solo ciò che serve anche a chi usa S.card inline senza <Card>.
+  card: {
+    background: 'linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo))',
+    border: '1px solid var(--pm4-line)',
+    borderRadius: 12,
+    padding: '13px 14px 14px',
+  } as React.CSSProperties,
+  cardElevated: {
+    background: 'linear-gradient(180deg, var(--pm4-panel-hi), var(--pm4-panel-lo))',
+    border: '1px solid var(--pm4-line-strong)',
+    borderRadius: 12,
+    padding: '13px 14px 14px',
+  } as React.CSSProperties,
+  // Typography — scala 11/12/15/18/22/32px (KB §1.4)
+  label: {
+    fontSize: '11px',             // registro canale BANCO; 1px sopra il canale dashboard: è un'etichetta di form
+    letterSpacing: '0.14em',
+    textTransform: 'uppercase' as const,
+    color: 'var(--pm4-tan)',
+    fontFamily: 'var(--font-mono)',
+  } as React.CSSProperties,
+  value: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '1.6rem',
+    fontWeight: 800,
+    color: 'var(--text-primary)',
+    lineHeight: 1,
+    fontVariantNumeric: 'tabular-nums',  // KB §1.4: anti-jitter numeri live
+  } as React.CSSProperties,
+  unit: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.75rem',          // 12px — era 0.8rem (12.8, fuori scala)
+    color: 'var(--pm4-umber)',
+    marginLeft: '4px',
+  } as React.CSSProperties,
+  btn: {
+    background: 'var(--accent-brand)',
+    color: '#0a0806',
+    border: 'none',
+    borderRadius: 'var(--radius-md)',
+    padding: '12px 20px',         // era 13px (fuori scala 4px)
+    minHeight: 44,                // target tattile (DESIGN.md button-primary)
+    fontFamily: 'var(--font-mono)',
+    fontWeight: 700,
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    width: '100%',
+  } as React.CSSProperties,
+  btnSecondary: {
+    background: 'rgba(255,255,255,0.04)',
+    color: 'var(--pm4-tan)',
+    border: '1px solid var(--pm4-line-strong)',
+    borderRadius: 'var(--radius-md)',
+    padding: '12px 20px',
+    minHeight: 44,
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    width: '100%',
+  } as React.CSSProperties,
+  input: {
+    background: 'var(--pm4-panel-lo)',
+    border: '1px solid var(--pm4-line-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '12px 16px',         // era 11px 14px (entrambi fuori scala)
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '1rem',
+    width: '100%',
+    outline: 'none',
+  } as React.CSSProperties,
+};
+
+// ─── Card ─────────────────────────────────────────────────────────────────────
+export function Card({ children, elevated, style }: { children: ReactNode; elevated?: boolean; style?: React.CSSProperties }) {
+  return (
+    <div className="pm4-panel pm-card" style={{ ...(elevated ? S.cardElevated : S.card), ...style }}>
+      {children}
+    </div>
+  );
+}
+
+// ─── Metric Display ───────────────────────────────────────────────────────────
+export function Metric({
+  label, value, unit, color, live,
+}: {
+  label: string; value: string | number; unit?: string; color?: string;
+  live?: boolean;  // true → aria-live="polite" per screen-reader (KB §3.3)
+}) {
+  const prevRef = useRef(value);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (live && prevRef.current !== value) {
+      prevRef.current = value;
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 400);
+      return () => clearTimeout(t);
+    }
+  }, [value, live]);
+
+  const glowClass = color === 'var(--state-critical)' ? ' pm-glow-critical'
+                  : color === 'var(--state-danger)'   ? ' pm-glow-danger'
+                  : color === 'var(--state-optimal-hi)' || color === 'var(--accent-brand)' ? ' pm-glow-optimal'
+                  : '';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <span style={S.label}>{label}</span>
+      <div
+        style={{ display: 'flex', alignItems: 'baseline' }}
+        aria-live={live ? 'polite' : undefined}
+        aria-atomic={live ? 'true' : undefined}
+      >
+        <span
+          className={`${flash ? 'pm-num-flash' : ''}${glowClass}`}
+          style={{ ...S.value, color: color ?? 'var(--text-primary)' }}
+        >
+          {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(1)) : value}
+        </span>
+        {unit && <span style={S.unit}>{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── NumInput (fix floating point §9 bug #8) ──────────────────────────────────
+// Bug fix: onChange non deve propagare valori intermedi durante la digitazione
+// (es. typing "350" propagava 3 → 35 → 350 ad ogni tasto).
+// Ora il valore viene committato solo su blur o tasto Enter.
+// useEffect sincronizza il display se il prop value cambia dall'esterno.
+export function NumInput({
+  label, value, onChange, min, max, step = 1, unit,
+  ...rest
+}: {
+  label: string; value: number; onChange: (v: number) => void;
+  min?: number; max?: number; step?: number; unit?: string;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'>) {
+  const [raw, setRaw]       = useState(String(value));
+  const [dirty, setDirty]   = useState(false);
+
+  // Sincronizza display quando il valore esterno cambia (es. wizard reset)
+  useEffect(() => {
+    if (!dirty) setRaw(String(value));
+  }, [value, dirty]);
+
+  const commit = () => {
+    setDirty(false);
+    const parsed = parseFloat(raw);
+    if (isNaN(parsed)) { setRaw(String(value)); return; }
+    const clamped = min != null && max != null
+      ? Math.max(min, Math.min(max, parsed))
+      : parsed;
+    setRaw(String(clamped));
+    onChange(clamped);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <label style={S.label}>{label}{unit ? ` (${unit})` : ''}</label>
+      <input
+        type="number" value={raw}
+        aria-label={`${label}${unit ? ' (' + unit + ')' : ''}`}
+        onChange={e => { setRaw(e.target.value); setDirty(true); }}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
+        min={min} max={max} step={step}
+        className="pm-input" style={{ minHeight: 44, ...S.input }} {...rest}
+      />
+    </div>
+  );
+}
+
+// ─── Durate leggibili: in lib/fmtTime, qui per chi le importa dalla UI ──────
+export { fmtHours, speakHours };
+
+// ─── SliderInput ──────────────────────────────────────────────────────────────
+export function SliderInput({
+  label, value, onChange, min, max, step = 1, unit, color,
+}: {
+  label: string; value: number; onChange: (v: number) => void;
+  min: number; max: number; step?: number; unit?: string; color?: string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span style={S.label}>{label}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: color ?? 'var(--accent-brand)' }}>
+          {unit === 'h' ? fmtHours(value) : <>{value}{unit}</>}
+        </span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step}
+        value={value} onChange={e => onChange(parseFloat(e.target.value))}
+        aria-label={`${label}${unit ? ' (' + unit + ')' : ''}`}
+        aria-valuetext={unit === 'h' ? speakHours(value) : `${value}${unit ?? ''}`}
+        style={{ width: '100%', accentColor: color ?? 'var(--accent-brand)' }}
+      />
+    </div>
+  );
+}
+
+// ─── SnapButtons (scelte rapide §6.3) ────────────────────────────────────────
+export function SnapButtons<T extends string>({
+  label, options, value, onChange,
+}: {
+  label?: string;
+  options: { value: T; label: string; desc?: string }[];
+  value: T | undefined;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {label && <span style={S.label}>{label}</span>}
+      <div role="radiogroup" aria-label={label} style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        {options.map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            role="radio"
+            aria-checked={value === opt.value}
+            aria-label={`${label ? label + ': ' : ''}${opt.label}${opt.desc ? ' — ' + opt.desc : ''}`}
+            className={`pm-snap-btn${value === opt.value ? ' pm-snap-active' : ''}`}
+            style={{
+              background: value === opt.value ? 'var(--accent-brand)' : 'rgba(255,255,255,0.03)',
+              color: value === opt.value ? 'var(--bg-primary)' : 'var(--pm4-tan)',
+              border: value === opt.value ? '1px solid var(--accent-brand)' : '1px solid var(--pm4-line-strong)',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              minHeight: 44,               // a11y: WCAG 2.5.5 target ≥44px (era ~32px)
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.75rem',
+              fontWeight: value === opt.value ? 700 : 400,
+              cursor: 'pointer',
+              flex: '1 1 auto',
+              minWidth: '80px',
+              textAlign: 'center',
+            }}
+          >
+            {opt.label}
+            {opt.desc && (
+              <div style={{ fontSize: '0.69rem', fontWeight: 400, marginTop: '4px',
+                color: value === opt.value ? 'rgba(10,8,6,0.78)' : 'var(--pm4-umber)' }}>
+                {opt.desc}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Button ───────────────────────────────────────────────────────────────────
+export function Btn({
+  children, onClick, variant = 'primary', disabled, ...aria
+}: {
+  children: ReactNode; onClick?: () => void;
+  variant?: 'primary' | 'secondary' | 'danger'; disabled?: boolean;
+  'aria-describedby'?: string;
+}) {
+  const base = variant === 'primary' ? S.btn
+             : variant === 'danger'
+               // Testo scuro: il bianco su #ff7675 non arriva ad AA (~2,6:1).
+               ? { ...S.btn, background: 'var(--state-critical)', color: 'var(--pm4-char, #0a0806)' }
+               : S.btnSecondary;
+  return (
+    <button
+      onClick={onClick} disabled={disabled} {...aria}
+      className={`pm-btn-${variant}`}
+      style={{ ...base, opacity: disabled ? 0.38 : 1 }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Alert Badge ──────────────────────────────────────────────────────────────
+export function AlertBadge({ level, message }: { level: string; message: string }) {
+  const colors: Record<string, string> = {
+    info:     'var(--accent-info)',
+    advisory: 'var(--accent-warning)',
+    critical: 'var(--state-critical)',
+    collapse: 'var(--state-collapsed)',
+  };
+  return (
+    <div style={{
+      background: `${colors[level] ?? colors.info}18`,
+      border: `1px solid ${colors[level] ?? colors.info}66`,
+      borderRadius: 'var(--radius-sm)',
+      padding: '10px 14px',
+      fontFamily: 'var(--font-body)',
+      fontSize: '0.75rem',
+      color: 'var(--text-primary)',
+    }}>
+      {message}
+    </div>
+  );
+}
+
+// ─── Step Header ──────────────────────────────────────────────────────────────
+export function StepHeader({ step, total, title }: { step: number; total: number; title: string }) {
+  return (
+    <div style={{ marginBottom: '24px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+        {Array.from({ length: total }, (_, i) => (
+          <div key={i} style={{
+            flex: 1, height: 4, borderRadius: 2,
+            background: i < step ? 'var(--accent-brand)' : 'rgba(255,255,255,0.08)',
+          }} />
+        ))}
+      </div>
+      <span style={{ ...S.label, marginBottom: '4px', display: 'block' }}>
+        Passo {step} di {total}
+      </span>
+      <h2 style={{
+        fontFamily: 'var(--font-display)',
+        fontSize: '1.4rem',
+        fontWeight: 700,
+        color: 'var(--text-primary)',
+        margin: 0,
+      }}>
+        {title}
+      </h2>
+    </div>
+  );
+}
+
+export { S };
+
+// ─── Primitive di feedback UX (v2.4.25) ───────────────────────────────────────
+export {
+  useReducedMotion, Badge, Advisory, AnimatedNumber,
+  CoverageBar, MassSplitBar, ExpandableReward, pulseElement, shakeElement,
+} from './feedback';
+
+// ─── FormSection ──────────────────────────────────────────────────────────────
+// Raggruppa input correlati con un label-divider orizzontale e sfondo micro-elevato.
+// Sostituisce blocchi di flex-column flat senza contesto visivo.
+export function FormSection({
+  title, children, accent,
+}: { title: string; children: ReactNode; accent?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Divider con etichetta centrata */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
+        <span style={{
+          fontSize: '0.69rem', letterSpacing: '0.14em', textTransform: 'uppercase',
+          color: accent ?? 'var(--text-muted)', fontFamily: 'var(--font-mono)',
+          whiteSpace: 'nowrap',
+        }}>
+          {title}
+        </span>
+        <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
+      </div>
+      {/* Contenuto con sfondo leggermente differenziato */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 12,
+        background: 'rgba(255,255,255,0.015)',
+        borderRadius: 'var(--radius-md)',
+        padding: '12px 14px',
+        border: '1px solid rgba(255,255,255,0.04)',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Row2 ─────────────────────────────────────────────────────────────────────
+// Grid a 2 colonne bilanciata per affiancare coppie di input correlati.
+export function Row2({ children, gap = 10 }: { children: ReactNode; gap?: number }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap }}>
+      {children}
+    </div>
+  );
+}

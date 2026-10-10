@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PizzaMatrix — Banco di Fermentazione (concept v4)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+/* ════════════════════════════════════════════════════════════════════
+   PizzaMatrix · "BANCO" — fermentation control instrument
+   Concept skin for Dashboard v4. Warm-dark milled panels, engraved
+   channel labels, amber-phosphor readouts, ember-glow live states.
+   Built on the app's real tokens (Fraunces + JetBrains Mono).
+   ════════════════════════════════════════════════════════════════════ */
+:root{
+  /* — substrate — */
+  --ink:        #0a0806;
+  --ink-2:      #0c0907;
+  --panel:      #15100a;
+  --panel-hi:   #1c140b;        /* top-lit edge of milled panel */
+  --panel-lo:   #100b07;        /* base of panel gradient        */
+  --inset:      #0b0805;
+
+  /* — hairlines (warm, not cold grey) — */
+  --line:        rgba(255,206,150,0.085);
+  --line-strong: rgba(255,206,150,0.16);
+  --engrave:     rgba(0,0,0,0.55);
+
+  /* — type — */
+  --flour:  #e8d5b0;
+  --tan:    #a99a76;
+  --umber:  #6a5836;
+  --faint:  #4a3c24;
+
+  /* — ember / signal — */
+  --ember:      #ff8c32;
+  --ember-lo:   #ffd166;
+  --ember-glow: rgba(255,140,50,0.55);
+  --cold:       #74b9ff;
+  --green:      #55efc4;
+  --green-deep: #00b894;
+  --warn:       #ffd166;
+  --crit:       #ff7675;
+  --crit-deep:  #d63031;
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+body{
+  font-family:var(--font-mono);
+  color:var(--flour);
+  background:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  display:flex; align-items:flex-start; justify-content:center;
+  min-height:100%;
+  padding:40px 16px 64px;
+  /* ambient room: ember rising from below, cool shadow at edges */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(255,140,50,0.10), transparent 55%),
+    radial-gradient(100% 60% at 50% 120%, rgba(120,60,20,0.12), transparent 60%),
+    var(--ink);
+}
+/* film grain over everything */
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:90;
+  opacity:.04; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── device column (mobile PWA) ───────────────────────────────────── */
+.device{
+  width:100%; max-width:430px; position:relative;
+  border-radius:30px;
+  background:
+    linear-gradient(180deg, #0e0a07, #090705);
+  box-shadow:
+    0 0 0 1px rgba(255,206,150,0.06),
+    0 1px 0 0 rgba(255,220,170,0.05) inset,
+    0 50px 120px -30px rgba(0,0,0,0.85),
+    0 0 90px -20px rgba(255,140,50,0.18);
+  overflow:hidden;
+  /* engraved fine grid on the substrate */
+}
+.device::before{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:0; opacity:.5;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:30px 30px, 30px 30px;
+  -webkit-mask-image:radial-gradient(120% 70% at 50% 0%, #000 30%, transparent 75%);
+          mask-image:radial-gradient(120% 70% at 50% 0%, #000 30%, transparent 75%);
+}
+/* one-time scanline sweep on load */
+.device::after{
+  content:""; position:absolute; left:0; right:0; height:140px; z-index:80; pointer-events:none;
+  top:-160px;
+  background:linear-gradient(180deg, transparent, rgba(255,180,90,0.06) 60%, rgba(255,180,90,0.12), transparent);
+  animation:sweep 1.5s cubic-bezier(.4,0,.2,1) .25s 1 forwards;
+}
+@keyframes sweep{ to{ top:120%; } }
+
+.screen{ position:relative; z-index:2; padding:0 14px 18px; }
+
+/* ── header ───────────────────────────────────────────────────────── */
+.hdr{
+  position:sticky; top:0; z-index:20;
+  margin:0 -14px 14px; padding:16px 16px 13px;
+  background:linear-gradient(180deg, rgba(12,9,6,0.96), rgba(12,9,6,0.72));
+  backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+}
+.brandrow{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.brand{
+  font-family:var(--font-display); font-weight:900; font-size:1.5rem; letter-spacing:-.02em;
+  color:var(--flour);
+  text-shadow:0 0 22px rgba(255,140,50,0.28);
+}
+.brand b{ color:var(--ember); font-weight:900; }
+.brand .dot{ color:var(--ember); }
+.sig{
+  font-size:.6rem; letter-spacing:.22em; color:var(--umber); text-transform:uppercase;
+  display:flex; align-items:center; gap:6px;
+}
+.sig .live{ width:6px; height:6px; border-radius:50%; background:var(--green);
+  box-shadow:0 0 8px var(--green); animation:beat 1.8s ease-in-out infinite; }
+@keyframes beat{ 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.45; transform:scale(.7)} }
+
+.meta{ display:flex; align-items:center; gap:14px; margin-top:11px; }
+.meta .style{
+  font-family:var(--font-display); font-weight:700; font-size:1.02rem; color:var(--flour);
+}
+.meta .sep{ width:1px; height:22px; background:var(--line-strong); }
+.meta .pair{ display:flex; flex-direction:column; gap:1px; }
+.meta .k{ font-size:.56rem; letter-spacing:.16em; color:var(--umber); text-transform:uppercase; }
+.meta .v{ font-size:.92rem; font-weight:700; color:var(--tan); font-variant-numeric:tabular-nums; }
+.meta .v em{ font-style:normal; color:var(--ember); }
+.phase{
+  margin-left:auto; font-size:.62rem; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--cold); border:1px solid rgba(116,185,255,0.3);
+  background:rgba(116,185,255,0.08); padding:5px 9px; border-radius:999px; white-space:nowrap;
+}
+
+/* alert ribbon */
+.ribbon{
+  margin-top:12px; display:flex; align-items:center; gap:9px;
+  padding:9px 12px; border-radius:var(--r-sm);
+  font-size:.72rem; letter-spacing:.02em;
+  background:linear-gradient(90deg, rgba(255,140,50,0.14), rgba(255,140,50,0.04));
+  border:1px solid rgba(255,140,50,0.28);
+  color:var(--ember-lo);
+}
+.ribbon .ico{ font-size:.9rem; filter:drop-shadow(0 0 6px var(--ember-glow)); }
+.ribbon b{ color:var(--flour); font-weight:700; }
+
+/* ── milled panel ─────────────────────────────────────────────────── */
+.panel{
+  position:relative; border-radius:var(--r-md);
+  background:linear-gradient(180deg, var(--panel-hi), var(--panel-lo));
+  border:1px solid var(--line);
+  box-shadow:
+    0 1px 0 rgba(255,220,170,0.05) inset,       /* top light lip */
+    0 -1px 0 rgba(0,0,0,0.5) inset,             /* bottom shadow lip */
+    0 10px 26px -16px rgba(0,0,0,0.9);
+  padding:13px 14px 14px;
+  margin-bottom:11px;
+}
+.panel.crit{
+  border-color:rgba(255,118,117,0.32);
+  box-shadow:
+    0 1px 0 rgba(255,220,170,0.05) inset,
+    0 0 0 1px rgba(255,118,117,0.10),
+    0 12px 30px -14px rgba(214,48,49,0.4);
+}
+
+/* channel label: "01 · STRUTTURA ———————" with amber tick */
+.chan{ display:flex; align-items:center; gap:9px; margin-bottom:11px; }
+.chan .idx{ font-size:.6rem; color:var(--ember); font-weight:700; letter-spacing:.1em; }
+.chan .name{ font-size:.64rem; letter-spacing:.2em; text-transform:uppercase; color:var(--tan); white-space:nowrap; }
+.chan .rule{ flex:1; height:1px; background:linear-gradient(90deg, var(--line-strong), transparent);
+  transform-origin:left; animation:draw .5s var(--e,cubic-bezier(.4,0,.2,1)) both; animation-delay:inherit; }
+.chan .tick{ font-size:.58rem; color:var(--umber); letter-spacing:.08em; }
+@keyframes draw{ from{ transform:scaleX(0); opacity:0 } to{ transform:scaleX(1); opacity:1 } }
+
+/* ── readout (the glowing number) ─────────────────────────────────── */
+.readout{ display:flex; align-items:flex-end; gap:7px; }
+.readout .big{
+  font-size:2.5rem; font-weight:800; line-height:.82; color:var(--flour);
+  font-variant-numeric:tabular-nums; letter-spacing:-.01em;
+}
+.readout .unit{ font-size:.72rem; color:var(--umber); letter-spacing:.05em; padding-bottom:4px; text-transform:uppercase; }
+.glow-ember .big{ color:#ffe6c2; text-shadow:0 0 18px var(--ember-glow); }
+.glow-green .big{ color:#d8fff0; text-shadow:0 0 16px rgba(0,184,148,0.5); }
+.glow-crit  .big{ color:#ffe0df; text-shadow:0 0 18px rgba(255,118,117,0.55); animation:critpulse 2.4s ease-in-out infinite; }
+@keyframes critpulse{ 0%,100%{ text-shadow:0 0 18px rgba(255,118,117,0.55) } 50%{ text-shadow:0 0 30px rgba(255,118,117,0.85) } }
+
+/* ── dual semaforo: segmented signal meters ───────────────────────── */
+.semaforos{ display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+.semaforos.solo{ grid-template-columns:1fr; }
+.meter-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+.badge{
+  font-size:.6rem; letter-spacing:.14em; text-transform:uppercase; font-weight:700;
+  padding:3px 8px; border-radius:5px; white-space:nowrap;
+}
+.b-ok{ color:#04231c; background:var(--green); }
+.b-early{ color:var(--tan); background:rgba(255,255,255,0.05); border:1px solid var(--line-strong); }
+.b-warn{ color:#2a1e00; background:var(--warn); }
+.b-crit{ color:#2a0606; background:var(--crit); }
+.b-col{ color:#fff; background:var(--crit-deep);
+  box-shadow:0 0 14px rgba(214,48,49,0.6); animation:critpulse 1.6s ease-in-out infinite; }
+
+.segbar{ display:flex; gap:3px; height:10px; }
+.segbar i{ flex:1; border-radius:2px; background:rgba(255,255,255,0.05);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,0.4); transition:all .5s var(--e,cubic-bezier(.4,0,.2,1)); }
+.segbar i.on{ background:var(--seg,var(--green)); box-shadow:0 0 9px var(--seg,var(--green)); }
+.meter-foot{ display:flex; align-items:baseline; justify-content:space-between; margin-top:9px; }
+.meter-foot .pc{ font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; }
+.meter-foot .tg{ font-size:.6rem; color:var(--umber); letter-spacing:.06em; }
+
+/* ── secondary readouts row ───────────────────────────────────────── */
+.cells{ display:grid; grid-template-columns:repeat(4,1fr); }
+.cell{ padding:2px 10px; text-align:center; position:relative; }
+.cell + .cell::before{ content:""; position:absolute; left:0; top:6px; bottom:6px; width:1px; background:var(--line); }
+.cell .k{ font-size:.55rem; letter-spacing:.12em; text-transform:uppercase; color:var(--umber); }
+.cell .v{ font-size:1.15rem; font-weight:800; font-variant-numeric:tabular-nums; margin-top:3px; }
+.cell .s{ font-size:.55rem; color:var(--faint); }
+
+/* ── hill curve panel ─────────────────────────────────────────────── */
+.hill-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+.hill-head .w0{ font-size:.62rem; color:var(--umber); letter-spacing:.06em; }
+.hill-head .wnow{ font-size:1.1rem; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; }
+.hill-head .ratio{ font-size:.7rem; color:var(--tan); }
+.hill-head .ratio em{ font-style:normal; color:var(--flour); font-weight:700; }
+svg{ display:block; width:100%; }
+
+/* ── temperature panel + slider ───────────────────────────────────── */
+.temps{ display:flex; align-items:center; gap:16px; margin-bottom:13px; }
+.temps .t{ display:flex; flex-direction:column; gap:2px; }
+.temps .t .k{ font-size:.56rem; letter-spacing:.12em; text-transform:uppercase; color:var(--umber); }
+.temps .t .v{ font-size:1.55rem; font-weight:800; font-variant-numeric:tabular-nums; }
+.temps .t.core .v{ color:#ffe6c2; text-shadow:0 0 14px var(--ember-glow); }
+.temps .t.amb  .v{ color:var(--cold); }
+.temps .arrow{ color:var(--umber); font-size:1.1rem; }
+.slider{ position:relative; }
+.slider .lab{ display:flex; justify-content:space-between; font-size:.55rem; color:var(--faint); margin-bottom:6px; letter-spacing:.08em; }
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:3px;
+  background:linear-gradient(90deg, var(--cold), var(--ember)); outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #fff2dd, var(--ember));
+  box-shadow:0 0 12px var(--ember-glow), 0 2px 6px rgba(0,0,0,0.6); cursor:grab;
+}
+input[type=range]::-moz-range-thumb{ width:18px; height:18px; border:none; border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #fff2dd, var(--ember)); box-shadow:0 0 12px var(--ember-glow); cursor:grab; }
+
+/* ── timeline ─────────────────────────────────────────────────────── */
+.track{ position:relative; display:flex; justify-content:space-between; padding:6px 4px 2px; }
+.track::before{ content:""; position:absolute; left:14px; right:14px; top:13px; height:2px;
+  background:linear-gradient(90deg, var(--green-deep) 0%, var(--green-deep) 45%, var(--line-strong) 45%, var(--line-strong) 100%); }
+.node{ position:relative; display:flex; flex-direction:column; align-items:center; gap:7px; min-width:46px; z-index:1; }
+.node .pip{ width:11px; height:11px; border-radius:50%; background:var(--panel-hi);
+  box-shadow:0 0 0 2px var(--green-deep); }
+.node.done .pip{ background:var(--green-deep); box-shadow:0 0 0 2px var(--green-deep); }
+.node.cur .pip{ width:15px; height:15px; background:var(--ember);
+  box-shadow:0 0 0 3px rgba(255,140,50,0.3), 0 0 16px var(--ember); animation:pip 1.8s ease-in-out infinite; }
+.node.next .pip{ background:transparent; box-shadow:0 0 0 2px var(--line-strong); }
+.node.next .pip.bake{ border-radius:2px; transform:rotate(45deg); }
+@keyframes pip{ 0%,100%{ box-shadow:0 0 0 3px rgba(255,140,50,0.3), 0 0 16px var(--ember) } 50%{ box-shadow:0 0 0 6px rgba(255,140,50,0.12), 0 0 24px var(--ember) } }
+.node .nm{ font-size:.54rem; letter-spacing:.04em; color:var(--umber); text-transform:uppercase; text-align:center; line-height:1.25; }
+.node.cur .nm{ color:var(--ember-lo); }
+.node .tm{ font-size:.5rem; color:var(--faint); font-variant-numeric:tabular-nums; }
+.node.tap .pip{ cursor:pointer; }
+.node.tap::after{ content:""; position:absolute; top:-2px; right:8px; width:5px; height:5px; border-radius:50%;
+  background:#14b8a6; box-shadow:0 0 6px #14b8a6; }
+
+/* ── quality dots ─────────────────────────────────────────────────── */
+.qline{ display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line); }
+.qline:last-child{ border-bottom:none; }
+.qline .qk{ font-size:.66rem; letter-spacing:.06em; color:var(--tan); text-transform:uppercase; }
+.dots{ display:flex; gap:5px; align-items:center; }
+.dots i{ width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.07); }
+.dots i.f{ background:var(--seg,var(--ember)); box-shadow:0 0 7px var(--seg,var(--ember)); }
+.dots i.h{ background:linear-gradient(90deg, var(--seg,var(--ember)) 50%, rgba(255,255,255,0.07) 50%); }
+.qnote{ font-size:.6rem; color:var(--warn); margin-top:8px; letter-spacing:.02em; opacity:.85; }
+
+/* ── footer action bar ────────────────────────────────────────────── */
+.bar{ position:sticky; bottom:0; z-index:20; display:flex; gap:9px; margin:14px -14px -18px; padding:13px 14px;
+  background:linear-gradient(0deg, rgba(10,8,6,0.98), rgba(10,8,6,0.7)); border-top:1px solid var(--line);
+  backdrop-filter:blur(8px); }
+.btn{ flex:1; padding:13px; border-radius:var(--r-sm); font-family:var(--font-mono); font-weight:700;
+  font-size:.78rem; letter-spacing:.04em; cursor:pointer; border:1px solid transparent; transition:all .2s; }
+.btn.ghost{ background:rgba(255,255,255,0.04); border-color:var(--line-strong); color:var(--tan); }
+.btn.ghost:hover{ border-color:var(--ember); color:var(--ember-lo); }
+.btn.warm{ background:linear-gradient(180deg, var(--ember), #e8741a); color:#1c0d02;
+  box-shadow:0 6px 18px -6px var(--ember-glow); }
+.btn.warm:hover{ filter:brightness(1.08); }
+
+/* ── orchestrated entrance ────────────────────────────────────────── */
+.rise{ opacity:0; transform:translateY(14px); animation:rise .55s cubic-bezier(.22,1,.36,1) both; }
+@keyframes rise{ to{ opacity:1; transform:none } }
+.caption{ text-align:center; color:var(--umber); font-size:.58rem; letter-spacing:.22em;
+  text-transform:uppercase; margin:22px 0 0; }
+</style>
+</head>
+<body>
+<div class="device" id="device">
+  <div class="screen">
+
+    <!-- ── HEADER ──────────────────────────────────────────────── -->
+    <header class="hdr">
+      <div class="brandrow">
+        <div class="brand">Pizza<b>Matrix</b><span class="dot">.</span></div>
+        <div class="sig"><span class="live"></span> live · banco</div>
+      </div>
+      <div class="meta">
+        <span class="style">Contemporanea</span>
+        <span class="sep"></span>
+        <div class="pair"><span class="k">Farina</span><span class="v">1000<em>g</em></span></div>
+        <div class="pair"><span class="k">Trascorso</span><span class="v" id="elapsed">08:24</span></div>
+        <div class="pair"><span class="k">Alla cottura</span><span class="v"><em id="remain">13:36</em></span></div>
+        <span class="phase">Appretto · TC</span>
+      </div>
+      <div class="ribbon">
+        <span class="ico">◇</span>
+        <span>Maturazione <b>in finestra</b> — uscita frigo consigliata fra <b>~2h</b></span>
+      </div>
+    </header>
+
+    <!-- ── 01 · STATO (dual semaforo) ──────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.05s">
+      <div class="chan" style="animation-delay:.05s"><span class="idx">01</span><span class="name">Stato</span><span class="rule"></span><span class="tick">2-clock</span></div>
+      <div class="semaforos">
+        <div>
+          <div class="meter-top"><span class="cell k" style="padding:0">Maturazione</span><span class="badge b-ok">OK</span></div>
+          <div class="segbar" data-on="7" style="--seg:var(--green)">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="meter-foot"><span class="pc glow-green" style="color:#d8fff0">73<span style="font-size:.7rem;color:var(--umber)">%</span></span><span class="tg">tgt 85%</span></div>
+        </div>
+        <div>
+          <div class="meter-top"><span class="cell k" style="padding:0">Struttura W</span><span class="badge b-warn">ATTENZIONE</span></div>
+          <div class="segbar" data-on="6" style="--seg:var(--warn)">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="meter-foot"><span class="pc" style="color:var(--warn)">61<span style="font-size:.7rem;color:var(--umber)">%</span></span><span class="tg">t/t_crit</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── secondary readouts ──────────────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.1s; padding:11px 6px;">
+      <div class="cells">
+        <div class="cell"><div class="k">pH</div><div class="v" style="color:var(--ember-lo)">5.18</div><div class="s">▼ 0.62</div></div>
+        <div class="cell"><div class="k">Lievit.</div><div class="v" style="color:var(--green)">58<span style="font-size:.6rem">%</span></div><div class="s">bolle</div></div>
+        <div class="cell"><div class="k">W</div><div class="v" style="color:var(--flour)">228</div><div class="s">da 290</div></div>
+        <div class="cell"><div class="k">Matur.</div><div class="v" style="color:var(--ember)">73<span style="font-size:.6rem">%</span></div><div class="s">enzim.</div></div>
+      </div>
+    </section>
+
+    <!-- ── 02 · STRUTTURA (hill decay) ─────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.15s">
+      <div class="chan" style="animation-delay:.15s"><span class="idx">02</span><span class="name">Struttura · Decadimento W</span><span class="rule"></span></div>
+      <div class="hill-head">
+        <span class="w0">W₀ 290</span>
+        <span class="ratio">t/t_crit <em>0.61</em></span>
+        <span class="wnow">228</span>
+      </div>
+      <svg viewBox="0 0 398 96" id="hill" aria-hidden="true">
+        <defs>
+          <linearGradient id="wstroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#22c55e"/>
+            <stop offset="0.62" stop-color="#86efac"/>
+            <stop offset="0.78" stop-color="#ffd166"/>
+            <stop offset="1" stop-color="#ff7675"/>
+          </linearGradient>
+          <linearGradient id="wfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="rgba(255,140,50,0.16)"/>
+            <stop offset="1" stop-color="rgba(255,140,50,0)"/>
+          </linearGradient>
+        </defs>
+        <!-- collapse zone -->
+        <rect x="300" y="6" width="90" height="64" fill="#ff7675" opacity="0.06"/>
+        <!-- y gridlines -->
+        <line x1="30" y1="22" x2="390" y2="22" stroke="#1f160c" stroke-width="0.5"/>
+        <line x1="30" y1="46" x2="390" y2="46" stroke="#1f160c" stroke-width="0.5"/>
+        <line x1="30" y1="70" x2="390" y2="70" stroke="#1f160c" stroke-width="0.5"/>
+        <text x="26" y="25" text-anchor="end" font-size="8" fill="#6a5836" font-family="JetBrains Mono">290</text>
+        <text x="26" y="49" text-anchor="end" font-size="8" fill="#6a5836" font-family="JetBrains Mono">218</text>
+        <text x="26" y="73" text-anchor="end" font-size="8" fill="#6a5836" font-family="JetBrains Mono">145</text>
+        <!-- fill under curve -->
+        <path id="wfillpath" fill="url(#wfill)" d=""/>
+        <!-- the curve -->
+        <path id="wpath" fill="none" stroke="url(#wstroke)" stroke-width="2.4" stroke-linecap="round" d=""/>
+        <!-- t_crit marker -->
+        <line x1="300" y1="6" x2="300" y2="70" stroke="#ff7675" stroke-width="1" stroke-dasharray="3 2" opacity="0.6"/>
+        <text x="300" y="84" text-anchor="middle" font-size="8" fill="#ff7675" font-family="JetBrains Mono">t_crit 96h</text>
+        <!-- x labels -->
+        <text x="30"  y="84" text-anchor="middle" font-size="8" fill="#6a5836" font-family="JetBrains Mono">0</text>
+        <text x="120" y="84" text-anchor="middle" font-size="8" fill="#6a5836" font-family="JetBrains Mono">24h</text>
+        <text x="210" y="84" text-anchor="middle" font-size="8" fill="#6a5836" font-family="JetBrains Mono">48h</text>
+        <!-- live dot -->
+        <circle id="wdot" r="5" fill="#ffd166" stroke="#0a0806" stroke-width="1.6"/>
+        <circle id="wdotglow" r="9" fill="none" stroke="#ffd166" stroke-width="1" opacity="0.4"/>
+      </svg>
+    </section>
+
+    <!-- ── 03 · TERMICA ────────────────────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.2s">
+      <div class="chan" style="animation-delay:.2s"><span class="idx">03</span><span class="name">Termica · Cuore impasto</span><span class="rule"></span><span class="tick">Newton τ</span></div>
+      <div class="temps">
+        <div class="t core"><span class="k">T impasto</span><span class="v" id="tcore">6.4°</span></div>
+        <span class="arrow">→</span>
+        <div class="t amb"><span class="k">T ambiente</span><span class="v" id="tamb">4.0°</span></div>
+        <div class="t" style="margin-left:auto"><span class="k">Contenitore</span><span class="v" style="font-size:.9rem; color:var(--tan)">cassa chiusa</span></div>
+      </div>
+      <div class="slider">
+        <div class="lab"><span>16°</span><span>T ambiente di servizio</span><span>32°</span></div>
+        <input type="range" min="16" max="32" step="0.5" value="22" id="tslider" />
+      </div>
+    </section>
+
+    <!-- ── 04 · TIMELINE ───────────────────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.25s">
+      <div class="chan" style="animation-delay:.25s"><span class="idx">04</span><span class="name">Cronologia fasi</span><span class="rule"></span></div>
+      <div class="track">
+        <div class="node done"><span class="pip"></span><span class="nm">Puntata<br>TA</span><span class="tm">14:00</span></div>
+        <div class="node done"><span class="pip"></span><span class="nm">Staglio</span><span class="tm">17:30</span></div>
+        <div class="node cur"><span class="pip"></span><span class="nm">Appretto<br>TC</span><span class="tm">ora</span></div>
+        <div class="node next tap"><span class="pip"></span><span class="nm">Tempering</span><span class="tm">+11h</span></div>
+        <div class="node next tap"><span class="pip bake"></span><span class="nm">Cottura</span><span class="tm">+13h</span></div>
+      </div>
+    </section>
+
+    <!-- ── 05 · PROFILO IMPASTO ────────────────────────────────── -->
+    <section class="panel rise" style="animation-delay:.3s">
+      <div class="chan" style="animation-delay:.3s"><span class="idx">05</span><span class="name">Profilo impasto</span><span class="rule"></span><span class="tick">ora → cottura</span></div>
+      <div class="qline"><span class="qk">Estensibilità</span><div class="dots" style="--seg:var(--green)"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="h"></i></div></div>
+      <div class="qline"><span class="qk">Aromi</span><div class="dots" style="--seg:var(--ember)"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></div></div>
+      <div class="qline"><span class="qk">Scioglievolezza</span><div class="dots" style="--seg:var(--warn)"><i class="f"></i><i class="f"></i><i class="h"></i><i></i><i></i></div></div>
+      <div class="qnote">⚠ Scioglievolezza in calo verso la cottura — la struttura si ammorbidisce.</div>
+    </section>
+
+    <!-- ── ACTION BAR ──────────────────────────────────────────── -->
+    <div class="bar">
+      <button class="btn ghost">↻ Aggiusta rotta</button>
+      <button class="btn warm">Termina sessione</button>
+    </div>
+  </div>
+</div>
+<p class="caption">PizzaMatrix · concept "Banco" · v4</p>
+
+<script>
+/* ── live clock readout ─────────────────────────────────────────── */
+let elapsedMin = 8*60+24, remainMin = 13*60+36;
+const pad = n => String(n).padStart(2,'0');
+function tick(){
+  elapsedMin++; remainMin--;
+  document.getElementById('elapsed').textContent = pad(elapsedMin/60|0)+':'+pad(elapsedMin%60);
+  document.getElementById('remain').textContent  = pad(remainMin/60|0)+':'+pad(remainMin%60);
+}
+setInterval(tick, 4000);
+
+/* ── segmented meters: light up on load ─────────────────────────── */
+document.querySelectorAll('.segbar').forEach(bar=>{
+  const on = +bar.dataset.on, segs=[...bar.children];
+  segs.forEach((s,i)=> setTimeout(()=> i<on && s.classList.add('on'), 300 + i*55));
+});
+
+/* ── count-up on the big readouts ───────────────────────────────── */
+function countUp(el, to, suffix=''){
+  let v=0, step=to/26;
+  const t=setInterval(()=>{ v+=step; if(v>=to){v=to; clearInterval(t);}
+    el.firstChild.textContent = Math.round(v); }, 24);
+}
+document.querySelectorAll('.meter-foot .pc').forEach(el=>{
+  const to=parseInt(el.textContent); countUp(el, to);
+});
+
+/* ── Hill curve: W(t)=W0/(1+(t/tcrit)^5) ────────────────────────── */
+(function(){
+  const W0=290, n=5, padL=30, padR=8, W=398, plotW=W-padL-padR, padT=6, plotH=64;
+  const tMax=72, tcritX=300; // visual: t_crit drawn at x=300 (≈ off-domain marker)
+  // map hours→x across 0..tMax over [padL.. (tcritX maps 96h)]; keep simple linear to 54h≈x230
+  const xOf = h => padL + (h/tMax)*plotW;
+  const tcritHours = 96;
+  const wOf = h => W0/(1+Math.pow(h/tcritHours, n));
+  const yOf = w => padT + (1 - (w-100)/(W0-100))*plotH; // scale 100..290 into plot
+  let d='', f='M'+xOf(0).toFixed(1)+','+(padT+plotH);
+  for(let h=0;h<=tMax;h+=1){
+    const x=xOf(h).toFixed(1), y=yOf(wOf(h)).toFixed(1);
+    d += (h===0?'M':'L')+x+','+y+' ';
+    f += ' L'+x+','+y;
+  }
+  f += ' L'+xOf(tMax).toFixed(1)+','+(padT+plotH)+' Z';
+  document.getElementById('wpath').setAttribute('d', d.trim());
+  document.getElementById('wfillpath').setAttribute('d', f);
+  // live dot at ~30h (elapsed in this mock)
+  const hNow=30, dx=xOf(hNow), dy=yOf(wOf(hNow));
+  ['wdot','wdotglow'].forEach(id=>{ const e=document.getElementById(id); e.setAttribute('cx',dx); e.setAttribute('cy',dy); });
+  // dot breathing
+  let g=document.getElementById('wdotglow'), t=0;
+  setInterval(()=>{ t+=0.08; g.setAttribute('r', (8+Math.sin(t)*2.5).toFixed(1)); g.setAttribute('opacity',(0.35+Math.sin(t)*0.15).toFixed(2)); },60);
+})();
+
+/* ── temperature slider live ────────────────────────────────────── */
+const sl=document.getElementById('tslider');
+sl.addEventListener('input',()=>{ /* purely tactile in the mock */
+  document.querySelector('.slider .lab span:nth-child(2)').textContent = 'T ambiente = '+(+sl.value).toFixed(1)+'°';
+});
+</script>
+</body>
+</html>
