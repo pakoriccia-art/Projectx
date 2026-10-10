@@ -773,6 +773,7 @@ In frigo la biga ora rallenta come il lievito (~3 volte a 4 °C rispetto a 16 °
 ### Verifica
 - `npm run typecheck`; `npm test`: vitest 292 + 257, motore, stress 285/285, fuzz 1001/1001.
 - 5 test nuovi in `src/__tests__/preferment.test.ts`: tetto al 100%, stesso orologio della sessione, autolisi neutra, biga dura più lenta, frigo più lento.
-- Finto telefono 74/74 (F1–F5 sui prefermenti compresi). Da fare: telefono vero.
+- Finto telefono 74/74 (F1–F5 sui prefermenti compresi).
+- Telefono vero (SM-S931B): primo giro 64/66, due ✘ dello script e non dell'app. P6 cercava un target del Servizio solo dall'80% in su; alle 17:42 la finestra era di 25,3 h e, con il riscaldo a 15 °C, i target fattibili erano 75–79%. P7 cadeva di conseguenza, perché restava nel Planner. Script corretto in `378a371` (ricerca su 70–100%, `openPlanner()` riconosce il Planner già aperto). Secondo giro: 74/74, P6 a target 75%. La dashboard mostra "target 66% (dal piano)": è la soglia a inizio servizio, il 75% vale a fine finestra.
 
 **Restano stime da misurare:** raddoppio del lievito nella biga, tetto 40×, velocità di caduta del pH, `hydFactor`. Il dato più utile: pH e volume di una biga ogni 2–4 h.
