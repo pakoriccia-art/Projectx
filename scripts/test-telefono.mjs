@@ -383,6 +383,13 @@ function parseDur(t) {
   const n = t.match(/(\d+)\s*min/); return n ? +n[1] / 60 : NaN;
 }
 async function openPlanner() {
+  // Già nel Planner (uno scenario precedente si è fermato qui): niente da aprire.
+  if (await page.getByRole('radio', { name: /Servizio/ }).count()) return;
+  // Fuori dalla Home: si torna indietro, poi "Pianifica".
+  if (!(await page.getByRole('button', { name: /Pianifica/ }).count())) {
+    const back = page.getByRole('button', { name: /Torna alla (home|schermata iniziale)/i }).first();
+    if (await back.count()) { await back.click(); await sleep(800); }
+  }
   await page.getByRole('button', { name: /Pianifica/ }).first().click();
   await sleep(1200);
 }
@@ -508,16 +515,17 @@ async function scenarioPianifica() {
   await sleep(800);
   const slider = page.locator('#pm-plan-target-mat');
   let feasible = false; let target = null;
-  // cerca un target fattibile partendo dal valore attuale, poi verso l'alto e verso il basso
-  for (const key of ['ArrowRight', 'ArrowLeft']) {
-    for (let i = 0; i < 16 && !feasible; i++) {
-      if (await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).count()) { feasible = true; target = await slider.inputValue(); break; }
-      await slider.focus(); await page.keyboard.press(key); await sleep(350);
-    }
-    if (feasible) break;
+  // Il target fattibile dipende dalla finestra (cioè dall'ora del giro): si prova
+  // tutta la scala dal minimo, non solo sopra il valore di partenza.
+  if (!(await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).count())) {
+    await slider.focus(); await page.keyboard.press('Home'); await sleep(350);
+  }
+  for (let i = 0; i <= 30; i++) {
+    if (await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).count()) { feasible = true; target = await slider.inputValue(); break; }
+    await slider.focus(); await page.keyboard.press('ArrowRight'); await sleep(350);
   }
   await shot(page, device, 'pian-06-servizio');
-  check('Servizio: esiste un target fattibile per domani alle 19:00', feasible, feasible ? `target ${target}%` : 'nessun target 64–100% fattibile');
+  check('Servizio: esiste un target fattibile per domani alle 19:00', feasible, feasible ? `target ${target}%` : 'nessun target 70–100% fattibile');
   if (feasible) {
     await page.getByRole('button', { name: /Usa questo (schema|piano)/ }).first().click();
     await sleep(1500);
