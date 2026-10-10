@@ -244,6 +244,41 @@ if (await inDashboard()) {
   await shot(page, device, '00-sessione-esistente');
   process.exit(3);
 }
+// Le sessioni con id oltre questo le crea il test: a fine giro si tolgono dallo Storico.
+// Se il DB non si legge, niente pulizia: meglio qualche prova in più che una sessione tua in meno.
+const rowsBeforeTest = await readDb(page).catch(() => null);
+const lastIdBeforeTest = rowsBeforeTest ? Math.max(0, ...rowsBeforeTest.map(r => r.id)) : null;
+
+/**
+ * Toglie dal DB le sessioni create dal test (id > lastIdBeforeTest), con i loro
+ * log e avvisi: lo Storico non si riempie di prove. Le sessioni tue restano.
+ */
+async function removeTestSessions() {
+  if (lastIdBeforeTest == null) { console.log('\n· Storico non ripulito: all\'avvio non ho letto il DB'); return; }
+  const n = await page.evaluate(firstId => new Promise(res => {
+    const r = indexedDB.open('PizzaMatrixDB');
+    r.onerror = () => res(-1);
+    r.onsuccess = () => {
+      const tx = r.result.transaction(['sessions', 'process_log', 'alerts'], 'readwrite');
+      const sessions = tx.objectStore('sessions');
+      let removed = 0;
+      sessions.getAll().onsuccess = e => {
+        for (const s of e.target.result) {
+          if (s.id <= firstId) continue;
+          sessions.delete(s.id); removed++;
+          for (const store of ['process_log', 'alerts']) {
+            tx.objectStore(store).index('sessionId').openCursor(IDBKeyRange.only(s.id)).onsuccess = ev => {
+              const c = ev.target.result; if (c) { c.delete(); c.continue(); }
+            };
+          }
+        }
+      };
+      tx.oncomplete = () => res(removed);
+      tx.onerror = () => res(-1);
+    };
+  }), lastIdBeforeTest).catch(() => -1);
+  console.log(n >= 0 ? `\n· Storico ripulito: ${n} ${n === 1 ? 'sessione' : 'sessioni'} di prova eliminate` : '\n· Non sono riuscito a ripulire lo Storico dalle sessioni di prova');
+}
 
 /** Un'eccezione non deve lasciare sessioni aperte per il giro dopo. */
 async function runScenario(name, fn) {
@@ -685,6 +720,12 @@ if (SCENARIO === 'prefermento' || SCENARIO === 'tutti') {
   page = await openApp();
   await cleanupApp();
   await runScenario('prefermento', scenarioPrefermento);
+}
+
+// Con --keep la sessione di prova resta aperta apposta: niente pulizia.
+if (!KEEP) {
+  try { page = await openApp(); await removeTestSessions(); }
+  catch (e) { console.log(`\n· Pulizia dello Storico non riuscita: ${String(e?.message ?? e).split('\n')[0]}`); }
 }
 
 finish();

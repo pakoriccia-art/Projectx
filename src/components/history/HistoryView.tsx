@@ -116,11 +116,15 @@ function Cell({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 function SessionCard({
-  session, onDelete, onRate,
+  session, onDelete, onRate, selecting, selected, onToggle,
 }: {
   session: Session;
   onDelete: (s: Session) => void;
   onRate: (id: number, rating: NonNullable<Session['outcomeRating']>) => void;
+  /** Modalità "Seleziona": una casella al posto del voto e del cestino. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggle?: (id: number) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
@@ -152,13 +156,20 @@ function SessionCard({
   const agent = AGENT_SHORT[session.agentType] ?? session.agentLabel;
   const styleName = STYLE_LABELS[session.style] ?? session.style ?? '—';
   const dateStr = start.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
-  const showRating = session.status === 'completed' && session.id != null && (!session.outcomeRating || editRating);
+  const showRating = !selecting && session.status === 'completed' && session.id != null && (!session.outcomeRating || editRating);
 
   return (
     <article className="pm4-panel" data-session-id={session.id} tabIndex={-1} style={{ outline: 'none', padding: '13px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}
       aria-label={`${styleName}, ${dateStr}`}>
       {/* Titolo: stile · stato · esito */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {selecting && session.id != null && (
+          <label style={{ width: 44, height: 44, margin: '-10px 0 -10px -12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <input type="checkbox" checked={!!selected} onChange={() => onToggle?.(session.id!)}
+              aria-label={`Seleziona ${styleName} del ${dateStr}`}
+              style={{ width: 22, height: 22, margin: 0, accentColor: 'var(--accent-brand)', cursor: 'pointer' }} />
+          </label>
+        )}
         <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--pm4-flour)' }}>
           {styleName}
         </h2>
@@ -168,7 +179,7 @@ function SessionCard({
           {session.status === 'completed' ? '✓ ' : session.status === 'aborted' ? '■ ' : ''}
           {STATUS_LABEL[session.status] ?? session.status}
         </span>
-        {session.outcomeRating && !editRating && (
+        {session.outcomeRating && !editRating && !selecting && (
           <button ref={changeRatingRef} type="button" onClick={() => { focusAfter.current = 'rating'; setEditRating(true); }}
             aria-label={`Esito: ${OUTCOME_LABEL[session.outcomeRating]}. Cambia voto`}
             style={{ ...BTN, padding: '6px 10px', fontSize: 12, color: 'var(--pm4-flour)' }}>
@@ -218,13 +229,13 @@ function SessionCard({
           <span style={{ color: 'var(--pm4-ember-lo)' }}>⚠ {session.alertsCount} {session.alertsCount === 1 ? 'avviso' : 'avvisi'}</span>
         )}
         {session.userNotes && <span style={{ color: 'var(--pm4-tan)', fontStyle: 'italic' }}>{session.userNotes}</span>}
-        <button ref={deleteBtnRef} type="button" onClick={() => setConfirmDelete(true)}
+        {!selecting && <button ref={deleteBtnRef} type="button" onClick={() => setConfirmDelete(true)}
           aria-label={`Elimina la sessione ${styleName} del ${dateStr}`}
           style={{ marginLeft: 'auto', width: 44, height: 44, margin: '-14px -10px -14px auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pm4-umber)', fontSize: 16 }}>
           <span aria-hidden="true">🗑</span>
-        </button>
+        </button>}
       </div>
-      {confirmDelete && (
+      {confirmDelete && !selecting && (
         <div role="alertdialog" aria-label="Conferma eliminazione"
           onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); focusAfter.current = 'delete'; setConfirmDelete(false); } }}
           style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
@@ -247,10 +258,15 @@ export function HistoryView() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
-  // Eliminazione differita: nascosta subito, cancellata davvero dopo 10s salvo annulla.
-  const [pendingDelete, setPendingDelete] = useState<Session | null>(null);
+  // Eliminazione differita: nascoste subito, cancellate davvero dopo 10s salvo annulla.
+  const [pendingDelete, setPendingDelete] = useState<Session[] | null>(null);
   const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRef  = useRef<Session | null>(null);
+  const pendingRef  = useRef<Session[] | null>(null);
+  // Modalità "Seleziona": più sessioni (o tutte) in un colpo, con conferma.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected]   = useState<Set<number>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const selectBtnRef = useRef<HTMLButtonElement>(null);
   const undoRef     = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (pendingDelete) undoRef.current?.focus(); }, [pendingDelete]);
 
@@ -262,14 +278,16 @@ export function HistoryView() {
       .finally(() => setLoading(false));
   }, []);
 
-  const commitDelete = async (s: Session) => {
-    if (s.id == null) return;
-    try {
-      await deleteSession(s.id);
-    } catch {
-      setSessions(prev => prev.some(x => x.id === s.id) ? prev : [...prev, s].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      setError('Non è stato possibile eliminare la sessione: riprova.');
+  const byDate = (a: Session, b: Session) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const commitDelete = async (list: Session[]) => {
+    const failed: Session[] = [];
+    for (const s of list) {
+      if (s.id == null) continue;
+      try { await deleteSession(s.id); } catch { failed.push(s); }
+    }
+    if (failed.length) {
+      setSessions(prev => [...prev, ...failed.filter(f => !prev.some(x => x.id === f.id))].sort(byDate));
+      setError(failed.length === 1 ? 'Non è stato possibile eliminare una sessione: riprova.' : `Non è stato possibile eliminare ${failed.length} sessioni: riprova.`);
     }
   };
 
@@ -280,30 +298,48 @@ export function HistoryView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDelete = (s: Session) => {
+  const deleteMany = (list: Session[]) => {
+    if (list.length === 0) return;
     if (pendingRef.current) { void commitDelete(pendingRef.current); }
     if (deleteTimer.current) clearTimeout(deleteTimer.current);
     setError(null);
-    setSessions(prev => prev.filter(x => x.id !== s.id));
-    setPendingDelete(s);
-    pendingRef.current = s;
+    const ids = new Set(list.map(x => x.id));
+    setSessions(prev => prev.filter(x => !ids.has(x.id)));
+    setPendingDelete(list);
+    pendingRef.current = list;
     deleteTimer.current = setTimeout(() => {
       pendingRef.current = null;
       setPendingDelete(null);
-      void commitDelete(s);
+      void commitDelete(list);
     }, 10_000);
   };
+  const handleDelete = (s: Session) => deleteMany([s]);
 
   const undoDelete = () => {
-    const s = pendingRef.current;
-    if (!s) return;
+    const list = pendingRef.current;
+    if (!list) return;
     if (deleteTimer.current) clearTimeout(deleteTimer.current);
     pendingRef.current = null;
     setPendingDelete(null);
-    setSessions(prev => [...prev, s].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    // il focus va sulla sessione ripristinata, non sul body
-    setTimeout(() => document.querySelector<HTMLElement>(`[data-session-id="${s.id}"]`)?.focus(), 0);
+    setSessions(prev => [...prev, ...list].sort(byDate));
+    // il focus va sulla (prima) sessione ripristinata, non sul body
+    setTimeout(() => document.querySelector<HTMLElement>(`[data-session-id="${list[0].id}"]`)?.focus(), 0);
+  };
+
+  const exitSelecting = () => {
+    setSelecting(false); setSelected(new Set()); setConfirmBulk(false);
+    setTimeout(() => selectBtnRef.current?.focus(), 0);
+  };
+  const toggleSelected = (id: number) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allSelected = sessions.length > 0 && sessions.every(s => s.id != null && selected.has(s.id));
+  const deleteSelected = () => {
+    const list = sessions.filter(s => s.id != null && selected.has(s.id));
+    setSelecting(false); setSelected(new Set()); setConfirmBulk(false);
+    deleteMany(list);
   };
 
   const handleRate = async (id: number, rating: NonNullable<Session['outcomeRating']>) => {
@@ -336,6 +372,12 @@ export function HistoryView() {
             {sessions.length} {sessions.length === 1 ? 'sessione' : 'sessioni'}
           </span>
         )}
+        {!loading && sessions.length > 0 && !selecting && (
+          <button ref={selectBtnRef} type="button" onClick={() => setSelecting(true)}
+            style={{ ...BTN, padding: '8px 12px', marginRight: -4 }}>
+            Seleziona
+          </button>
+        )}
       </div>
 
       {error && (
@@ -360,10 +402,11 @@ export function HistoryView() {
       {!loading && <Calibration sessions={sessions} />}
 
       {sessions.map(s => (
-        <SessionCard key={s.id} session={s} onDelete={handleDelete} onRate={handleRate} />
+        <SessionCard key={s.id} session={s} onDelete={handleDelete} onRate={handleRate}
+          selecting={selecting} selected={s.id != null && selected.has(s.id)} onToggle={toggleSelected} />
       ))}
 
-      <button
+      {!selecting && <button
         type="button"
         onClick={() => {
           if (live) return;
@@ -382,11 +425,49 @@ export function HistoryView() {
         }}
       >
         🍕 Nuovo impasto
-      </button>
-      {live && (
+      </button>}
+      {live && !selecting && (
         <p id="history-new-blocked" style={{ margin: 0, ...MONO, fontSize: 12, color: 'var(--pm4-tan)', textAlign: 'center' }}>
           Prima termina l'impasto in corso.
         </p>
+      )}
+
+      {/* Selezione: tutte/nessuna, elimina con conferma, fine */}
+      {selecting && (
+        <div role="group" aria-label="Sessioni selezionate" style={{
+          position: 'sticky', bottom: 'max(12px, env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 8,
+          background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)', borderRadius: 10, padding: 8,
+          ...MONO, fontSize: 12, color: 'var(--pm4-tan)',
+        }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); if (confirmBulk) setConfirmBulk(false); else exitSelecting(); } }}>
+          {confirmBulk ? (
+            <>
+              <span role="status" style={{ color: 'var(--pm4-flour)', padding: '2px 6px' }}>
+                {allSelected ? `Eliminare tutte le ${selected.size} sessioni?` : `Eliminare ${selected.size} ${selected.size === 1 ? 'sessione' : 'sessioni'}?`}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => setConfirmBulk(false)} style={{ ...BTN, flex: 1 }}>Annulla</button>
+                <button type="button" onClick={deleteSelected} className="pm4-btn-danger-quiet"
+                  style={{ ...BTN, flex: 1, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)' }}>
+                  Elimina
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setSelected(allSelected ? new Set() : new Set(sessions.flatMap(s => s.id != null ? [s.id] : [])))}
+                style={{ ...BTN, flex: 1 }}>
+                {allSelected ? 'Nessuna' : 'Tutte'}
+              </button>
+              <button type="button" onClick={() => setConfirmBulk(true)} disabled={selected.size === 0} className="pm4-btn-danger-quiet"
+                style={{ ...BTN, flex: 1.4, color: 'var(--state-critical)', border: '1px solid rgba(255,118,117,0.35)',
+                  opacity: selected.size === 0 ? 0.45 : 1, cursor: selected.size === 0 ? 'not-allowed' : 'pointer' }}>
+                Elimina{selected.size ? ` (${selected.size})` : ''}
+              </button>
+              <button type="button" onClick={exitSelecting} style={{ ...BTN, flex: 1 }}>Fine</button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Annulla eliminazione (10s) */}
@@ -396,7 +477,7 @@ export function HistoryView() {
           background: 'var(--pm4-panel-hi)', border: '1px solid var(--pm4-line-strong)', borderRadius: 10, padding: '6px 6px 6px 14px',
           ...MONO, fontSize: 12, color: 'var(--pm4-tan)',
         }}>
-          <span style={{ flex: 1 }}>Sessione eliminata</span>
+          <span style={{ flex: 1 }}>{pendingDelete.length === 1 ? 'Sessione eliminata' : `${pendingDelete.length} sessioni eliminate`}</span>
           <button ref={undoRef} type="button" onClick={undoDelete} style={{ ...BTN, color: 'var(--pm4-ember-lo)' }}>↶ Annulla</button>
         </div>
       )}
