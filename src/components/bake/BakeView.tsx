@@ -183,7 +183,7 @@ export function BakeView() {
   const isConchiglia = profile?.archetipo === 'fornetto_conchiglia';
   const knobLevel = profile?.knobLevel ?? 3;
 
-  // v2.4.21: cuore impasto proiettato a cottura — avviso se < 18°C (impasto freddo).
+  // v2.4.21: cuore impasto proiettato a cottura — avviso se < CORE_TEMP_AT_BAKE_MIN_C (15°C) (impasto freddo).
   // Stesso calcolo della dashboard: cottura del piano e, se l'impasto è in frigo,
   // la cucina (non il frigo) per le fasi calde che verranno.
   const coreTempAtBake = ts ? (() => {

@@ -5,9 +5,10 @@
  * temperatura al CUORE dell'impasto al momento della cottura, usando il simulatore
  * fisico già validato `simulateTimeline` (Newton continuo, τ reale per fase).
  *
- * Segnale: se il cuore proiettato a cottura è < 18°C (= thermalServiceTargetC /
- * T_SERVICE), l'impasto è troppo freddo per stendere/infornare (rischio gommoso e
- * superficie scottata). Advisory, mai bloccante.
+ * Segnale: se il cuore proiettato a cottura è < 15°C (= thermalServiceTargetC),
+ * l'impasto è troppo freddo per stendere/infornare (rischio gommoso e superficie
+ * scottata). Le pizzerie usano 10–15 °C come minimo (Lehmann, PMQ); 18 °C è
+ * l'ideale per la napoletana. Advisory, mai bloccante.
  *
  * NON modifica la fisica: chiama solo `simulateTimeline`. Semina al cuore VIVO
  * (`currentDoughTempC`) e simula il piano RESIDUO da `nowElapsedH` fino a `bakeH`.
@@ -16,7 +17,9 @@ import { simulateTimeline } from './serviceWindowSolver';
 import type { PhaseSegment } from '../db/db';
 
 /** Soglia minima del cuore a cottura [°C] — allineata a thermalServiceTargetC. */
-export const CORE_TEMP_AT_BAKE_MIN_C = 18;
+export const CORE_TEMP_AT_BAKE_MIN_C = 15;
+/** Cuore ideale a cottura [°C]: sopra il minimo, il riscaldo può continuare fin qui. */
+export const CORE_TEMP_AT_BAKE_IDEAL_C = 18;
 
 const FRIDGE_PHASES = new Set(['bulk_fridge', 'balled_fridge']);
 

@@ -63,21 +63,21 @@ console.log('\n§ SW2 — C1 vincolante (ambient 19, palline grandi)');
   const r = solveServiceWindow(baseInput({ ambientTempC: 19, totalFlourGrams: 3000, numPanetti: 2 }));
   assert(r.feasible === true, 'feasible=true');
   assert(r.schedule.temperingH > 1.0, 'temperingH grande (palline grandi, ΔT piccolo)', `val=${r.schedule.temperingH}`);
-  assert(r.atServiceStart.tempDough >= 17.9,
-    'C1 soddisfatto: tempDough(serviceStart) ≥ 18°C', `val=${r.atServiceStart.tempDough}`);
+  assert(r.atServiceStart.tempDough >= 14.9,
+    'C1 soddisfatto: tempDough(serviceStart) ≥ 15°C', `val=${r.atServiceStart.tempDough}`);
 }
 
 console.log('\n§ SW3 — Servizio lungo infattibile (overshoot)');
 {
   const r = solveServiceWindow(baseInput({
-    serviceDurationH: 8, ambientTempC: 26, initialMaturationOffset: 0.4,
+    serviceDurationH: 10, ambientTempC: 26, initialMaturationOffset: 0.4,
     prefermenti: [{ flourFraction: 40 }],
   }));
   assert(r.feasible === false, 'feasible=false');
   assert(r.infeasibility?.reason === 'maturation_overshoot',
     "reason='maturation_overshoot'", `val=${r.infeasibility?.reason}`);
-  assert(r.infeasibility?.maxSafeServiceWindowH < 8,
-    'maxSafeServiceWindowH < 8h', `val=${r.infeasibility?.maxSafeServiceWindowH}`);
+  assert(r.infeasibility?.maxSafeServiceWindowH < 10,
+    'maxSafeServiceWindowH < 10h', `val=${r.infeasibility?.maxSafeServiceWindowH}`);
   assert((r.infeasibility?.mitigations ?? []).some(m => /[Rr]iduci la durata/.test(m)),
     'mitigazioni includono "riduci durata servizio"');
 }
@@ -100,9 +100,9 @@ console.log('\n§ SW5 — Invarianti');
 {
   const inp = baseInput();
   // C1 short-circuit
-  const cold = solveServiceWindow(baseInput({ ambientTempC: 17 }));
+  const cold = solveServiceWindow(baseInput({ ambientTempC: 14 }));
   assert(cold.feasible === false && cold.infeasibility?.reason === 'cannot_temper',
-    'ambient ≤ 18 → reason=cannot_temper');
+    'ambient ≤ 15 → reason=cannot_temper');
 
   // Indipendenza maturazione/dose: enzAdu identico a dosi diverse, stesso schedule
   const segs = [

@@ -214,7 +214,7 @@ function CollapseReadout({ info, ambientTempC }: { info: CollapseETAResult | nul
 }
 
 // ─── Readout cuore impasto alla cottura (v2.4.21) ─────────────────────────────
-// Avvisa se il cuore proiettato a cottura è sotto i 18°C (impasto freddo → crosta
+// Avvisa se il cuore proiettato a cottura è sotto il minimo (15°C) (impasto freddo → crosta
 // scottata / mollica gommosa). Advisory, mai bloccante.
 function CoreTempAtBakeReadout({ coreTempAtBake }: { coreTempAtBake: number | null }) {
   if (coreTempAtBake == null) return null;
@@ -542,7 +542,7 @@ export function DashboardV4() {
   const serviceWindowMs = (session.serviceWindowH ?? 0) * 3_600_000;
   const planBake   = planBakeMs != null && Number.isFinite(planBakeMs) ? new Date(planBakeMs - serviceWindowMs) : targetBake;
 
-  // v2.4.21: cuore impasto proiettato al momento della cottura. < 18°C → impasto
+  // v2.4.21: cuore impasto proiettato al momento della cottura. < 15°C → impasto
   // troppo freddo per infornare (advisory in 3 viste). Funzione pura → nessun hook.
   // Cottura del piano corrente (si sposta quando si registrano le fasi), non il target del wizard.
   const bakeH = horizonH != null ? horizonH : (planBake.getTime() - startedAt.getTime()) / 3_600_000;

@@ -39,7 +39,8 @@ import { WaterTempResultCard } from '../tools/WaterTempView';
 import { WizardInputSchema } from '../../lib/schemas';
 import { draftOverrunH } from '../../lib/plannerFit';
 import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
-import { warmupHForSession, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
+import { warmupHForSession, panetTauS } from '../../lib/warmup';
+import { CORE_TEMP_AT_BAKE_MIN_C, CORE_TEMP_AT_BAKE_IDEAL_C } from '../../engine/coreTempProjection';
 import { fridgePhaseIsSanctioned } from '../../engine/outOfProtocol';
 import { engineReadyH, apprettoCorrectionH, fmtBakeClock, suggestedApprettoH } from '../../lib/bakeForecast';
 import { startSession, savePrefermentStage, deletePrefermentStage, deleteAllPrefermentStages } from '../../services/sessionService';
@@ -158,21 +159,16 @@ function invertGompertzWizard(targetPct: number, muMax: number, lambda: number, 
 /**
  * ADU accumulato durante la risalita termica (stemperamento) da fridgeTempC verso tAmb.
  * Integrazione numerica di Riemann con N=20 passi su T(t)=tAmb+(fridgeT−tAmb)·exp(−t/τ).
- * tauMultiplier applica la resistenza termica del contenitore (coerente con computeWarmupH).
+ * τ al cuore del motore (panetTauS), con la resistenza del contenitore.
  */
 function computeRampAduWizard(
   panMassKg: number, hydrationPct: number,
   fridgeTempC: number, tAmb: number, wH: number,
   Ea: number, agentType: string, kRef: number,
-  tauMultiplier = 1.0,
+  containerPreset?: string,
 ): number {
   if (wH <= 0 || kRef <= 1e-12) return 0;
-  const h   = Math.max(0.01, hydrationPct / 100);
-  const cp  = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
-  const V   = panMassKg / TH_RHO_DOUGH;
-  const r   = Math.cbrt((3 * V) / (4 * Math.PI));
-  const A   = 4 * Math.PI * r * r;
-  const tau = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;  // s
+  const tau = panetTauS(panMassKg, hydrationPct, containerPreset);  // s
   const N = 20; const dt_h = wH / N; const dt_s = dt_h * 3600;
   let adu = 0;
   for (let i = 0; i < N; i++) {
@@ -195,7 +191,7 @@ function computeOptimalPuntataH(p: {
   muMax: number; lambda: number; agentType: string; Ea: number;
   fridgeTempC: number; tcHours: number; staglioH: number;
   panMassKg: number; hydrationPct: number;
-  tauMultiplier: number; warmupH: number;
+  containerPreset?: string; warmupH: number;
   initialAdu: number; tAmb?: number;
   maxH?: number;  // cap stile-dipendente — se presente: Math.min(computed, maxH)
 }): number {
@@ -206,7 +202,7 @@ function computeOptimalPuntataH(p: {
   const rFri  = ((kEffective as Function)(p.fridgeTempC, p.Ea, p.agentType) as number) / kRef;
   const aduT  = invertGompertzWizard(85, p.muMax, p.lambda);
   const rampAdu = computeRampAduWizard(p.panMassKg, p.hydrationPct, p.fridgeTempC, tAmb,
-                                        p.warmupH, p.Ea, p.agentType, kRef, p.tauMultiplier);
+                                        p.warmupH, p.Ea, p.agentType, kRef, p.containerPreset);
   const needed = aduT - p.initialAdu - rAmb * p.staglioH - rFri * p.tcHours - rampAdu;
   const raw = rAmb > 1e-12 ? Math.max(0, needed / rAmb) : 0;
   return p.maxH != null ? Math.min(raw, p.maxH) : raw;
@@ -311,7 +307,7 @@ function buildSessionRaw(draft: WizardDraft): Session {
   const _s = draft.staglioH ?? 0.5;
   const _tc = draft.tcHours ?? 12;
 
-  // Per tc_appreto: apprettoH = tempo di riscaldo calcolato dinamicamente (frigo → 18°C servizio)
+  // Per tc_appreto: apprettoH = tempo di riscaldo calcolato dinamicamente (frigo → cuore a 15°C)
   // T ambiente: quella del laboratorio (passo dell'acqua), la stessa che userà la dashboard.
   // Il tauMultiplier del contenitore viene applicato per riflettere l'inerzia del contenitore
   // scelto (es. closed_box → τ × 2.5): coerente con applyContainerResistance() nel tick loop.
@@ -337,7 +333,6 @@ function buildSessionRaw(draft: WizardDraft): Session {
     if (draft.puntataH != null) return draft.puntataH;  // override manuale
     const totalDoughG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panMassKg2   = totalDoughG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
     // initialAdu include sia lievito madre che prefermento (biga/poolish)
     const initAdu2  = ((combined.initialMaturationOffset ?? 0) + prefInitialAdu / 10) * 10;
     const puntataMax2 = puntataMaxHForStyle(
@@ -348,7 +343,7 @@ function buildSessionRaw(draft: WizardDraft): Session {
       fridgeTempC: draft.fridgeTempC ?? 4,
       tcHours: _tc, staglioH: _s,
       panMassKg: panMassKg2, hydrationPct: draft.hydration ?? 65,
-      tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
+      containerPreset: draft.containerPreset ?? 'closed_box',
       warmupH: _warmup, initialAdu: initAdu2,
       maxH: puntataMax2,
     });
@@ -1490,14 +1485,14 @@ function WarmupBox({ fridgeT, warmupH, tAmb }: { fridgeT: number; warmupH: numbe
         borderRadius: 'var(--radius-sm)', border: '1px solid rgba(253,203,110,0.18)',
       }}>
         <span style={{ ...S.label, color: 'var(--state-approaching)' }}>
-          Da {fridgeT}°C → 18°C (servizio)
+          Da {fridgeT}°C → {CORE_TEMP_AT_BAKE_MIN_C}°C al cuore
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--state-approaching)' }}>
           {warmupH > 0.05 ? fmtHours(warmupH) : '< 5 min'}
         </span>
       </div>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-        Calcolato con legge di Newton · τ sferica · T ambiente {tAmb}°C
+        Minimo per infornare; l'ideale è {CORE_TEMP_AT_BAKE_IDEAL_C}°C · cucina a {tAmb}°C
       </span>
     </FormSection>
   );
@@ -1517,7 +1512,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
   const freddo  = draft.tcHours ?? 12;
   const fridgeT = draft.fridgeTempC ?? 4;
 
-  // Riscaldo TA finale (tc e tc_appreto): ore per portare il panetto da frigo a 18°C
+  // Riscaldo TA finale (tc e tc_appreto): ore per portare il cuore del panetto da frigo a 15°C
   // T ambiente: quella del laboratorio, la stessa che userà la dashboard.
   // Applica tauMultiplier del contenitore selezionato (inerzia termica).
   const warmupHDisplay = (proto === 'tc_appreto' || proto === 'tc') ? warmupHForSession(draft, draft.tLaboratorio ?? 20) : 0;
@@ -1531,7 +1526,6 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
     const muMax2 = (scaleMuMaxByDose as Function)(aP2.muMax, draft.agentDosePct ?? dRef2, dRef2) as number;
     const totalDG2 = (draft.totalFlourGrams ?? 1000) * (1 + (draft.hydration ?? 65) / 100 + (draft.salt ?? 2) / 100);
     const panKg2  = totalDG2 / 1000 / Math.max(1, draft.numPanetti ?? 6);
-    const cPreset2 = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
     const puntataMaxD = puntataMaxHForStyle(
       draft.style ?? 'napoletana', muMax2, aP2.lambda, aP2.Ea, aT2,
     );
@@ -1539,7 +1533,7 @@ function Step7({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       muMax: muMax2, lambda: aP2.lambda, agentType: aT2, Ea: aP2.Ea,
       fridgeTempC: fridgeT, tcHours: freddo, staglioH: staglio,
       panMassKg: panKg2, hydrationPct: draft.hydration ?? 65,
-      tauMultiplier: cPreset2?.tauMultiplier ?? 1.0,
+      containerPreset: draft.containerPreset ?? 'closed_box',
       warmupH: warmupHDisplay, initialAdu: 0,
       maxH: puntataMaxD,
     });
@@ -1859,8 +1853,6 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
 
   // Per tc e tc_appreto: tempo di riscaldo TA finale; per tc_appreto anche la puntata ottimale
   const panMassKgStep8 = panetti > 0 ? totalDoughG / 1000 / panetti : 0.28;
-  const cPresetStep8   = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[draft.containerPreset ?? 'closed_box'];
-  const tauMultStep8   = cPresetStep8?.tauMultiplier ?? 1.0;
   const fromPlannerStep8 = draft.navigationSource === 'planner';
   const warmupHStep8   = draft.apprettoProtocol === 'tc_appreto' || draft.apprettoProtocol === 'tc'
     ? (fromPlannerStep8 ? (draft.temperingH ?? draft.apprettoH ?? 0) : warmupHForSession(draft, draft.tLaboratorio ?? 20))
@@ -1879,7 +1871,7 @@ function Step8({ draft, update }: { draft: WizardDraft; update: (p: Partial<Wiza
       fridgeTempC: draft.fridgeTempC ?? 4,
       tcHours: draft.tcHours ?? 12, staglioH: draft.staglioH ?? 0.5,
       panMassKg: panMassKgStep8, hydrationPct: hydration,
-      tauMultiplier: tauMultStep8, warmupH: warmupHStep8, initialAdu: 0,
+      containerPreset: draft.containerPreset ?? 'closed_box', warmupH: warmupHStep8, initialAdu: 0,
       maxH: puntataMax8,
     });
   })() : (draft.puntataH ?? 8);

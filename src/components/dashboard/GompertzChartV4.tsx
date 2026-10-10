@@ -21,7 +21,7 @@ import { ddtForStyle } from '../../data/styleConstraints';
 import { S } from '../ui';
 import { downsampleLTTB } from '../../lib/lttb';
 import {
-  gompertz, kEffective, CONTAINER_THERMAL_PRESETS,
+  gompertz, kEffective, thermalTimeConstantForPhase, currentDoughMassKg,
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
 } from '../../engine';
 
@@ -76,27 +76,14 @@ export function buildPiecewiseData(
   const isColdNow   = currentPhase === 'bulk_fridge' || currentPhase === 'balled_fridge';
   const warmAmbient = isColdNow ? (session.tLaboratorio ?? 22) : tAmbient;
 
-  const h2      = Math.max(0.01, (session.hydration ?? 65) / 100);
-  const cp2     = 4186 * h2 + 1840 * (1 - h2);
-  const totalDG = (session.totalFlourGrams ?? 1000) * (1 + h2 + (session.salt ?? 2) / 100);
-  const tauMult = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)[session.containerPreset ?? 'bare']?.tauMultiplier ?? 1.0;
-  const numPan  = Math.max(1, session.numPanetti ?? 6);
-
-  const computeTauSec = (isBulk: boolean): number => {
-    if (isBulk) {
-      const massKg = totalDG / 1000;
-      const V      = massKg / 1050;
-      const r      = Math.cbrt(V / (Math.PI * 0.3));
-      const A_lat  = 2 * Math.PI * r * 0.3 * r;
-      return (massKg * cp2) / (8 * A_lat) * tauMult;
-    } else {
-      const panKg = totalDG / 1000 / numPan;
-      const V     = panKg / 1050;
-      const r     = Math.cbrt((3 * V) / (4 * Math.PI));
-      const A     = 4 * Math.PI * r * r;
-      return (panKg * cp2) / (8 * A) * tauMult;
-    }
-  };
+  // τ dal motore (la stessa del tick e del solver): cilindro per la massa in
+  // puntata, sfera al cuore per i panetti, con la resistenza del contenitore.
+  const container = session.containerPreset ?? 'closed_box';
+  const computeTauSec = (isBulk: boolean): number =>
+    (thermalTimeConstantForPhase as (p: string, m: number, h: number, c: string) => number)(
+      isBulk ? 'bulk_room' : 'proofing',
+      (currentDoughMassKg as (s: unknown, p: string) => number)(session, isBulk ? 'bulk_room' : 'proofing'),
+      session.hydration ?? 65, container);
 
   type Seg = { durationH: number; tempC: number; label: string; color: string; phase: string };
 

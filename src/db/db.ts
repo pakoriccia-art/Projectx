@@ -299,7 +299,7 @@ export function buildInitialTimeline(session: {
     : proto === 'tc' ? [
       { phaseType: 'bulk_fridge',   durationH: tcH,   ambientTempC: tC },
       { phaseType: 'balled_room',   durationH: stagH, ambientTempC: tA },
-      // Riscaldo fuori dal frigo: il cuore torna sopra i 18 °C. Le sessioni
+      // Riscaldo fuori dal frigo: il cuore torna sopra i 15 °C. Le sessioni
       // salvate prima del riscaldo hanno temperingH 0 (e apprettoH 4 inutilizzato).
       ...((session.temperingH ?? 0) > 0
         ? [{ phaseType: 'proofing', durationH: session.temperingH!, ambientTempC: tA }]

@@ -661,3 +661,59 @@ Correzione dei due P0 e dei due P1 del passaggio 35, più la Home con l'impasto 
 - Da fare: rilanciare `scripts\test-telefono.ps1` sul telefono vero (atteso 74/74).
 
 **Da sapere.** Con la cassetta chiusa e la cucina a 20 °C il modello chiede circa 8h 30m di riscaldo per un panetto da 250 g. È il valore del modello termico già usato per "TC Appretto", ora mostrato anche per "TC tutto in frigo".
+
+## Passaggio 37: modello termico ricalibrato sulla letteratura
+
+Il passaggio 36 aveva esteso il riscaldo dopo il frigo a "TC tutto in frigo": con la cassetta chiusa e la cucina a 20 °C il modello chiedeva ~8h 30m per un panetto da 280 g. Tre ricerche (codice, letteratura termofisica, pratica di pizzeria) hanno mostrato che il numero era sbagliato per tre ragioni. Con il permesso esplicito dell'utente il motore è stato corretto.
+
+**Cosa non andava.**
+- **Calore specifico +19%.** `doughSpecificHeat` usava l'idratazione (% sulla farina) come frazione d'acqua dell'impasto: 3,36 kJ/(kg·K) a 65%. Misurato 2,71–2,73 (Matuda, Pessôa Filho & Tadini, J. Cereal Sci. 53:126, 2011); Choi–Okos 2,83.
+- **Il "cuore" era la temperatura media.** Il modello di Newton a una temperatura ignora la conduzione interna. Per un panetto da 250 g il numero di Biot è ~0,8: il vero centro è il 25–30% più lento (soluzione di Heisler per la sfera).
+- **I due errori si compensavano per il panetto nudo:** 3,3 h contro 3,2–3,3 h della soluzione a conduzione. Per le cassette no.
+- **Moltiplicatore della cassetta chiusa ×2,5 senza fonte.** Applicato a tutta la τ. Dalle resistenze in serie (aria interna, parete, aria esterna) la cassetta singola dà un h efficace ~4,9 contro ~9,5 all'aria: ×1,9 sulla sola resistenza esterna. Una cassetta in mezzo a una pila: ×2,9.
+- **Soglia dei 18 °C.** Le pizzerie usano 10–15 °C al cuore come minimo (Tom Lehmann, PMQ) e tirano fuori le cassette 1,5–2,5 h prima; 18–20 °C è l'ideale (Gemignani). A 20 °C di cucina gli ultimi 2 °C costano quanto i primi 10.
+- **Incoerenze interne:**
+  - anteprima del Planner con τ fissa a 3 h;
+  - grafico della dashboard con la sola parete laterale per la massa in puntata (τ 2,7 volte più grande);
+  - contenitore di default diverso tra motore, tick e app;
+  - quattro copie della formula della τ.
+
+**Cosa è cambiato.**
+- **Motore** (`engine/engine-v2.4.0.js`):
+  - `doughSpecificHeat` sulla massa dell'impasto: acqua (idratazione + 14% umidità della farina) / (100 + idratazione + sale), solidi a 1600 J/(kg·K) (Choi–Okos).
+  - Nuovo `effectiveHeatTransferCoeff`: 1/h_eff = f_contenitore/H_AIR + L/(c·k), con `K_DOUGH` 0,35 W/(m·K) (Šeruga et al. 2005) e `H_AIR` 9 W/(m²·K) (convezione di Churchill + irraggiamento). Sfera: L = r, c = 3 (tempo al cuore coerente con Heisler). Massa in puntata: L = altezza del cilindro, c = 2 (fondo isolato).
+  - `thermalTimeConstant*` prendono il contenitore; preset ricalibrati: nudo 1,0 · pellicola 1,1 · cassetta aperta 1,3 · vetro coperto 1,6 · sacchetto 1,7 · cassetta chiusa 1,9 · cassetta isolata 2,9.
+  - Solver: `thermalServiceTargetC` 15 °C.
+- **App:**
+  - `CORE_TEMP_AT_BAKE_MIN_C` = 15, nuovo `CORE_TEMP_AT_BAKE_IDEAL_C` = 18 (chip freddo, Forno, Rotta "l'ideale è 18°", passo 7).
+  - `src/lib/warmup.ts` usa `thermalTimeConstantSphere` del motore; via le copie in Wizard, Planner (anche `TAU_APPROX_S`) e grafico; cassetta chiusa come default ovunque, anche nel tick.
+
+**Numeri, 250 g a 65%, cuore da 4 °C, cucina a 20 °C:**
+
+| | prima | dopo | letteratura |
+|---|---|---|---|
+| nudo → 18 °C | 3,3 h | 3,2 h | 3,2–3,3 h |
+| cassetta chiusa → 18 °C | 8,2 h | 5,4 h | 5,5–6 h |
+| cassetta chiusa → 15 °C | — | 3,0 h | 2,5–4 h (pizzerie a 10–15 °C) |
+
+In app, con la sessione di default (6 panetti da ~280 g, cucina a 20 °C), il riscaldo consigliato in Aggiusta rotta scende da 8h 30m a 3h 15m.
+
+**Test aggiornati.**
+- Calore specifico, preset e scala con la massa (ora tra M^⅓ e M^⅔).
+- Riferimenti di letteratura in `engine-v2.4.0.test.js` e `src/__tests__/warmup.test.ts`.
+- Scenari del solver e degli allarmi spostati dove il nuovo riscaldo, più breve, cambia l'esito:
+  - PA1 da 32 h a 40 h;
+  - bug #57 da 46 h a 54 h;
+  - servizio lungo (overshoot) da 8 h a 10 h;
+  - napoletana a 26 h invece di 24 h;
+  - "non si riscalda" sotto i 15 °C invece dei 18.
+
+### Verifica
+- `npm run typecheck`; `npm test`: vitest 287 + 257, motore, stress 285/285, fuzz 1001/1001.
+- Finto telefono 74/74; browser 27/27 (390 px).
+- Da fare: telefono vero; una misura con sonda al centro di un panetto (nudo e in cassetta). È l'unico dato che manca: in letteratura non c'è una curva affidabile.
+
+**Limiti.**
+- Le fonti web sono state lette dai riassunti dei motori di ricerca (il proxy bloccava le pagine): da ricontrollare sugli originali.
+- L'evaporazione non è modellata: un panetto scoperto in una stanza secca si ferma sotto i 18 °C (~15,7 °C al 50% di umidità). Coperto, l'effetto sparisce.
+- La massa del panetto ha ancora due formule (con e senza sale, 0,4% sulla τ).

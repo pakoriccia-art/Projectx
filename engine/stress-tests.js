@@ -259,14 +259,15 @@ console.log('\n§ ST-THERM — Inerzia Termica e Contenitore');
 // ─────────────────────────────────────────────────────────────
 
 // ST-THERM-01 — doughSpecificHeat
-assert(approx(e.doughSpecificHeat(50), 3013, 5),
-  `ST-THERM-01a cp(H=50%) = 3013 J/kgK — val=${e.doughSpecificHeat(50).toFixed(0)}`);
-assert(approx(e.doughSpecificHeat(65), 3365, 5),
-  `ST-THERM-01b cp(H=65%) = 3365 J/kgK — val=${e.doughSpecificHeat(65).toFixed(0)}`);
-assert(approx(e.doughSpecificHeat(70), 3482, 5),
-  `ST-THERM-01c cp(H=70%) = 3482 J/kgK — val=${e.doughSpecificHeat(70).toFixed(0)}`);
-assert(approx(e.doughSpecificHeat(80), 3717, 5),
-  `ST-THERM-01d cp(H=80%) ≈ 3717 J/kgK — val=${e.doughSpecificHeat(80).toFixed(0)}`);
+// acqua sulla massa dell'impasto (idratazione + 14% umidità farina, sale 2%), solidi 1600
+assert(approx(e.doughSpecificHeat(50), 2689, 5),
+  `ST-THERM-01a cp(H=50%) = 2689 J/kgK — val=${e.doughSpecificHeat(50).toFixed(0)}`);
+assert(approx(e.doughSpecificHeat(65), 2823, 5),
+  `ST-THERM-01b cp(H=65%) = 2823 J/kgK — val=${e.doughSpecificHeat(65).toFixed(0)}`);
+assert(approx(e.doughSpecificHeat(70), 2863, 5),
+  `ST-THERM-01c cp(H=70%) = 2863 J/kgK — val=${e.doughSpecificHeat(70).toFixed(0)}`);
+assert(approx(e.doughSpecificHeat(80), 2936, 5),
+  `ST-THERM-01d cp(H=80%) ≈ 2936 J/kgK — val=${e.doughSpecificHeat(80).toFixed(0)}`);
 
 // ST-THERM-02 — thermalTimeConstant: geometria cilindro piatto
 {
@@ -286,9 +287,9 @@ assert(approx(e.doughSpecificHeat(80), 3717, 5),
 {
   const tau = e.thermalTimeConstant(1.0, 65);
   const presets = [
-    ['bare', 1.0], ['film', 1.2], ['open_box', 1.5],
-    ['glass_covered', 2.0], ['plastic_bag', 2.2],
-    ['closed_box', 2.5], ['closed_box_double', 3.0],
+    ['bare', 1.0], ['film', 1.1], ['open_box', 1.3],
+    ['glass_covered', 1.6], ['plastic_bag', 1.7],
+    ['closed_box', 1.9], ['closed_box_double', 2.9],
   ];
   for (const [preset, factor] of presets) {
     const tauTotal = e.applyContainerResistance(tau, preset);
@@ -901,8 +902,9 @@ console.log('\n§ ST-EDGE — Edge Cases e Robustezza Numerica');
 // ST-EDGE-05 — Idratazione limite: H=100%
 {
   const cp100 = e.doughSpecificHeat(100);
-  assert(approx(cp100, 4186, 5),
-    `ST-EDGE-05a cp(H=100%) = 4186 J/kgK — val=${cp100.toFixed(0)}`);
+  // a 100% di idratazione l'impasto è ancora per metà solidi: cp tra solidi e acqua
+  assert(cp100 > 2900 && cp100 < 4186,
+    `ST-EDGE-05a cp(H=100%) tra solidi e acqua — val=${cp100.toFixed(0)}`);
   const tauH100 = e.thermalTimeConstant(1.0, 100);
   assert(tauH100 > 0, `ST-EDGE-05b thermalTimeConstant(H=100%) > 0: ${tauH100.toFixed(0)}s`);
   const fHyd100 = e.fHydration(100);
@@ -1099,11 +1101,12 @@ console.log('\n§ ST-STYLE — Style Profile Parameters (v2.4.4)');
 }
 
 // ST-STYLE-09 — solveNowAnchoredWindow style-aware
-// Scenario 24h: infeasible con target=90% (window_too_short_maturation), feasible con napoletana (target=80%)
+// Scenario 26h: infeasible con target=90% (window_too_short_maturation), feasible con napoletana (target=80%)
+// (v2.4.37: con il modello termico ricalibrato il panetto unico da 1 kg resta più freddo: 26h invece di 24h)
 {
   const agent = e.AGENT_GOMPERTZ.fresh_yeast;
   const now = new Date('2026-06-03T00:00:00');
-  const serviceStart = new Date('2026-06-03T22:00:00'); // +22h, service end +24h
+  const serviceStart = new Date('2026-06-04T00:00:00'); // +24h, service end +26h
 
   const base = {
     now, serviceStart, serviceDurationH: 2,
@@ -1117,12 +1120,12 @@ console.log('\n§ ST-STYLE — Style Profile Parameters (v2.4.4)');
   // Default (no style): target=90% → window_too_short_maturation
   const rDef = solveNowAnchoredWindow(base);
   assert(!rDef.feasible && rDef.infeasibility?.reason === 'window_too_short_maturation',
-    'ST-STYLE-09a 24h default (90%) → infeasible window_too_short_maturation');
+    'ST-STYLE-09a 26h default (90%) → infeasible window_too_short_maturation');
 
   // Napoletana: target=80% → feasible
   const rNap = solveNowAnchoredWindow({ ...base, style: 'napoletana' });
   assert(rNap.feasible === true,
-    'ST-STYLE-09b 24h napoletana (80%) → feasible');
+    'ST-STYLE-09b 26h napoletana (80%) → feasible');
   assert(rNap.atServiceEnd != null && Math.abs(rNap.atServiceEnd.maturationPct - 80) <= 2,
     'ST-STYLE-09c napoletana atServiceEnd.maturationPct ≈ 80±2',
     `got ${rNap.atServiceEnd?.maturationPct?.toFixed(1)}`);

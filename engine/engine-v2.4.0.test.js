@@ -56,20 +56,28 @@ assert(approx(back_to_85, 85, 0.1), `findAduAt roundtrip: gompertz(findAduAt(85)
 console.log('\n§ E — Thermal Stack (tabelle KB §3)');
 // ─────────────────────────────────────────────────────────────
 
-// doughSpecificHeat: formula esatta = CP_WATER·h + CP_FLOUR·(1-h)
-// KB table: 3715 è arrotondato; valore esatto = 4186×0.8 + 1840×0.2 = 3716.8
-assert(approx(e.doughSpecificHeat(50), 3013, 2), 'cp(50%) ≈ 3013');
-assert(approx(e.doughSpecificHeat(65), 3365, 2), 'cp(65%) ≈ 3365 (riferimento)');
-assert(approx(e.doughSpecificHeat(80), 3717, 2), 'cp(80%) ≈ 3717 (formula: 4186×0.8+1840×0.2)');
+// doughSpecificHeat: acqua sulla massa dell'impasto (idratazione + 14% umidità
+// farina) / (100 + idratazione + sale 2%); solidi a 1600 J/(kg·K) (Choi–Okos).
+assert(approx(e.doughSpecificHeat(50), 2689, 2), 'cp(50%) ≈ 2689');
+assert(approx(e.doughSpecificHeat(65), 2823, 2), 'cp(65%) ≈ 2823 (misurato 2.72 kJ/kg·K, Choi–Okos 2.83)');
+assert(approx(e.doughSpecificHeat(80), 2936, 2), 'cp(80%) ≈ 2936');
 
-// thermalTimeConstant: tabella §3 (τ in minuti, tolleranza 5%)
+// thermalTimeConstant: cilindro 1 kg (τ in minuti, tolleranza 5%)
 const tau_1kg = e.thermalTimeConstant(1.0, 65) / 60;
-assert(approx(tau_1kg, 139, 8), `τ_intrinsic(1kg, 65%) ≈ 139 min — val=${tau_1kg.toFixed(1)}`);
+assert(approx(tau_1kg, 143, 8), `τ(1kg, 65%) ≈ 143 min — val=${tau_1kg.toFixed(1)}`);
 
-// applyContainerResistance
+// Panetto da 250 g, cuore 4 → 18 °C con la cucina a 20 °C (riferimenti di letteratura):
+// all'aria ~3.2 h (Heisler, Bi ≈ 0.8); cassetta coperta singola ~5.5–6 h.
+const hTo = (tau, amb, target) => -tau * Math.log((target - amb) / (4 - amb)) / 3600;
+const t250bare = hTo(e.thermalTimeConstantSphere(0.25, 65), 20, 18);
+const t250box  = hTo(e.thermalTimeConstantSphere(0.25, 65, 'closed_box'), 20, 18);
+assert(approx(t250bare, 3.2, 0.3), `250 g nudo 4→18 °C a 20 °C ≈ 3.2 h — val=${t250bare.toFixed(2)}`);
+assert(t250box > 5 && t250box < 6.5, `250 g in cassetta 4→18 °C a 20 °C ≈ 5.5–6 h — val=${t250box.toFixed(2)}`);
+
+// applyContainerResistance (legacy: moltiplica tutta la τ)
 const tau_bare = e.thermalTimeConstant(1.0, 65);
-assert(approx(e.applyContainerResistance(tau_bare, 'film') / tau_bare, 1.2, 0.001),
-  'applyContainerResistance(film) = τ × 1.2');
+assert(approx(e.applyContainerResistance(tau_bare, 'film') / tau_bare, 1.1, 0.001),
+  'applyContainerResistance(film) = τ × 1.1');
 assert(approx(e.applyContainerResistance(tau_bare, 'UNKNOWN') / tau_bare, 1.0, 0.001),
   'applyContainerResistance(UNKNOWN) fallback = 1.0');
 
@@ -265,11 +273,12 @@ const tau_bulk   = e.thermalTimeConstant(1.65, 65);       // massa totale (cilin
 const tau_ball   = e.thermalTimeConstantSphere(0.25, 65); // panetto (sfera)
 assert(tau_ball < tau_bulk,
   `τ_sphere(panetto 250g) < τ_cyl(bulk 1650g): ${tau_ball.toFixed(0)}s < ${tau_bulk.toFixed(0)}s`);
-// Verifica scaling M^(1/3): raddoppiare la massa → τ × 1.26
+// Scala con la massa: almeno M^(1/3) (convezione), di più per la conduzione interna (∝ M^(2/3))
 const tau_sph_250 = e.thermalTimeConstantSphere(0.25, 65);
 const tau_sph_500 = e.thermalTimeConstantSphere(0.50, 65);
-assert(approx(tau_sph_500 / tau_sph_250, Math.pow(2, 1/3), 0.02),
-  `τ_sphere scala come M^(1/3): ratio = ${(tau_sph_500/tau_sph_250).toFixed(3)} ≈ ${Math.pow(2,1/3).toFixed(3)}`);
+const ratio500 = tau_sph_500 / tau_sph_250;
+assert(ratio500 > Math.pow(2, 1/3) && ratio500 < Math.pow(2, 2/3),
+  `τ_sphere tra M^(1/3) e M^(2/3): ratio = ${ratio500.toFixed(3)}`);
 
 // ─────────────────────────────────────────────────────────────
 console.log('\n§ O — Malto Diastatico (v2.4.0)');

@@ -5,7 +5,7 @@
  * eseguibili via Node (puri, senza browser):
  *   node engine/plannerAlarmEngine.test.js
  *
- * § PA1  — ST-PLAN-01  OK, fridgeTempAdjusted (finestra 32h)
+ * § PA1  — ST-PLAN-01  OK, fridgeTempAdjusted (finestra 40h)
  * § PA2  — ST-PLAN-02  SOVRAMMATURAZIONE (scenario bug 48h)
  * § PA3  — ST-PLAN-03  SOTTOMATURAZIONE (finestra 3.5h impossibile)
  * § PA4  — ST-PLAN-04  delayH calcolato e propagato
@@ -48,12 +48,13 @@ function baseAlarmInput(overrides = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\n§ PA1 — ST-PLAN-01 · OK, T_frigo aggiustata (finestra 32h)');
-// now = 2026-06-03T00:00, serviceStart = +30h → serviceEnd = +32h (totalH=32h).
-// Con fridgeTempCUser=4°C la maturazione supera 90%; la bisezione trova T*=2.8°C < 4°C.
+console.log('\n§ PA1 — ST-PLAN-01 · OK, T_frigo aggiustata (finestra 40h)');
+// now = 2026-06-03T00:00, serviceStart = +38h → serviceEnd = +40h (totalH=40h).
+// Con fridgeTempCUser=4°C la maturazione supera 90%; la bisezione trova T* < 4°C.
+// (v2.4.37: riscaldo al cuore fino a 15 °C, più breve → serve una finestra più lunga.)
 {
   const now          = new Date('2026-06-03T00:00:00');
-  const serviceStart = new Date('2026-06-04T06:00:00');  // +30h da now
+  const serviceStart = new Date('2026-06-04T14:00:00');  // +38h da now
   const r = computeNowAnchoredAlarms(baseAlarmInput({
     now, serviceStart, serviceDurationH: 2,
     fridgeTempC: 4, ambientTempC: 22,
@@ -97,19 +98,20 @@ console.log('\n§ PA1 — ST-PLAN-01 · OK, T_frigo aggiustata (finestra 32h)');
     'timeline ≥ 3 segmenti', `len=${r.timeline?.length}`);
 
   // C1: temperatura impasto a serviceStart ≥ 18°C (−0.3 tolleranza)
-  assert(r.atServiceStart != null && r.atServiceStart.tempDough >= 17.7,
-    'C1: tempDough(serviceStart) ≥ 18°C',
+  assert(r.atServiceStart != null && r.atServiceStart.tempDough >= 14.7,
+    'C1: tempDough(serviceStart) ≥ 15°C',
     `val=${r.atServiceStart?.tempDough}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n§ PA2 — ST-PLAN-02 · SOVRAMMATURAZIONE (scenario bug 48h)');
-// Riproduce il bug originale: now=02/06 21:00, serviceStart=04/06 19:00 → totalH≈48h.
+// Riproduce il bug originale (allora now=02/06 21:00, serviceStart=04/06 19:00, ≈48h);
+// con il riscaldo al cuore fino a 15 °C la stessa situazione si ha a ≈56h.
 // Il vecchio solver restituiva "OK — Impasta tra 17h 17min" (bug); il nuovo ritorna
 // SOVRAMMATURAZIONE perché mixStart=NOW e anche a T_frigo_min=2°C la mat > 90%.
 {
   const now          = new Date('2026-06-02T21:00:00');
-  const serviceStart = new Date('2026-06-04T19:00:00');
+  const serviceStart = new Date('2026-06-05T03:00:00');  // +54h (v2.4.37: riscaldo a 15 °C più breve)
   const r = computeNowAnchoredAlarms(baseAlarmInput({
     now, serviceStart, serviceDurationH: 2,
     fridgeTempC: 2.5, fridgeTempMin: 2,
@@ -187,7 +189,7 @@ console.log('\n§ PA4 — ST-PLAN-04 · delayH calcolato e propagato');
 {
   // Stesso scenario PA2
   const now          = new Date('2026-06-02T21:00:00');
-  const serviceStart = new Date('2026-06-04T19:00:00');
+  const serviceStart = new Date('2026-06-05T03:00:00');  // +54h (v2.4.37: riscaldo a 15 °C più breve)
   const r = computeNowAnchoredAlarms(baseAlarmInput({
     now, serviceStart, serviceDurationH: 2,
     fridgeTempC: 2.5, fridgeTempMin: 2,
@@ -219,7 +221,7 @@ console.log('\n§ PA4 — ST-PLAN-04 · delayH calcolato e propagato');
 console.log('\n§ PA5 — ST-PLAN-05 · recommendedFridgeTempC nel risultato OK');
 {
   const now          = new Date('2026-06-03T00:00:00');
-  const serviceStart = new Date('2026-06-04T06:00:00');
+  const serviceStart = new Date('2026-06-04T14:00:00');  // scenario PA1 (40h)
   const r = computeNowAnchoredAlarms(baseAlarmInput({
     now, serviceStart, serviceDurationH: 2,
     fridgeTempC: 4, ambientTempC: 22,
@@ -228,16 +230,16 @@ console.log('\n§ PA5 — ST-PLAN-05 · recommendedFridgeTempC nel risultato OK'
 
   assert(r.alarmType === ALARM_TYPE.OK, 'alarmType = OK', `val=${r.alarmType}`);
   assert(r.fridgeTempAdjusted === true,
-    'fridgeTempAdjusted = true (2.8°C < 4°C − 0.15)');
+    'fridgeTempAdjusted = true (T* < 4°C − 0.15)');
   assert(typeof r.recommendedFridgeTempC === 'number',
     'recommendedFridgeTempC è un number', `val=${r.recommendedFridgeTempC}`);
   assert(r.recommendedFridgeTempC < 4 - 0.1,
     'recommendedFridgeTempC < fridgeTempCUser − 0.1', `val=${r.recommendedFridgeTempC}`);
   assert(r.recommendedFridgeTempC >= 2.0,
     'recommendedFridgeTempC ≥ fridgeTempMin (2°C)', `val=${r.recommendedFridgeTempC}`);
-  // Valore atteso ≈ 2.8°C (tolleranza 0.3°C)
-  assert(approx(r.recommendedFridgeTempC, 2.8, 0.3),
-    'recommendedFridgeTempC ≈ 2.8°C (±0.3)', `val=${r.recommendedFridgeTempC}`);
+  // Valore atteso ≈ 3.3°C (tolleranza 0.3°C)
+  assert(approx(r.recommendedFridgeTempC, 3.3, 0.3),
+    'recommendedFridgeTempC ≈ 3.3°C (±0.3)', `val=${r.recommendedFridgeTempC}`);
   // Se il caller passa questo valore come nuovo fridgeTempC, il solver deve restituire OK
   const rConfirm = computeNowAnchoredAlarms(baseAlarmInput({
     now, serviceStart, serviceDurationH: 2,
@@ -294,16 +296,16 @@ console.log('\n§ PA6 — ST-PLAN-06 · computeDriftAlarm');
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n§ PA7 — Invarianti cross-scenario');
 {
-  // I1: cannot_temper quando ambientTempC ≤ 18°C
+  // I1: cannot_temper quando ambientTempC ≤ 15°C (soglia del cuore)
   const rCold = computeNowAnchoredAlarms(baseAlarmInput({
     now: new Date('2026-06-03T18:00:00'),
     serviceStart: new Date('2026-06-03T22:00:00'),
-    ambientTempC: 17,
+    ambientTempC: 14,
   }));
   assert(rCold.feasible === false,
-    'I1: infeasible se ambient ≤ 18°C');
+    'I1: infeasible se ambient ≤ 15°C');
   assert(rCold.infeasibility?.reason === 'cannot_temper',
-    "I1: reason='cannot_temper' se ambient ≤ 18°C", `val=${rCold.infeasibility?.reason}`);
+    "I1: reason='cannot_temper' se ambient ≤ 15°C", `val=${rCold.infeasibility?.reason}`);
   assert(rCold.mixStartIsNow === true,
     'I1: mixStartIsNow=true anche se infeasible');
 
@@ -325,11 +327,11 @@ console.log('\n§ PA7 — Invarianti cross-scenario');
     'I2: solveNowAnchoredWindow.mixStartIsNow sempre true');
 
   // I3: maturazione indipendente dalla dose (stesso schedule, dosi diverse)
-  //     Con lo stesso scenario PA1 (32h), sia dose 0.1% sia 0.8% convergono alla
-  //     stessa dose ottimale (C3 bisection) e alla stessa maturazione (90.1%).
+  //     Con lo stesso scenario PA1 (40h), sia dose 0.1% sia 0.8% convergono alla
+  //     stessa dose ottimale (C3 bisection) e alla stessa maturazione.
   const common = {
     now: new Date('2026-06-03T00:00:00'),
-    serviceStart: new Date('2026-06-04T06:00:00'),
+    serviceStart: new Date('2026-06-04T14:00:00'),
     serviceDurationH: 2,
     ambientTempC: 22, fridgeTempC: 4,
     agentType: 'fresh_yeast', agentEaKj: lbf.Ea,

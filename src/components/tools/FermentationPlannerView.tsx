@@ -23,13 +23,14 @@ import {
   kEffective, gompertz, AGENT_GOMPERTZ, normalizeFlourGroup,
   computeWaterTempDDT, KNEADING_METHODS_FRICTION, type KneadingMethod,
   fArrhenius, ENZYMATIC_CLOCK_PARAMS, findAduAt, getStyleProfile,
-  computeFrictionRise, CONTAINER_THERMAL_PRESETS,
+  computeFrictionRise,
 } from '../../engine';
 import { scaleMuMaxByDose, doseFactorSaturated } from '../../engine';
 import { SERVICE_WINDOW_DEFAULTS } from '../../engine/serviceWindowSolver';
 import { LIVE_SESSION_MSG } from '../../lib/sessionGuard';
 import { planFit, fitShortfallH, suggestedBakeAtMs, toDateInputs, type PlanFit } from '../../lib/plannerFit';
-import { computeWarmupH, TH_CP_WATER, TH_CP_FLOUR, TH_RHO_DOUGH, TH_H_AIR } from '../../lib/warmup';
+import { computeWarmupH, panetTauS } from '../../lib/warmup';
+import { CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
 import { computeNowAnchoredAlarms, type NowAnchoredAlarmResult } from '../../engine/plannerAlarmEngine';
 import { WaterTempResultCard } from './WaterTempView';
 import { PrefermentCreditCard } from '../wizard/PrefermentCreditCard';
@@ -64,6 +65,7 @@ export interface PlanResult {
   stars:     number;       // 1-5
   matAtTarget?: number;   // maturazione% stimata all'orario target (se impostato)
   warmupH?:  number;      // ore riscaldo TA finale (tc e tc_appreto)
+  warmupTauS?: number;    // τ del panetto al cuore per la rampa del riscaldo [s]
   /** Sta nell'orario scelto? late = servono più ore di quelle disponibili. */
   fit:       PlanFit;
   shortfallH?: number;    // ore che mancano (solo late)
@@ -126,7 +128,7 @@ function computeEffectiveDoseAndAdu(
 /**
  * ADU accumulato durante la risalita termica (stemperamento) da fridgeTempC verso tAmb.
  * Integrazione numerica di Riemann (N=20 passi) su T(t) = tAmb + (fridgeT−tAmb)·exp(−t/τ).
- * τ sferica = thermalTimeConstantSphere (costanti identiche a computeWarmupH).
+ * τ al cuore del motore (panetTauS, la stessa di computeWarmupH).
  *
  * Garantisce l'allineamento esatto target bake ↔ sweet spot (85%):
  *   ADU_totale @ targetTotalH = (aduNeeded − ADU_ramp) + ADU_ramp = aduNeeded → 85% ✓
@@ -137,15 +139,10 @@ function computeRampAdu(
   panMassKg: number, hydrationPct: number,
   fridgeTempC: number, tAmb: number, wH: number,
   Ea: number, agentType: string, kRef: number,
-  tauMultiplier = 1.0,
+  containerPreset?: string,
 ): number {
   if (wH <= 0 || kRef <= 1e-12) return 0;
-  const h    = Math.max(0.01, hydrationPct / 100);
-  const cp   = TH_CP_WATER * h + TH_CP_FLOUR * (1 - h);
-  const V    = panMassKg / TH_RHO_DOUGH;
-  const r    = Math.cbrt((3 * V) / (4 * Math.PI));
-  const A    = 4 * Math.PI * r * r;
-  const tau  = (panMassKg * cp) / (TH_H_AIR * A) * tauMultiplier;   // τ [s]
+  const tau  = panetTauS(panMassKg, hydrationPct, containerPreset);   // τ [s]
   const N    = 20;
   const dt_h = wH / N;
   const dt_s = dt_h * 3600;
@@ -180,6 +177,7 @@ export function computeAllProtocols(params: {
   targetTotalH?: number;  // opzionale per i protocolli misti
   warmupH?: number;       // ore riscaldo TA finale per tc_appreto (Newton's law)
   rampAdu?: number;       // ADU accumulato durante lo stemperamento (integrazione numerica)
+  warmupTauS?: number;    // τ del panetto al cuore [s], per la curva del riscaldo
 }): PlanResult[] {
   const { W, agentType, agentDosePct, aParams, pref, tAmb, fridgeT, staglioH } = params;
 
@@ -250,6 +248,7 @@ export function computeAllProtocols(params: {
     results.push({
       protocol: 'tc', totalH, tcHours: coldH, staglioH,
       warmupH: wH > 0.05 ? wH : undefined,
+      warmupTauS: params.warmupTauS,
       viability, viabilityNote: note,
       matAtTarget: matAtTargetTC,
       label: 'TC totale',
@@ -329,6 +328,7 @@ export function computeAllProtocols(params: {
       protocol: 'tc_appreto', totalH: targetTotalH,
       puntataH: warmH_appreto, staglioH, tcHours: coldH_appreto,
       warmupH: wH > 0.05 ? wH : undefined,
+      warmupTauS: params.warmupTauS,
       matAtTarget: matAtTarget_appreto,
       viability, viabilityNote: note,
       label: 'TC Appretto',
@@ -369,13 +369,13 @@ function MiniCurve({ result, aParams, agentType, tAmb, fridgeT, initialAdu, muMa
     // Segmenti per il protocollo
     const proto = result.protocol;
     const s = result.staglioH;
-    // Riscaldo dopo il frigo (tc, tc_appreto): 5 sub-passi con T(t) = tAmb+(fridgeT-tAmb)·exp(-t/τ_approx)
-    // τ_approx: sfera ~280g, hyd 65% → ~10800s (approssimazione fissa per la curva)
-    const TAU_APPROX_S = 10800;
+    // Riscaldo dopo il frigo (tc, tc_appreto): 5 sub-passi con T(t) = tAmb+(fridgeT-tAmb)·exp(-t/τ),
+    // τ al cuore del panetto (la stessa del calcolo del riscaldo)
+    const tauS = result.warmupTauS ?? 10800;
     const rampSegs = result.warmupH
       ? Array.from({ length: 5 }, (_, i) => {
           const t = (i + 0.5) * (result.warmupH! / 5) * 3600;
-          const T = tAmb + (fridgeT - tAmb) * Math.exp(-t / TAU_APPROX_S);
+          const T = tAmb + (fridgeT - tAmb) * Math.exp(-t / tauS);
           return { durationH: result.warmupH! / 5, tempC: T };
         })
       : [];
@@ -827,7 +827,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
            : '✗ Finestra non realizzabile'}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
-          {inf?.reason === 'cannot_temper' && 'A questa temperatura ambiente le palline non raggiungono 18°C.'}
+          {inf?.reason === 'cannot_temper' && `A questa temperatura ambiente le palline non raggiungono ${CORE_TEMP_AT_BAKE_MIN_C}°C al cuore.`}
           {inf?.reason === 'window_too_short' && 'Tempo insufficiente per puntata + appretto + tempering + servizio.'}
           {inf?.reason === 'window_too_short_maturation' && `La maturazione a fine servizio sarebbe solo ${inf.maturationAtMax?.toFixed(0) ?? '—'}% (target ${result.resolvedTargetMaturationPct ?? 90}%).`}
           {inf?.reason === 'w_collapse' && 'La struttura del glutine collasserebbe prima della fine del servizio.'}
@@ -934,7 +934,7 @@ function ServiceWindowResultCard({ result, serviceStart, serviceDurationH, bubbl
           <PlanRow label="Puntata" value={fmtHours(s.puntataH)} />
           <PlanRow label="Staglio" value={fmtHours(s.staglioH)} />
           <PlanRow label="Appretto in frigo" value={fmtHours(s.tcHours)} />
-          <PlanRow label="Riscaldo (frigo → 18°C)" value={fmtHours(s.temperingH)} />
+          <PlanRow label={`Riscaldo (frigo → ${CORE_TEMP_AT_BAKE_MIN_C}°C)`} value={fmtHours(s.temperingH)} />
           <ConstraintChip ok={c1ok} label="Impasto caldo a inizio servizio" value={`${start.tempDough.toFixed(1)}°C`} />
           <ConstraintChip ok={c2ok} label="Maturazione a fine servizio" value={`${end.maturationPct.toFixed(0)}% (target ${result.resolvedTargetMaturationPct ?? 90}%)`} />
           <ConstraintChip ok={c3ok} label="Lievitazione a fine servizio" value={`${end.leaveningPct.toFixed(0)}% / ${bubbleThresholdPct}%`} />
@@ -1428,8 +1428,9 @@ export function FermentationPlannerView() {
   const panMassKg = (totalFlourG * (1 + hydration / 100 + salt / 100)) / 1000 / Math.max(1, numPanetti);
   // Stesso contenitore che il wizard userà di default (cassetta chiusa): il riscaldo
   // del piano coincide con quello che la dashboard simulerà.
-  const plannerTauMult = (CONTAINER_THERMAL_PRESETS as Record<string, { tauMultiplier: number }>)['closed_box']?.tauMultiplier ?? 1.0;
-  const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb, plannerTauMult);
+  const plannerContainer = 'closed_box';
+  const warmupHPlanner = computeWarmupH(panMassKg, hydration, fridgeT, tAmb, plannerContainer);
+  const warmupTauS = panetTauS(panMassKg, hydration, plannerContainer);
 
   // ADU accumulato durante lo stemperamento (integrazione Riemann N=20)
   // Sottratto da aduNeeded prima di risolvere il split TA/TC per tc_appreto,
@@ -1437,7 +1438,7 @@ export function FermentationPlannerView() {
   const rampAduPlanner = (() => {
     if (warmupHPlanner <= 0) return 0;
     const kRef = (kEffective as Function)(25, aParams.Ea, agentType) as number;
-    return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef, plannerTauMult);
+    return computeRampAdu(panMassKg, hydration, fridgeT, tAmb, warmupHPlanner, aParams.Ea, agentType, kRef, plannerContainer);
   })();
 
   // W effettivo passato al solver — usa blend se attivo, altrimenti slider singolo
@@ -1446,9 +1447,9 @@ export function FermentationPlannerView() {
   // Calcolo ottimale per tutti i protocolli (targetTotalH dalle ore fino a cottura)
   const results = useMemo(() => {
     try {
-      return computeAllProtocols({ W: solverW, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner, rampAdu: rampAduPlanner });
+      return computeAllProtocols({ W: solverW, agentType, agentDosePct: dosePct, aParams, pref, tAmb, fridgeT, staglioH, targetTotalH: hoursUntilBake, warmupH: warmupHPlanner, rampAdu: rampAduPlanner, warmupTauS });
     } catch { return []; }
-  }, [solverW, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner]);
+  }, [solverW, agentType, dosePct, aParams, pref, tAmb, fridgeT, staglioH, hoursUntilBake, warmupHPlanner, rampAduPlanner, warmupTauS]);
 
   // Un solo protocollo consigliato (CTA brace); gli altri sono alternative.
   const recommendedPlan = useMemo(() => pickRecommended(results), [results]);

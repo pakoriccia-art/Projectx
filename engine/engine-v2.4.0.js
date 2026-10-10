@@ -62,11 +62,19 @@ const EXTREME_W_SPREAD = 150; // Soglia warning blend eterogeneo — §2.13
 const T_REF_K = 298.15;  // 25°C in Kelvin — §2.4
 const R_GAS   = 8.314;   // J/(mol·K) — costante dei gas
 
-// Costanti termiche — §2.5 + §3
+// Costanti termiche — §2.5 + §3 (ricalibrate v2.4.37 sulla letteratura)
+// cp impasto misurato 2.71–2.73 kJ/(kg·K) sopra lo zero (Matuda, Pessôa Filho & Tadini,
+// J. Cereal Sci. 53:126, 2011); Choi & Okos (1986) ~2.83 a 65% di idratazione.
 const CP_WATER  = 4186;  // J/(kg·K) calore specifico acqua
-const CP_FLOUR  = 1840;  // J/(kg·K) calore specifico farina secca
+const CP_FLOUR  = 1600;  // J/(kg·K) solidi secchi (amido+proteine, Choi–Okos a 4–20 °C)
+const FLOUR_MOISTURE_PCT = 14;  // % umidità propria della farina (acqua in più nell'impasto)
+// Impasto un po' gasato: 1150–1230 senza gas (Campbell et al., Cereal Chem. 70:517, 1993).
 const RHO_DOUGH = 1050;  // kg/m³ densità impasto
-const H_AIR     = 8;     // W/(m²·K) convezione naturale aria (ambiente chiuso)
+// Convezione naturale (Churchill 1983, sfera 7–8 cm, ΔT ~15 K: ~4–5) + irraggiamento (~5).
+const H_AIR     = 9;     // W/(m²·K) aria ferma in casa
+// Conducibilità impasto 0.35–0.41 W/(m·K) (Šeruga et al., Czech J. Food Sci. 23:152, 2005),
+// più bassa con le bolle di gas (Hamdami, Monteau & Le Bail, Int. J. Refrig. 26, 2003).
+const K_DOUGH   = 0.35;  // W/(m·K)
 
 /**
  * Parametri cardinali della CRESCITA (duplicazione cellulare) — §2.1
@@ -162,15 +170,21 @@ const HILL_W_DECAY = {
   T_REF_K:         298.15,
 };
 
-/** Preset contenitore — §2.5 */
+/**
+ * Preset contenitore — §2.5. `tauMultiplier` moltiplica la resistenza ESTERNA
+ * (1/h tra superficie e stanza), non tutta la τ: la conduzione dentro il panetto
+ * non dipende dal contenitore. Cassetta coperta singola: h efficace ~4.9 contro
+ * ~9.5 all'aria (strato d'aria interno + parete + aria esterna) → ~1.9; in mezzo
+ * a una pila o isolata ~3.3 → ~2.9. Gli altri in proporzione (stime, non misure).
+ */
 const CONTAINER_THERMAL_PRESETS = {
   bare:              { label: 'Nudo',                           tauMultiplier: 1.0 },
-  film:              { label: 'Pellicola sottile',              tauMultiplier: 1.2 },
-  open_box:          { label: 'Cassetta aperta',                tauMultiplier: 1.5 },
-  glass_covered:     { label: 'Ciotola vetro coperta',          tauMultiplier: 2.0 },
-  plastic_bag:       { label: 'Sacchetto plastica chiuso',      tauMultiplier: 2.2 },
-  closed_box:        { label: 'Cassetta polipropilene coperta', tauMultiplier: 2.5 },
-  closed_box_double: { label: 'Cassetta + isolamento',          tauMultiplier: 3.0 },
+  film:              { label: 'Pellicola sottile',              tauMultiplier: 1.1 },
+  open_box:          { label: 'Cassetta aperta',                tauMultiplier: 1.3 },
+  glass_covered:     { label: 'Ciotola vetro coperta',          tauMultiplier: 1.6 },
+  plastic_bag:       { label: 'Sacchetto plastica chiuso',      tauMultiplier: 1.7 },
+  closed_box:        { label: 'Cassetta polipropilene coperta', tauMultiplier: 1.9 },
+  closed_box_double: { label: 'Cassetta + isolamento',          tauMultiplier: 2.9 },
 };
 
 /** Calibrazione autolisi — §2.11 */
@@ -473,31 +487,47 @@ function findAduAt(muMax, lambda, A = 100, pct) {
 
 /**
  * Calore specifico impasto — §3
- * Media pesata acqua/farina
- * c_p = 4186·h + 1840·(1−h)  [J/(kg·K)]
+ * Media pesata sulla massa dell'impasto: l'idratazione è in % sulla farina,
+ * quindi l'acqua è (idratazione + umidità farina) / (100 + idratazione + sale).
+ * A 65% di idratazione: x_w ≈ 0.47, c_p ≈ 2.82 kJ/(kg·K) (misurato 2.72).
  */
-function doughSpecificHeat(hydrationPct) {
-  const h = hydrationPct / 100;
-  return CP_WATER * h + CP_FLOUR * (1 - h);
+function doughSpecificHeat(hydrationPct, saltPct = 2) {
+  const hyd = Math.max(0, hydrationPct);
+  const xw  = Math.min(1, (hyd + FLOUR_MOISTURE_PCT) / (100 + hyd + Math.max(0, saltPct)));
+  return CP_WATER * xw + CP_FLOUR * (1 - xw);
 }
 
 /**
- * τ_intrinsic per geometria cilindro piatto (h/r = 0.3, fondo isolato) — §3
+ * h efficace per la temperatura al CUORE in un modello a una temperatura (Newton):
+ * 1/h_eff = f_contenitore/H_AIR + L/(c·K_DOUGH). Il termine interno porta il
+ * ritardo del centro (Biot ≈ 0.8 per un panetto da 250 g): con c = 3 per la sfera
+ * il tempo al cuore coincide con la soluzione di Heisler (Fo ≈ 1.07 per 4→18 °C a 20 °C).
+ */
+function effectiveHeatTransferCoeff(internalLengthM, internalFactor, containerPreset) {
+  const f = CONTAINER_THERMAL_PRESETS[containerPreset]?.tauMultiplier ?? 1.0;
+  return 1 / (f / H_AIR + internalLengthM / (internalFactor * K_DOUGH));
+}
+
+/**
+ * τ per geometria cilindro piatto (h/r = 0.3, fondo isolato) — §3: la massa in puntata.
  * Volume V = π·r²·h = 0.3π·r³  →  r = cbrt(V / (0.3π))
  * Superficie attiva: A = πr² + 2πr·h = 1.6πr²
- * τ [s] = (m·cp) / (H_AIR·A)
+ * Cuore sul fondo isolato: lastra scaldata da un lato, resistenza interna H/(2k).
+ * τ [s] = (m·cp) / (h_eff·A)
  */
-function thermalTimeConstant(massKg, hydrationPct) {
+function thermalTimeConstant(massKg, hydrationPct, containerPreset = 'bare') {
   const cp = doughSpecificHeat(hydrationPct);
   const V  = massKg / RHO_DOUGH;
   const r  = Math.cbrt(V / (0.3 * Math.PI));
   const A  = 1.6 * Math.PI * r * r;
-  return (massKg * cp) / (H_AIR * A);  // secondi
+  const h  = effectiveHeatTransferCoeff(0.3 * r, 2, containerPreset);
+  return (massKg * cp) / (h * A);  // secondi
 }
 
 /**
- * Applica moltiplicatore termico contenitore — §3
- * τ_total = τ_intrinsic × containerFactor
+ * Applica moltiplicatore termico contenitore — §3 (legacy)
+ * τ_total = τ × containerFactor: approssimazione per eccesso (moltiplica anche la
+ * conduzione interna). Il motore usa thermalTimeConstant*(…, containerPreset).
  * Fallback: factor=1.0 (bare) per preset sconosciuto
  */
 function applyContainerResistance(tau, preset) {
@@ -1291,21 +1321,22 @@ function currentDoughMassKg(session, currentPhase) {
 }
 
 /**
- * τ_intrinsic per geometria sferica (panetti) — §2.14.4
+ * τ per geometria sferica (panetti) — §2.14.4, temperatura al cuore
  * V = massKg / ρ
  * r = cbrt(3V / 4π)
  * A = 4πr²  (sfera intera esposta)
- * τ = (m × cp) / (H_AIR × A)  [secondi]
+ * τ = (m × cp) / (h_eff × A),  1/h_eff = f/H_AIR + r/(3k)  [secondi]
  *
  * Diverso da thermalTimeConstant() che usa cilindro piatto (puntata).
  * Usare questa funzione per la fase appreto/staglio.
  */
-function thermalTimeConstantSphere(massKg, hydrationPct) {
+function thermalTimeConstantSphere(massKg, hydrationPct, containerPreset = 'bare') {
   const cp = doughSpecificHeat(hydrationPct);
   const V  = massKg / RHO_DOUGH;
   const r  = Math.cbrt((3 * V) / (4 * Math.PI));
   const A  = 4 * Math.PI * r * r;
-  return (massKg * cp) / (H_AIR * A);  // secondi
+  const h  = effectiveHeatTransferCoeff(r, 3, containerPreset);
+  return (massKg * cp) / (h * A);  // secondi
 }
 
 /**
@@ -1320,10 +1351,9 @@ function thermalTimeConstantSphere(massKg, hydrationPct) {
  */
 function thermalTimeConstantForPhase(phase, massKg, hydration, containerPreset) {
   const isBalled = phase === 'balled_room' || phase === 'balled_fridge' || phase === 'proofing';
-  const tauIntrinsic = isBalled
-    ? thermalTimeConstantSphere(massKg, hydration)
-    : thermalTimeConstant(massKg, hydration);
-  return applyContainerResistance(tauIntrinsic, containerPreset);
+  return isBalled
+    ? thermalTimeConstantSphere(massKg, hydration, containerPreset)
+    : thermalTimeConstant(massKg, hydration, containerPreset);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1574,8 +1604,10 @@ const _constants = {
   R_GAS,
   CP_WATER,
   CP_FLOUR,
+  FLOUR_MOISTURE_PCT,
   RHO_DOUGH,
   H_AIR,
+  K_DOUGH,
   CARDINAL_PARAMS,
   FERMENTATIVE_CARDINALS,
   AGENT_GOMPERTZ,
@@ -1969,6 +2001,7 @@ if (typeof module !== 'undefined' && module.exports) {
     doughSpecificHeat,
     thermalTimeConstant,
     applyContainerResistance,
+    effectiveHeatTransferCoeff,
     doughCoreTemp,
 
     // § F Hill/Proteolysis
@@ -2067,7 +2100,7 @@ export {
   // Functions
   safeExp, safeDiv, safeClamp,
   cardinalCorrection, thermalDecline, kEffective, kRatio, gompertz, findAduAt,
-  doughSpecificHeat, thermalTimeConstant, applyContainerResistance, doughCoreTemp,
+  doughSpecificHeat, thermalTimeConstant, applyContainerResistance, doughCoreTemp, effectiveHeatTransferCoeff,
   fArrhenius, fPH, fHydration,
   computeTCritRef, computeTCrit, computeWHill, structuralState,
   normalizeAmylaseActivity, fPHAmylase, computeDenaturationFactor, amylaseCorrectedRate,

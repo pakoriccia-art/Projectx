@@ -19,7 +19,7 @@
 
 import {
   kEffective, gompertz, findAduAt, fArrhenius, ENZYMATIC_CLOCK_PARAMS,
-  doughCoreTemp, thermalTimeConstantSphere, applyContainerResistance,
+  doughCoreTemp, thermalTimeConstantSphere,
   thermalTimeConstantForPhase,
   computeTCrit, computeWHill, structuralState,
   fSaltYeast, fSaltProtease, fHardnessProtease, computeCurrentPH, computeLabAdu,
@@ -30,7 +30,7 @@ import {
 // ─── Default calibrabili (niente magic number) ───────────────────────────────
 export const SERVICE_WINDOW_DEFAULTS = {
   bubbleThresholdPct:    92,   // lievitazione oltre cui l'impasto fa bolle/blistering
-  thermalServiceTargetC: 18,   // C1: cuore impasto minimo a serviceStart
+  thermalServiceTargetC: 15,   // C1: cuore impasto minimo a serviceStart (pizzerie: 10–15 °C; ideale 18)
   targetMaturationPct:   90,   // C2: target maturazione a serviceEnd
   puntataKickoffH:        2,   // puntata TA minima per sviluppo glutine
   staglioH:             0.5,   // staglio TA
@@ -157,7 +157,7 @@ export function simulateTimeline(segments, initial, opts) {
 
 /**
  * C1 — ore di tempering: tempo per portare il cuore pallina da fridgeTempC a
- * targetC (18°C) a ambientTempC, via Newton + τ sferica + resistenza contenitore.
+ * targetC a ambientTempC, via Newton + τ sferica al cuore + resistenza contenitore.
  * Closed-form: t = −τ·ln((target−amb)/(fridge−amb)).
  */
 export function computeTemperingH({ ballMassKg, hydration, fridgeTempC, ambientTempC, targetC, containerPreset = 'bare' }) {
@@ -166,8 +166,7 @@ export function computeTemperingH({ ballMassKg, hydration, fridgeTempC, ambientT
   // propagavano nello schedule del solver. Fallback sicuro: 0 ore di tempering.
   if (![ballMassKg, hydration, fridgeTempC, ambientTempC, targetC].every(Number.isFinite) || ballMassKg <= 0) return 0;
   if (ambientTempC <= targetC || fridgeTempC >= targetC) return 0;
-  const tauBase = thermalTimeConstantSphere(ballMassKg, hydration);
-  const tau     = applyContainerResistance(tauBase, containerPreset);  // secondi
+  const tau     = thermalTimeConstantSphere(ballMassKg, hydration, containerPreset);  // secondi, cuore
   const ratio   = (targetC - ambientTempC) / (fridgeTempC - ambientTempC);
   if (ratio <= 0 || ratio >= 1) return 0;
   const t = (-tau * Math.log(ratio)) / 3600;  // ore

@@ -12,7 +12,7 @@ import { buildInitialTimeline, db } from '../../db/db';
 import { retimeTimeline, seedPhase, timelineEndH, type DurationKey } from '../../lib/timeline';
 import { fmtBakeClock } from '../../lib/bakeForecast';
 import { warmupHForSession } from '../../lib/warmup';
-import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C } from '../../engine/coreTempProjection';
+import { projectCoreTempAtBakeC, CORE_TEMP_AT_BAKE_MIN_C, CORE_TEMP_AT_BAKE_IDEAL_C } from '../../engine/coreTempProjection';
 
 const AGENT_SHORT: Record<string, string> = {
   fresh_yeast:       'LBF',
@@ -170,7 +170,7 @@ function RottaContent() {
   const valueStyle = (color: string) => ({ ...mono, fontSize: '0.9rem', fontWeight: 700, color });
   const note = { ...mono, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 } as const;
 
-  // Cuore dell'impasto a cottura con il riscaldo scelto (sotto 18° è freddo).
+  // Cuore dell'impasto a cottura con il riscaldo scelto (sotto 15° è freddo, 18° l'ideale).
   const coreAtBake = needsWarmup ? projectCoreTempAtBakeC({
     timeline: newTimeline, nowElapsedH,
     bakeH: timelineEndH(newTimeline) - serviceH,
@@ -194,7 +194,7 @@ function RottaContent() {
         {coreAtBake != null && (
           <span>
             Cuore a cottura: <strong style={{ color: coreAtBake < CORE_TEMP_AT_BAKE_MIN_C ? 'var(--state-cold)' : 'var(--text-primary)' }}>~{coreAtBake.toFixed(0)}°</strong>
-            {coreAtBake < CORE_TEMP_AT_BAKE_MIN_C ? ` (freddo, sotto i ${CORE_TEMP_AT_BAKE_MIN_C}°)` : ''}.
+            {coreAtBake < CORE_TEMP_AT_BAKE_MIN_C ? ` (freddo, sotto i ${CORE_TEMP_AT_BAKE_MIN_C}°)` : coreAtBake < CORE_TEMP_AT_BAKE_IDEAL_C - 0.5 ? ` (l'ideale è ${CORE_TEMP_AT_BAKE_IDEAL_C}°)` : ''}.
           </span>
         )}
         {suggestedWarmupH > 0 && (

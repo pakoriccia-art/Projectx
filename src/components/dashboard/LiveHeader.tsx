@@ -19,7 +19,7 @@ interface LiveHeaderProps {
   // la strip). Se assenti, fallback alla mappa PHASE_LABELS per phaseType.
   currentPhaseLabel?: string;
   currentPhaseCold?:  boolean;
-  // v2.4.21: advisory dedicato "impasto freddo a cottura" (cuore < 18°C). Ribbon
+  // v2.4.21: advisory dedicato "impasto freddo a cottura" (cuore < 15°C). Ribbon
   // separato dagli alert strutturali — non entra in BANNER_STYLE/alertLevel.
   coldBakeWarning?:   string;
   /** Azione suggerita sui ribbon strutturali (→ Aggiusta Rotta). */
